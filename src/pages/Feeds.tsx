@@ -9,8 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Edit, Trash2, Play, Link as LinkIcon, FileUp, ToggleLeft, ToggleRight, RefreshCw } from "lucide-react";
+import { ArrowLeft, Plus, Edit, Trash2, Play, Link as LinkIcon, FileUp, ToggleLeft, ToggleRight, RefreshCw, AlertTriangle, AlertCircle, ChevronDown } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const Feeds = () => {
   const navigate = useNavigate();

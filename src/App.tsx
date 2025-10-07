@@ -12,6 +12,7 @@ import ReferenceCards from "./pages/ReferenceCards";
 import CreateContent from "./pages/CreateContent";
 import Drafts from "./pages/Drafts";
 import AutopilotTemplates from "./pages/AutopilotTemplates";
+import QuestionSettings from "./pages/QuestionSettings";
 
 const queryClient = new QueryClient();
 
@@ -30,6 +31,7 @@ const App = () => (
           <Route path="/create" element={<CreateContent />} />
           <Route path="/drafts" element={<Drafts />} />
           <Route path="/autopilot" element={<AutopilotTemplates />} />
+          <Route path="/questions" element={<QuestionSettings />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

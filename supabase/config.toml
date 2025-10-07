@@ -1,1 +1,7 @@
 project_id = "xtaslgxrgzksojtoekmz"
+
+[functions.pull-rss-feed]
+verify_jwt = false
+
+[functions.create-manual-source]
+verify_jwt = false

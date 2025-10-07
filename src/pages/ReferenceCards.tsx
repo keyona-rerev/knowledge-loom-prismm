@@ -7,7 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ArrowLeft, Search, Edit2 } from "lucide-react";
+import { ArrowLeft, Search, Edit2, ExternalLink } from "lucide-react";
+import { InstructionsToggle } from "@/components/InstructionsToggle";
 
 const ReferenceCards = () => {
   const navigate = useNavigate();
@@ -66,7 +67,17 @@ const ReferenceCards = () => {
       </header>
 
       <main className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold mb-8">Reference Cards</h1>
+        <h1 className="text-3xl font-bold mb-4">Reference Cards</h1>
+
+        <InstructionsToggle 
+          instructions={`Reference Cards are insights extracted from your sources:
+
+- Each card contains content and answers to your configured questions
+- Use filters to find specific cards by status or source type
+- Click Edit to modify a card's content or answers
+- Cards with higher relevance scores are prioritized for content generation
+- "User Modified" badge shows cards you've manually edited`}
+        />
 
         <div className="flex flex-col md:flex-row gap-4 mb-6">
           <div className="relative flex-1">
@@ -108,14 +119,32 @@ const ReferenceCards = () => {
               <CardHeader>
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
-                    <CardTitle className="text-lg">{card.title || "Untitled"}</CardTitle>
-                    <div className="flex flex-wrap gap-2 mt-2">
+                    <div className="flex items-start gap-2 mb-2">
+                      <CardTitle className="text-lg flex-1">{card.title || "Untitled"}</CardTitle>
+                      {card.source_url && (
+                        <a 
+                          href={card.source_url} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-primary hover:text-primary/80"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
                       <Badge variant={card.status === "active" ? "default" : "secondary"}>
                         {card.status}
                       </Badge>
                       <Badge variant="outline">{card.source_type}</Badge>
                       <Badge variant="outline">Score: {card.global_relevance_score}/10</Badge>
                       {card.modified_by_user && <Badge variant="secondary">User Modified</Badge>}
+                      {card.source_feeds?.name && (
+                        <Badge variant="outline" className="gap-1">
+                          <ExternalLink className="h-3 w-3" />
+                          {card.source_feeds.name}
+                        </Badge>
+                      )}
                     </div>
                   </div>
                   <Button variant="ghost" size="icon" onClick={() => navigate(`/cards/${card.id}/edit`)}>
@@ -127,16 +156,6 @@ const ReferenceCards = () => {
                 <p className="text-sm text-muted-foreground line-clamp-3">
                   {card.original_text}
                 </p>
-                {card.source_url && (
-                  <a 
-                    href={card.source_url} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-sm text-primary hover:underline mt-2 inline-block"
-                  >
-                    View Source
-                  </a>
-                )}
               </CardContent>
             </Card>
           ))}

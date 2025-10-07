@@ -18,16 +18,9 @@ const ReferenceCards = () => {
   const [filterSource, setFilterSource] = useState<string>("all");
 
   const loadCards = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      navigate("/auth");
-      return;
-    }
-
     let query = supabase
       .from("reference_cards")
       .select("*, source_feeds(name)")
-      .eq("user_id", session.user.id)
       .order("created_at", { ascending: false });
 
     if (filterStatus !== "all") {

@@ -26,10 +26,10 @@ serve(async (req) => {
       );
     }
 
-    // Get feed details
+    // Get feed details with default template
     const { data: feed, error: feedError } = await supabase
       .from("source_feeds")
-      .select("*")
+      .select("*, default_template_id")
       .eq("id", feedId)
       .single();
 
@@ -44,19 +44,40 @@ serve(async (req) => {
     const rssResponse = await fetch(feed.url);
     const rssText = await rssResponse.text();
 
-    // Parse RSS (simplified - in production use a proper RSS parser)
+    // Parse RSS
     const items = parseRSS(rssText);
 
-    // Create reference cards
-    for (const item of items.slice(0, 5)) { // Limit to 5 items per pull
+    // Create reference cards with full content fetching
+    for (const item of items.slice(0, 5)) {
+      let fullContent = item.description;
+      
+      // Fetch full article content if link exists
+      if (item.link) {
+        try {
+          const articleResponse = await fetch(item.link);
+          const articleHtml = await articleResponse.text();
+          
+          // Extract text content (remove scripts, styles, HTML tags)
+          fullContent = articleHtml
+            .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+            .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+        } catch (error) {
+          console.error("Failed to fetch full article:", error);
+        }
+      }
+
       const { error: insertError } = await supabase
         .from("reference_cards")
         .insert({
           title: item.title,
-          original_text: item.description,
+          original_text: fullContent,
           source_url: item.link,
           source_type: "rss",
           source_feed_id: feedId,
+          template_id: feed.default_template_id,
           status: "needs_review",
           global_relevance_score: 5,
         });
@@ -92,7 +113,6 @@ serve(async (req) => {
 function parseRSS(xmlText: string) {
   const items: Array<{ title: string; description: string; link: string }> = [];
   
-  // Extract items using regex (simplified - use proper XML parser in production)
   const itemRegex = /<item>([\s\S]*?)<\/item>/g;
   let match;
 

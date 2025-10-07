@@ -5,3 +5,9 @@ verify_jwt = false
 
 [functions.create-manual-source]
 verify_jwt = false
+
+[functions.process-reference-card]
+verify_jwt = false
+
+[functions.generate-content-directions]
+verify_jwt = false

@@ -26,6 +26,8 @@ const CreateContent = () => {
     checkAuth();
   }, [navigate]);
 
+  const [directions, setDirections] = useState<any[]>([]);
+
   const handleGenerateDirections = async () => {
     if (!seedInsight.trim()) {
       toast.error("Please enter your insight");
@@ -33,14 +35,27 @@ const CreateContent = () => {
     }
 
     setLoading(true);
-    // TODO: Call edge function to generate 4 content directions
     toast.info("Generating content directions...");
+
+    const { data: { session } } = await supabase.auth.getSession();
     
-    // Simulate API call
-    setTimeout(() => {
+    const { data, error } = await supabase.functions.invoke("generate-content-directions", {
+      body: { 
+        seedInsight, 
+        seedCategory,
+        userId: session?.user?.id
+      }
+    });
+
+    setLoading(false);
+
+    if (error || !data) {
+      toast.error("Failed to generate directions: " + (error?.message || "Unknown error"));
+    } else {
+      setDirections(data.directions || []);
       setStep("directions");
-      setLoading(false);
-    }, 2000);
+      toast.success("Directions generated!");
+    }
   };
 
   return (
@@ -120,12 +135,15 @@ const CreateContent = () => {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {[1, 2, 3, 4].map((i) => (
+                {directions.map((dir, i) => (
                   <Card key={i} className="cursor-pointer hover:border-primary transition-colors">
                     <CardContent className="p-4">
-                      <h3 className="font-semibold mb-2">Direction {i}: [AI Generated Title]</h3>
-                      <p className="text-sm text-muted-foreground">
-                        [AI generated description of content direction based on seed insight]
+                      <h3 className="font-semibold mb-2">{dir.title}</h3>
+                      <p className="text-sm text-muted-foreground mb-2">
+                        {dir.description}
+                      </p>
+                      <p className="text-xs text-muted-foreground italic">
+                        Angle: {dir.angle}
                       </p>
                     </CardContent>
                   </Card>

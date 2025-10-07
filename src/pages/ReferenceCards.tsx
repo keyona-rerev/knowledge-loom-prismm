@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { toast } from "sonner";
-import { ArrowLeft, Search, Edit2, ExternalLink } from "lucide-react";
+import { ArrowLeft, Search, Edit2, ExternalLink, Trash2, ChevronDown, Sparkles, AlertCircle } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 
 const ReferenceCards = () => {
@@ -16,6 +17,8 @@ const ReferenceCards = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterSource, setFilterSource] = useState<string>("all");
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  const [processingCards, setProcessingCards] = useState<Set<string>>(new Set());
 
   const loadCards = async () => {
     let query = supabase
@@ -37,6 +40,57 @@ const ReferenceCards = () => {
     } else {
       setCards(data || []);
     }
+  };
+
+  const deleteCard = async (id: string, title: string) => {
+    if (!confirm(`Are you sure you want to delete "${title}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("reference_cards")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      toast.error("Failed to delete card");
+    } else {
+      toast.success("Card deleted");
+      loadCards();
+    }
+  };
+
+  const processCard = async (cardId: string) => {
+    setProcessingCards(prev => new Set(prev).add(cardId));
+    
+    const { error } = await supabase.functions.invoke("process-reference-card", {
+      body: { cardId }
+    });
+
+    setProcessingCards(prev => {
+      const next = new Set(prev);
+      next.delete(cardId);
+      return next;
+    });
+
+    if (error) {
+      toast.error("Failed to process card: " + error.message);
+    } else {
+      toast.success("Card processed successfully");
+      loadCards();
+    }
+  };
+
+  const toggleCardExpanded = (cardId: string) => {
+    setExpandedCards(prev => {
+      const next = new Set(prev);
+      if (next.has(cardId)) {
+        next.delete(cardId);
+      } else {
+        next.add(cardId);
+      }
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -67,9 +121,9 @@ const ReferenceCards = () => {
 
 - Each card contains content and answers to your configured questions
 - Use filters to find specific cards by status or source type
-- Click Edit to modify a card's content or answers
-- Cards with higher relevance scores are prioritized for content generation
-- "User Modified" badge shows cards you've manually edited`}
+- Click "Process with AI" to analyze content and extract insights
+- Content warnings show when full articles couldn't be accessed
+- Click Edit to modify a card's content or answers`}
         />
 
         <div className="flex flex-col md:flex-row gap-4 mb-6">
@@ -125,12 +179,21 @@ const ReferenceCards = () => {
                         </a>
                       )}
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-2 mb-2">
                       <Badge variant={card.status === "active" ? "default" : "secondary"}>
                         {card.status}
                       </Badge>
                       <Badge variant="outline">{card.source_type}</Badge>
                       <Badge variant="outline">Score: {card.global_relevance_score}/10</Badge>
+                      {card.content_quality === "title_only" && (
+                        <Badge variant="destructive">Title Only</Badge>
+                      )}
+                      {card.content_quality === "partial" && (
+                        <Badge variant="outline">Partial Content</Badge>
+                      )}
+                      {card.content_quality === "error" && (
+                        <Badge variant="destructive">Error</Badge>
+                      )}
                       {card.modified_by_user && <Badge variant="secondary">User Modified</Badge>}
                       {card.source_feeds?.name && (
                         <Badge variant="outline" className="gap-1">
@@ -139,16 +202,70 @@ const ReferenceCards = () => {
                         </Badge>
                       )}
                     </div>
+                    {card.content_warning && (
+                      <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
+                        <AlertCircle className="h-4 w-4" />
+                        <span>{card.content_warning}</span>
+                      </div>
+                    )}
                   </div>
-                  <Button variant="ghost" size="icon" onClick={() => navigate(`/cards/${card.id}/edit`)}>
-                    <Edit2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex gap-2">
+                    {!card.ai_summary && (
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => processCard(card.id)}
+                        disabled={processingCards.has(card.id)}
+                      >
+                        <Sparkles className="h-4 w-4 mr-1" />
+                        {processingCards.has(card.id) ? "Processing..." : "Process with AI"}
+                      </Button>
+                    )}
+                    <Button variant="ghost" size="icon" onClick={() => navigate(`/cards/${card.id}/edit`)}>
+                      <Edit2 className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => deleteCard(card.id, card.title || "Untitled")}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
-                <p className="text-sm text-muted-foreground line-clamp-3">
-                  {card.original_text}
-                </p>
+                <Collapsible open={expandedCards.has(card.id)} onOpenChange={() => toggleCardExpanded(card.id)}>
+                  <div>
+                    {card.ai_summary && (
+                      <div className="mb-3 p-3 bg-muted rounded-md">
+                        <p className="text-sm font-medium mb-1">AI Summary:</p>
+                        <p className="text-sm text-muted-foreground">{card.ai_summary}</p>
+                      </div>
+                    )}
+                    <p className="text-sm text-muted-foreground line-clamp-3">
+                      {card.original_text}
+                    </p>
+                  </div>
+                  <CollapsibleTrigger asChild>
+                    <Button variant="ghost" size="sm" className="mt-2">
+                      <ChevronDown className={`h-4 w-4 mr-1 transition-transform ${expandedCards.has(card.id) ? 'rotate-180' : ''}`} />
+                      {expandedCards.has(card.id) ? 'Show Less' : 'Show More'}
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="mt-4 space-y-2">
+                      <p className="text-sm whitespace-pre-wrap">{card.original_text}</p>
+                      {card.insight_answers && Object.keys(card.insight_answers).length > 0 && (
+                        <div className="mt-4 border-t pt-4">
+                          <p className="text-sm font-medium mb-2">Insight Answers:</p>
+                          {Object.entries(card.insight_answers).map(([key, value]) => (
+                            <div key={key} className="text-sm mb-2">
+                              <p className="font-medium">Q{parseInt(key) + 1}:</p>
+                              <p className="text-muted-foreground">{value as string}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
               </CardContent>
             </Card>
           ))}

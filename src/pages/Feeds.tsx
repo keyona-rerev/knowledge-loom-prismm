@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Edit, Trash2, Play, Link as LinkIcon, FileUp } from "lucide-react";
+import { ArrowLeft, Plus, Edit, Trash2, Play, Link as LinkIcon, FileUp, ToggleLeft, ToggleRight, RefreshCw } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 
 const Feeds = () => {
@@ -105,7 +105,11 @@ const Feeds = () => {
     }
   };
 
-  const deleteFeed = async (id: string) => {
+  const deleteFeed = async (id: string, name: string) => {
+    if (!confirm(`Are you sure you want to delete "${name}"? This action cannot be undone.`)) {
+      return;
+    }
+    
     const { error } = await supabase
       .from("source_feeds")
       .delete()
@@ -171,8 +175,12 @@ const Feeds = () => {
       setManualSourceDialogOpen(false);
       setManualUrl("");
       setManualPdfFile(null);
+      loadFeeds();
     }
   };
+
+  const rssFeeds = feeds.filter(f => f.feed_type === 'rss');
+  const manualSources = feeds.filter(f => f.feed_type === 'manual');
 
   return (
     <div className="min-h-screen bg-background">
@@ -313,63 +321,117 @@ const Feeds = () => {
 
 1. RSS Feeds: Add RSS feed URLs to automatically pull articles
 2. Manual Sources: Paste article links or upload PDFs directly
-3. Toggle feeds on/off with the colored switch (green = on, red = off)
+3. Toggle feeds on/off with the toggle button
 4. Click "Pull Now" to manually create reference cards from a feed
 5. Configure questions in Question Settings to extract insights
 
 Reference cards are created from your sources and can be used for content generation.`}
         />
 
-        <div className="grid gap-4">
-          {feeds.map((feed) => (
-            <Card key={feed.id}>
-              <CardHeader>
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <CardTitle>{feed.name}</CardTitle>
-                    <CardDescription className="mt-1">{feed.url}</CardDescription>
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        checked={feed.is_active}
-                        onCheckedChange={() => toggleFeed(feed)}
-                        className={feed.is_active ? "data-[state=checked]:bg-green-600" : "data-[state=unchecked]:bg-red-600"}
-                      />
-                      <span className={`text-sm font-medium ${feed.is_active ? "text-green-600" : "text-red-600"}`}>
-                        {feed.is_active ? "Active" : "Inactive"}
-                      </span>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => triggerFeedPull(feed.id)}
-                    >
-                      <Play className="h-4 w-4 mr-1" />
-                      Pull Now
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => openEditDialog(feed)}>
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => deleteFeed(feed.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant={feed.health_status === "healthy" ? "default" : "destructive"}>
-                    {feed.health_status}
-                  </Badge>
-                  <Badge variant="outline">Credibility: {feed.credibility_score}/10</Badge>
-                  {feed.topic_keywords?.map((keyword: string) => (
-                    <Badge key={keyword} variant="secondary">{keyword}</Badge>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+        <div className="space-y-6">
+          {rssFeeds.length > 0 && (
+            <div>
+              <h2 className="text-xl font-semibold mb-3">RSS Feeds</h2>
+              <div className="grid gap-4">
+                {rssFeeds.map((feed) => (
+                  <Card key={feed.id}>
+                    <CardHeader>
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <CardTitle>{feed.name}</CardTitle>
+                          <CardDescription className="mt-1">{feed.url}</CardDescription>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => toggleFeed(feed)}
+                          >
+                            {feed.is_active ? 
+                              <ToggleRight className="h-5 w-5 text-primary" /> : 
+                              <ToggleLeft className="h-5 w-5" />
+                            }
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => triggerFeedPull(feed.id)}
+                            disabled={!feed.is_active}
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openEditDialog(feed)}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => deleteFeed(feed.id, feed.name)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        <Badge variant={feed.is_active ? "default" : "secondary"}>
+                          {feed.is_active ? "Active" : "Inactive"}
+                        </Badge>
+                        <Badge variant="outline">
+                          Credibility: {feed.credibility_score}/10
+                        </Badge>
+                        {feed.topic_keywords?.map((keyword: string) => (
+                          <Badge key={keyword} variant="outline">{keyword}</Badge>
+                        ))}
+                      </div>
+                      {feed.last_pulled_at && (
+                        <p className="text-sm text-muted-foreground">
+                          Last pulled: {new Date(feed.last_pulled_at).toLocaleDateString()}
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {manualSources.length > 0 && (
+            <div>
+              <h2 className="text-xl font-semibold mb-3">Manual Sources</h2>
+              <div className="grid gap-4">
+                {manualSources.map((feed) => (
+                  <Card key={feed.id}>
+                    <CardHeader>
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <CardTitle>{feed.name}</CardTitle>
+                          <CardDescription className="mt-1">{feed.url}</CardDescription>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => deleteFeed(feed.id, feed.name)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground">
+                        Added: {new Date(feed.created_at).toLocaleDateString()}
+                      </p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </div>

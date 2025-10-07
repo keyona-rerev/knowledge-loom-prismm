@@ -84,7 +84,11 @@ const QuestionSettings = () => {
     }
   };
 
-  const removeQuestion = async (templateId: string, questionIndex: number) => {
+  const removeQuestion = async (templateId: string, questionIndex: number, question: string) => {
+    if (!confirm(`Are you sure you want to delete this question: "${question}"?`)) {
+      return;
+    }
+
     const currentQuestions = questions[templateId] || [];
     const updatedQuestions = currentQuestions.filter((_, i) => i !== questionIndex);
 
@@ -172,7 +176,7 @@ These questions help extract insights from your content automatically.`}
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => removeQuestion(template.id, i)}
+                          onClick={() => removeQuestion(template.id, i, q)}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>

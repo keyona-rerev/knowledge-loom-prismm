@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, X } from "lucide-react";
 
@@ -19,6 +20,7 @@ const Settings = () => {
     brand_voice: "",
     global_insight_questions: [] as string[]
   });
+  const [aiProvider, setAiProvider] = useState("gemini");
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -187,6 +189,31 @@ const Settings = () => {
               <Plus className="mr-2 h-4 w-4" />
               Add Question
             </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>AI Provider</CardTitle>
+            <CardDescription>Select which AI model to use for content processing</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              <Label>AI Model</Label>
+              <Select value={aiProvider} onValueChange={setAiProvider}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="gemini">Google Gemini 2.5 Flash (Recommended - Free)</SelectItem>
+                  <SelectItem value="claude">Anthropic Claude (Coming Soon)</SelectItem>
+                  <SelectItem value="openai">OpenAI GPT (Coming Soon)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">
+                Note: Gemini is currently the only supported provider and is free to use.
+              </p>
+            </div>
           </CardContent>
         </Card>
 

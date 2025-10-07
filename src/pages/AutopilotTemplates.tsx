@@ -52,7 +52,11 @@ const AutopilotTemplates = () => {
     }
   };
 
-  const deleteTemplate = async (id: string) => {
+  const deleteTemplate = async (id: string, name: string) => {
+    if (!confirm(`Are you sure you want to delete "${name}"? This action cannot be undone.`)) {
+      return;
+    }
+
     const { error } = await supabase
       .from("autopilot_templates")
       .delete()
@@ -134,7 +138,7 @@ const AutopilotTemplates = () => {
                     <Button 
                       variant="ghost" 
                       size="icon" 
-                      onClick={() => deleteTemplate(template.id)}
+                      onClick={() => deleteTemplate(template.id, template.name)}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>

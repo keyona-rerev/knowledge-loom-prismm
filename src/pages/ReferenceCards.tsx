@@ -251,7 +251,7 @@ const ReferenceCards = () => {
                   <CollapsibleTrigger asChild>
                     <Button variant="ghost" size="sm" className="mt-2">
                       <ChevronDown className={`h-4 w-4 mr-1 transition-transform ${expandedCards.has(card.id) ? 'rotate-180' : ''}`} />
-                      {expandedCards.has(card.id) ? 'Show Less' : 'Show More'}
+                      {expandedCards.has(card.id) ? 'Hide full article' : 'Read full article'}
                     </Button>
                   </CollapsibleTrigger>
                   <CollapsibleContent>

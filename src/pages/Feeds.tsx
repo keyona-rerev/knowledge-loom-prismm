@@ -29,6 +29,31 @@ const Feeds = () => {
   const [manualUrl, setManualUrl] = useState("");
   const [manualPdfFile, setManualPdfFile] = useState<File | null>(null);
 
+  const [activeTab, setActiveTab] = useState<"rss" | "manual">("rss");
+  const [expandedFeeds, setExpandedFeeds] = useState<Set<string>>(new Set());
+  const [refCardsByFeed, setRefCardsByFeed] = useState<Record<string, any[]>>({});
+  const [loadingRefs, setLoadingRefs] = useState(false);
+
+  const loadReferenceCards = async (feedIds: string[]) => {
+    if (!feedIds.length) return;
+    setLoadingRefs(true);
+    const { data, error } = await supabase
+      .from("reference_cards")
+      .select("id,title,content_quality,content_warning,ai_summary,created_at,source_feed_id")
+      .in("source_feed_id", feedIds);
+    setLoadingRefs(false);
+    if (error) {
+      console.error("Failed to load reference cards by feed:", error);
+      return;
+    }
+    const grouped: Record<string, any[]> = {};
+    (data || []).forEach((c: any) => {
+      if (!grouped[c.source_feed_id]) grouped[c.source_feed_id] = [];
+      grouped[c.source_feed_id].push(c);
+    });
+    setRefCardsByFeed(grouped);
+  };
+
   const loadFeeds = async () => {
     const { data, error } = await supabase
       .from("source_feeds")
@@ -39,6 +64,8 @@ const Feeds = () => {
       toast.error("Failed to load feeds");
     } else {
       setFeeds(data || []);
+      const ids = (data || []).map((f: any) => f.id);
+      await loadReferenceCards(ids);
     }
   };
 
@@ -69,20 +96,25 @@ const Feeds = () => {
         loadFeeds();
       }
     } else {
-      const { error } = await supabase
+      const { data: inserted, error } = await supabase
         .from("source_feeds")
         .insert([{
           name: formData.name,
           url: formData.url,
           credibility_score: formData.credibility_score,
           topic_keywords: keywords
-        }]);
+        }])
+        .select()
+        .single();
 
       if (error) {
         toast.error("Failed to add feed");
       } else {
-        toast.success("Feed added successfully");
+        toast.success("Feed added — testing and pulling now...");
         setIsDialogOpen(false);
+        if (inserted?.id) {
+          await triggerFeedPull(inserted.id);
+        }
         loadFeeds();
       }
     }
@@ -149,6 +181,14 @@ const Feeds = () => {
     }
   };
 
+  const toggleFeedExpanded = (id: string) => {
+    setExpandedFeeds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+ 
   const createManualSource = async () => {
     if (manualSourceType === "url" && !manualUrl.trim()) {
       toast.error("Please enter a URL");
@@ -328,111 +368,169 @@ const Feeds = () => {
 Reference cards are created from your sources and can be used for content generation.`}
         />
 
-        <div className="space-y-6">
-          {rssFeeds.length > 0 && (
-            <div>
-              <h2 className="text-xl font-semibold mb-3">RSS Feeds</h2>
-              <div className="grid gap-4">
-                {rssFeeds.map((feed) => (
-                  <Card key={feed.id}>
-                    <CardHeader>
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <CardTitle>{feed.name}</CardTitle>
-                          <CardDescription className="mt-1">{feed.url}</CardDescription>
-                        </div>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => toggleFeed(feed)}
-                          >
-                            {feed.is_active ? 
-                              <ToggleRight className="h-5 w-5 text-primary" /> : 
-                              <ToggleLeft className="h-5 w-5" />
-                            }
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => triggerFeedPull(feed.id)}
-                            disabled={!feed.is_active}
-                          >
-                            <RefreshCw className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openEditDialog(feed)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => deleteFeed(feed.id, feed.name)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex flex-wrap gap-2 mb-3">
-                        <Badge variant={feed.is_active ? "default" : "secondary"}>
-                          {feed.is_active ? "Active" : "Inactive"}
-                        </Badge>
-                        <Badge variant="outline">
-                          Credibility: {feed.credibility_score}/10
-                        </Badge>
-                        {feed.topic_keywords?.map((keyword: string) => (
-                          <Badge key={keyword} variant="outline">{keyword}</Badge>
-                        ))}
-                      </div>
-                      {feed.last_pulled_at && (
-                        <p className="text-sm text-muted-foreground">
-                          Last pulled: {new Date(feed.last_pulled_at).toLocaleDateString()}
-                        </p>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
+        <div className="mb-6">
+          <Card>
+            <CardContent className="py-4 flex flex-wrap gap-4 items-center">
+              <div className="flex items-center gap-2 text-sm">
+                <AlertTriangle className="h-4 w-4 text-destructive" />
+                <span>Error: unable to access content</span>
               </div>
-            </div>
-          )}
+              <div className="flex items-center gap-2 text-sm">
+                <AlertCircle className="h-4 w-4 text-amber-500" />
+                <span>Partial/Title-only content</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <Badge variant="outline">Good</Badge>
+                <span>Full content fetched</span>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
-          {manualSources.length > 0 && (
-            <div>
-              <h2 className="text-xl font-semibold mb-3">Manual Sources</h2>
-              <div className="grid gap-4">
-                {manualSources.map((feed) => (
-                  <Card key={feed.id}>
-                    <CardHeader>
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <CardTitle>{feed.name}</CardTitle>
-                          <CardDescription className="mt-1">{feed.url}</CardDescription>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => deleteFeed(feed.id, feed.name)}
-                        >
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "rss" | "manual")}> 
+          <TabsList className="mb-4">
+            <TabsTrigger value="rss">RSS Feeds</TabsTrigger>
+            <TabsTrigger value="manual">Manual Sources</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="rss">
+            <div className="grid gap-4">
+              {rssFeeds.map((feed) => (
+                <Card key={feed.id}>
+                  <CardHeader>
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <CardTitle>{feed.name}</CardTitle>
+                        <CardDescription className="mt-1">{feed.url}</CardDescription>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button variant="ghost" size="sm" onClick={() => toggleFeed(feed)}>
+                          {feed.is_active ? (
+                            <ToggleRight className="h-5 w-5 text-primary" />
+                          ) : (
+                            <ToggleLeft className="h-5 w-5" />
+                          )}
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => triggerFeedPull(feed.id)} disabled={!feed.is_active}>
+                          <RefreshCw className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => openEditDialog(feed)}>
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => deleteFeed(feed.id, feed.name)}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
-                    </CardHeader>
-                    <CardContent>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      <Badge variant={feed.is_active ? "default" : "secondary"}>
+                        {feed.is_active ? "Active" : "Inactive"}
+                      </Badge>
+                      <Badge variant="outline">Credibility: {feed.credibility_score}/10</Badge>
+                      {feed.topic_keywords?.map((keyword: string) => (
+                        <Badge key={keyword} variant="outline">{keyword}</Badge>
+                      ))}
+                    </div>
+                    {feed.last_pulled_at && (
                       <p className="text-sm text-muted-foreground">
-                        Added: {new Date(feed.created_at).toLocaleDateString()}
+                        Last pulled: {new Date(feed.last_pulled_at).toLocaleDateString()}
                       </p>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                    )}
+
+                    <div className="mt-3">
+                      <Button variant="ghost" size="sm" onClick={() => toggleFeedExpanded(feed.id)}>
+                        <ChevronDown className={`h-4 w-4 mr-1 transition-transform ${expandedFeeds.has(feed.id) ? 'rotate-180' : ''}`} />
+                        Reference Cards ({refCardsByFeed[feed.id]?.length ?? 0})
+                      </Button>
+                      {expandedFeeds.has(feed.id) && (
+                        <div className="mt-3 space-y-2">
+                          {(refCardsByFeed[feed.id] ?? []).map((rc: any) => (
+                            <div key={rc.id} className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                {rc.content_quality === 'error' ? (
+                                  <AlertTriangle className="h-4 w-4 text-destructive" />
+                                ) : rc.content_quality === 'partial' || rc.content_quality === 'title_only' ? (
+                                  <AlertCircle className="h-4 w-4 text-amber-500" />
+                                ) : (
+                                  <Badge variant="outline">Good</Badge>
+                                )}
+                                <span className="text-sm">{rc.title || 'Untitled'}</span>
+                              </div>
+                              <Button variant="outline" size="sm" onClick={() => navigate(`/cards/${rc.id}/edit`)}>
+                                Open
+                              </Button>
+                            </div>
+                          ))}
+                          {loadingRefs && <p className="text-sm text-muted-foreground">Loading reference cards...</p>}
+                          {!loadingRefs && (refCardsByFeed[feed.id]?.length ?? 0) === 0 && (
+                            <p className="text-sm text-muted-foreground">No reference cards yet.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-          )}
-        </div>
+          </TabsContent>
+
+          <TabsContent value="manual">
+            <div className="grid gap-4">
+              {manualSources.map((feed) => (
+                <Card key={feed.id}>
+                  <CardHeader>
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <CardTitle>{feed.name}</CardTitle>
+                        <CardDescription className="mt-1">{feed.url}</CardDescription>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => deleteFeed(feed.id, feed.name)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">Added: {new Date(feed.created_at).toLocaleDateString()}</p>
+
+                    <div className="mt-3">
+                      <Button variant="ghost" size="sm" onClick={() => toggleFeedExpanded(feed.id)}>
+                        <ChevronDown className={`h-4 w-4 mr-1 transition-transform ${expandedFeeds.has(feed.id) ? 'rotate-180' : ''}`} />
+                        Reference Cards ({refCardsByFeed[feed.id]?.length ?? 0})
+                      </Button>
+                      {expandedFeeds.has(feed.id) && (
+                        <div className="mt-3 space-y-2">
+                          {(refCardsByFeed[feed.id] ?? []).map((rc: any) => (
+                            <div key={rc.id} className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                {rc.content_quality === 'error' ? (
+                                  <AlertTriangle className="h-4 w-4 text-destructive" />
+                                ) : rc.content_quality === 'partial' || rc.content_quality === 'title_only' ? (
+                                  <AlertCircle className="h-4 w-4 text-amber-500" />
+                                ) : (
+                                  <Badge variant="outline">Good</Badge>
+                                )}
+                                <span className="text-sm">{rc.title || 'Untitled'}</span>
+                              </div>
+                              <Button variant="outline" size="sm" onClick={() => navigate(`/cards/${rc.id}/edit`)}>
+                                Open
+                              </Button>
+                            </div>
+                          ))}
+                          {loadingRefs && <p className="text-sm text-muted-foreground">Loading reference cards...</p>}
+                          {!loadingRefs && (refCardsByFeed[feed.id]?.length ?? 0) === 0 && (
+                            <p className="text-sm text-muted-foreground">No reference cards yet.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </TabsContent>
+        </Tabs>
       </main>
     </div>
   );

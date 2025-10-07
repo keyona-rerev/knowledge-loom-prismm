@@ -45,25 +45,44 @@ serve(async (req) => {
 
     console.log("Card found:", card.title);
 
-    // Get global questions from profile
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("global_insight_questions, active_question_indices")
-      .limit(1)
-      .maybeSingle();
-
+    // Determine questions: prefer template-specific, then fall back to global
     let questions: string[] = [];
-    
-    // Use template questions if available, otherwise use active global questions
-    if (card.reference_card_templates?.custom_questions) {
-      questions = card.reference_card_templates.custom_questions;
-    } else if (profile?.global_insight_questions && profile?.active_question_indices) {
-      questions = profile.active_question_indices.map((idx: number) => 
-        profile.global_insight_questions[idx]
-      ).filter(Boolean);
-    } else if (profile?.global_insight_questions && Array.isArray(profile.global_insight_questions)) {
-      // Use all global questions if no active indices specified
-      questions = profile.global_insight_questions.filter((q: any) => typeof q === 'string' && q.trim());
+
+    // 1) Template-specific questions (using template_id explicitly)
+    let templateQuestions: string[] | null = null;
+    if (card.template_id) {
+      const { data: template, error: templateError } = await supabase
+        .from("reference_card_templates")
+        .select("custom_questions")
+        .eq("id", card.template_id)
+        .maybeSingle();
+      if (templateError) {
+        console.error("Template fetch error:", templateError);
+      }
+      if (template?.custom_questions && Array.isArray(template.custom_questions)) {
+        templateQuestions = template.custom_questions.filter((q: any) => typeof q === "string" && q.trim());
+      }
+    }
+
+    if (templateQuestions?.length) {
+      questions = templateQuestions;
+    } else {
+      // 2) Fallback to global questions
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("global_insight_questions, active_question_indices")
+        .limit(1)
+        .maybeSingle();
+
+      if (profile?.global_insight_questions && Array.isArray(profile.global_insight_questions)) {
+        if (profile.active_question_indices && Array.isArray(profile.active_question_indices) && profile.active_question_indices.length) {
+          questions = profile.active_question_indices
+            .map((idx: number) => profile.global_insight_questions[idx])
+            .filter((q: any) => typeof q === "string" && q && q.trim());
+        } else {
+          questions = profile.global_insight_questions.filter((q: any) => typeof q === "string" && q.trim());
+        }
+      }
     }
 
     console.log("Questions found:", questions.length);
@@ -89,25 +108,30 @@ serve(async (req) => {
     }
 
     // Generate summary and optionally answer questions
-    let prompt = `Analyze this article and provide a brief summary (2-3 sentences).
-
+    let prompt = `Analyze the article and provide a concise summary (2-3 sentences).
 Article Title: ${card.title}
-Content: ${card.original_text}`;
+Content: ${card.original_text}
+
+Return ONLY valid JSON without code fences or any commentary.`;
 
     if (questions.length > 0) {
-      prompt += `\n\nAlso answer these questions based on the content:\n${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}
+      prompt += `
 
-Respond in JSON format:
+Also answer these questions based strictly on the content:
+${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}
+
+Your JSON response schema:
 {
   "summary": "your summary",
   "answers": {
     "0": "answer to question 1",
-    "1": "answer to question 2",
-    ...
+    "1": "answer to question 2"
   }
 }`;
     } else {
-      prompt += `\n\nRespond in JSON format:
+      prompt += `
+
+Your JSON response schema:
 {
   "summary": "your summary"
 }`;
@@ -140,16 +164,30 @@ Respond in JSON format:
       const aiData = await aiResponse.json();
       console.log("AI response received");
 
-      const content = aiData.choices[0].message.content;
-      
-      // Try to parse JSON, but handle if it's not JSON
-      let result;
+      const raw = aiData.choices?.[0]?.message?.content ?? "";
+      let content = raw;
+      // Strip code fences if present
+      const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+      if (fenceMatch) {
+        content = fenceMatch[1].trim();
+      }
+
+      // Try to parse JSON robustly
+      let result: { summary: string; answers?: Record<string, string> };
       try {
         result = JSON.parse(content);
       } catch (parseError) {
         console.error("Failed to parse AI response as JSON:", content);
-        // If it's not JSON, use the content as the summary
-        result = { summary: content, answers: {} };
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try {
+            result = JSON.parse(jsonMatch[0]);
+          } catch {
+            result = { summary: raw, answers: {} };
+          }
+        } else {
+          result = { summary: raw, answers: {} };
+        }
       }
 
       console.log("Updating card with results...");

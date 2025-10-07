@@ -217,6 +217,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          active_question_indices: number[] | null
           brand_voice: string | null
           business_description: string | null
           business_name: string | null
@@ -228,6 +229,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          active_question_indices?: number[] | null
           brand_voice?: string | null
           business_description?: string | null
           business_name?: string | null
@@ -239,6 +241,7 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          active_question_indices?: number[] | null
           brand_voice?: string | null
           business_description?: string | null
           business_name?: string | null
@@ -283,6 +286,9 @@ export type Database = {
       }
       reference_cards: {
         Row: {
+          ai_summary: string | null
+          content_quality: string | null
+          content_warning: string | null
           created_at: string | null
           global_relevance_score: number | null
           id: string
@@ -301,6 +307,9 @@ export type Database = {
           version_history: Json | null
         }
         Insert: {
+          ai_summary?: string | null
+          content_quality?: string | null
+          content_warning?: string | null
           created_at?: string | null
           global_relevance_score?: number | null
           id?: string
@@ -319,6 +328,9 @@ export type Database = {
           version_history?: Json | null
         }
         Update: {
+          ai_summary?: string | null
+          content_quality?: string | null
+          content_warning?: string | null
           created_at?: string | null
           global_relevance_score?: number | null
           id?: string
@@ -357,6 +369,7 @@ export type Database = {
         Row: {
           created_at: string | null
           credibility_score: number | null
+          default_template_id: string | null
           feed_type: string | null
           health_status: string | null
           id: string
@@ -372,6 +385,7 @@ export type Database = {
         Insert: {
           created_at?: string | null
           credibility_score?: number | null
+          default_template_id?: string | null
           feed_type?: string | null
           health_status?: string | null
           id?: string
@@ -387,6 +401,7 @@ export type Database = {
         Update: {
           created_at?: string | null
           credibility_score?: number | null
+          default_template_id?: string | null
           feed_type?: string | null
           health_status?: string | null
           id?: string
@@ -399,7 +414,15 @@ export type Database = {
           url?: string
           user_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "source_feeds_default_template_id_fkey"
+            columns: ["default_template_id"]
+            isOneToOne: false
+            referencedRelation: "reference_card_templates"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {

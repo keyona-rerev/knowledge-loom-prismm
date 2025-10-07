@@ -64,12 +64,12 @@ const Feeds = () => {
     } else {
       const { error } = await supabase
         .from("source_feeds")
-        .insert({
+        .insert([{
           name: formData.name,
           url: formData.url,
           credibility_score: formData.credibility_score,
           topic_keywords: keywords
-        });
+        }]);
 
       if (error) {
         toast.error("Failed to add feed");

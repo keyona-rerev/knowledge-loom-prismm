@@ -54,14 +54,21 @@ const Settings = () => {
       .from("profiles")
       .select("id")
       .limit(1)
-      .single();
+      .maybeSingle();
 
-    const { error } = await supabase
-      .from("profiles")
-      .upsert({
-        id: existingProfile?.id,
-        ...profile
-      });
+    let error;
+    if (existingProfile) {
+      const result = await supabase
+        .from("profiles")
+        .update(profile)
+        .eq("id", existingProfile.id);
+      error = result.error;
+    } else {
+      const result = await supabase
+        .from("profiles")
+        .insert([profile]);
+      error = result.error;
+    }
 
     if (error) {
       toast.error("Failed to save settings");

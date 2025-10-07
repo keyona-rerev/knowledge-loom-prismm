@@ -12,106 +12,182 @@ serve(async (req) => {
   }
 
   try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    );
+    console.log("🟡 create-manual-source started");
 
-    const { type, url, user_id } = await req.json();
+    // Validate environment variables
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      console.error("❌ Missing environment variables");
+      return new Response(JSON.stringify({ error: "Server configuration error" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+    const requestBody = await req.json();
+    console.log("📦 Request body:", requestBody);
+
+    const { type, url, user_id } = requestBody;
 
     if (type !== "url" || !url) {
-      return new Response(
-        JSON.stringify({ error: "Only URL type is supported currently" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      console.log("❌ Invalid parameters:", { type, url });
+      return new Response(JSON.stringify({ error: "Only URL type is supported currently" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    console.log("Fetching content from:", url);
-
-    // Fetch article content
-    const articleResponse = await fetch(url);
-    if (!articleResponse.ok) {
-      throw new Error(`Failed to fetch URL: ${articleResponse.status}`);
+    if (!user_id) {
+      console.log("❌ Missing user_id");
+      return new Response(JSON.stringify({ error: "User ID is required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
-    
+
+    console.log("🌐 Fetching content from:", url);
+
+    // Fetch article content with better error handling
+    let articleResponse;
+    try {
+      articleResponse = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; InsightForge/1.0)",
+        },
+      });
+      console.log("📄 Response status:", articleResponse.status);
+
+      if (!articleResponse.ok) {
+        throw new Error(`HTTP ${articleResponse.status}: ${articleResponse.statusText}`);
+      }
+    } catch (fetchError) {
+      console.error("❌ Fetch failed:", fetchError);
+      return new Response(JSON.stringify({ error: `Failed to fetch URL: ${fetchError.message}` }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const articleHtml = await articleResponse.text();
+    console.log("📝 HTML content length:", articleHtml.length);
+
+    if (!articleHtml || articleHtml.length < 100) {
+      console.error("❌ Insufficient content fetched");
+      return new Response(JSON.stringify({ error: "Could not fetch sufficient content from URL" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // Extract title and text
     const titleMatch = /<title>(.*?)<\/title>/i.exec(articleHtml);
-    const title = titleMatch?.[1] || "Untitled Article";
-    
+    const title = titleMatch?.[1]?.trim() || "Untitled Article";
+    console.log("📌 Extracted title:", title);
+
     // Remove HTML tags for content
     const textContent = articleHtml
       .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
       .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
       .replace(/<[^>]+>/g, " ")
       .replace(/\s+/g, " ")
-      .trim();
+      .trim()
+      .substring(0, 10000); // Limit content length
 
-    console.log("Extracted title:", title);
-    console.log("Content length:", textContent.length);
+    console.log("📄 Clean content length:", textContent.length);
+
+    if (textContent.length < 50) {
+      console.error("❌ Insufficient text content after cleaning");
+      return new Response(JSON.stringify({ error: "Could not extract sufficient text content from URL" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // Create entry in source_feeds for tracking manual sources
+    console.log("💾 Creating source feed entry...");
     const { data: feedData, error: feedError } = await supabase
       .from("source_feeds")
       .insert({
-        name: title,
+        name: title.substring(0, 255),
         url: url,
         feed_type: "manual",
         is_active: true,
         credibility_score: 5,
-        user_id: user_id
+        user_id: user_id,
       })
       .select()
       .single();
 
     if (feedError) {
-      console.error("Failed to create source feed entry:", feedError);
+      console.error("❌ Failed to create source feed entry:", feedError);
+      // Continue without feed data - card creation might still work
+    } else {
+      console.log("✅ Source feed created:", feedData.id);
     }
 
     // Create reference card
+    console.log("💾 Creating reference card...");
     const { data: cardData, error: insertError } = await supabase
       .from("reference_cards")
       .insert({
-        title,
+        title: title.substring(0, 255),
         original_text: textContent,
         source_url: url,
         source_type: "manual",
         source_feed_id: feedData?.id,
         status: "processing",
         global_relevance_score: 5,
-        user_id: user_id
+        user_id: user_id,
       })
       .select()
       .single();
 
     if (insertError) {
-      console.error("Failed to create reference card:", insertError);
-      throw insertError;
+      console.error("❌ Failed to create reference card:", insertError);
+      throw new Error(`Database error: ${insertError.message}`);
     }
 
-    console.log("Successfully created reference card:", cardData?.id);
+    console.log("✅ Reference card created:", cardData.id);
 
     // Auto-process the card immediately
-    console.log("Triggering auto-processing for card:", cardData.id);
-    const { error: processError } = await supabase.functions.invoke("process-reference-card", {
-      body: { cardId: cardData.id }
-    });
+    console.log("🚀 Triggering auto-processing for card:", cardData.id);
+    try {
+      const { error: processError } = await supabase.functions.invoke("process-reference-card", {
+        body: { cardId: cardData.id },
+      });
 
-    if (processError) {
-      console.error("Failed to trigger auto-processing:", processError);
-      // Don't throw - we still created the card, just log the error
+      if (processError) {
+        console.error("⚠️ Auto-processing failed:", processError);
+        // Update card status to indicate processing failed
+        await supabase.from("reference_cards").update({ status: "needs_review" }).eq("id", cardData.id);
+      } else {
+        console.log("✅ Auto-processing triggered successfully");
+      }
+    } catch (processInvokeError) {
+      console.error("⚠️ Failed to invoke auto-processing:", processInvokeError);
     }
 
+    console.log("🎉 create-manual-source completed successfully");
     return new Response(
-      JSON.stringify({ success: true, cardId: cardData?.id }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({
+        success: true,
+        cardId: cardData.id,
+        message: "Reference card created successfully",
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (error) {
-    console.error("Error in create-manual-source:", error);
+    console.error("💥 CRITICAL Error in create-manual-source:", error);
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({
+        error: "Failed to create manual source",
+        details: error instanceof Error ? error.message : "Unknown error",
+      }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });

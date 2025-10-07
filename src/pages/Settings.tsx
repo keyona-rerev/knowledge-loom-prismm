@@ -21,17 +21,11 @@ const Settings = () => {
   });
 
   useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        navigate("/auth");
-        return;
-      }
-
+    const loadProfile = async () => {
       const { data, error } = await supabase
         .from("profiles")
         .select("*")
-        .eq("user_id", session.user.id)
+        .limit(1)
         .single();
 
       if (data) {
@@ -50,18 +44,22 @@ const Settings = () => {
         toast.error("Failed to load profile");
       }
     };
-    checkAuth();
-  }, [navigate]);
+    loadProfile();
+  }, []);
 
   const handleSave = async () => {
     setLoading(true);
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
+
+    const { data: existingProfile } = await supabase
+      .from("profiles")
+      .select("id")
+      .limit(1)
+      .single();
 
     const { error } = await supabase
       .from("profiles")
       .upsert({
-        user_id: session.user.id,
+        id: existingProfile?.id,
         ...profile
       });
 

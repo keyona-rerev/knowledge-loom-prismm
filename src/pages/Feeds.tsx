@@ -23,16 +23,9 @@ const Feeds = () => {
   });
 
   const loadFeeds = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      navigate("/auth");
-      return;
-    }
-
     const { data, error } = await supabase
       .from("source_feeds")
       .select("*")
-      .eq("user_id", session.user.id)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -48,9 +41,6 @@ const Feeds = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
-
     const keywords = formData.topic_keywords.split(",").map(k => k.trim()).filter(Boolean);
 
     if (editingFeed) {
@@ -75,7 +65,6 @@ const Feeds = () => {
       const { error } = await supabase
         .from("source_feeds")
         .insert({
-          user_id: session.user.id,
           name: formData.name,
           url: formData.url,
           credibility_score: formData.credibility_score,

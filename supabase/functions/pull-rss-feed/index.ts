@@ -29,7 +29,7 @@ serve(async (req) => {
     // Get feed details with default template
     const { data: feed, error: feedError } = await supabase
       .from("source_feeds")
-      .select("*, default_template_id")
+      .select("*, default_template_id, user_id")
       .eq("id", feedId)
       .single();
 
@@ -46,6 +46,7 @@ serve(async (req) => {
 
     // Parse RSS
     const items = parseRSS(rssText);
+    const createdCardIds = [];
 
     // Create reference cards with full content fetching
     for (const item of items.slice(0, 5)) {
@@ -69,7 +70,7 @@ serve(async (req) => {
         }
       }
 
-      const { error: insertError } = await supabase
+      const { data: cardData, error: insertError } = await supabase
         .from("reference_cards")
         .insert({
           title: item.title,
@@ -78,12 +79,32 @@ serve(async (req) => {
           source_type: "rss",
           source_feed_id: feedId,
           template_id: feed.default_template_id,
-          status: "needs_review",
+          status: "processing",
           global_relevance_score: 5,
-        });
+          user_id: feed.user_id
+        })
+        .select()
+        .single();
 
       if (insertError) {
         console.error("Failed to insert reference card:", insertError);
+      } else if (cardData) {
+        createdCardIds.push(cardData.id);
+      }
+    }
+
+    // Auto-process all created cards
+    console.log("Triggering auto-processing for", createdCardIds.length, "cards");
+    for (const cardId of createdCardIds) {
+      try {
+        const { error: processError } = await supabase.functions.invoke("process-reference-card", {
+          body: { cardId }
+        });
+        if (processError) {
+          console.error("Failed to process card", cardId, ":", processError);
+        }
+      } catch (error) {
+        console.error("Error processing card", cardId, ":", error);
       }
     }
 
@@ -97,7 +118,7 @@ serve(async (req) => {
       .eq("id", feedId);
 
     return new Response(
-      JSON.stringify({ success: true, itemsCreated: items.slice(0, 5).length }),
+      JSON.stringify({ success: true, itemsCreated: createdCardIds.length, cardIds: createdCardIds }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {

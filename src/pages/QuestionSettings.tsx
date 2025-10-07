@@ -47,12 +47,19 @@ const QuestionSettings = () => {
       return;
     }
 
+    // Get actual user session
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      toast.error("You must be logged in to create templates");
+      return;
+    }
+
     const { error } = await supabase
       .from("reference_card_templates")
       .insert([{ 
         name: newTemplateName, 
         custom_questions: [],
-        user_id: "00000000-0000-0000-0000-000000000000" // No auth
+        user_id: session.user.id
       }]);
 
     if (error) {

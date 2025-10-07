@@ -45,7 +45,7 @@ serve(async (req) => {
 
     console.log("Card found:", card.title);
 
-    // Determine questions: prefer template-specific, then fall back to global
+    // Determine questions with proper user context
     let questions: string[] = [];
 
     // 1) Template-specific questions (using template_id explicitly)
@@ -67,21 +67,37 @@ serve(async (req) => {
     if (templateQuestions?.length) {
       questions = templateQuestions;
     } else {
-      // 2) Fallback to global questions
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("global_insight_questions, active_question_indices")
-        .limit(1)
-        .maybeSingle();
+      // 2) Fallback to user's global questions
+      if (card.user_id) {
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("global_insight_questions, active_question_indices")
+          .eq("user_id", card.user_id)
+          .single();
 
-      if (profile?.global_insight_questions && Array.isArray(profile.global_insight_questions)) {
-        if (profile.active_question_indices && Array.isArray(profile.active_question_indices) && profile.active_question_indices.length) {
-          questions = profile.active_question_indices
-            .map((idx: number) => profile.global_insight_questions[idx])
-            .filter((q: any) => typeof q === "string" && q && q.trim());
-        } else {
-          questions = profile.global_insight_questions.filter((q: any) => typeof q === "string" && q.trim());
+        if (profileError) {
+          console.error("Profile fetch error:", profileError);
         }
+
+        if (profile?.global_insight_questions && Array.isArray(profile.global_insight_questions)) {
+          if (profile.active_question_indices && Array.isArray(profile.active_question_indices) && profile.active_question_indices.length) {
+            questions = profile.active_question_indices
+              .map((idx: number) => profile.global_insight_questions[idx])
+              .filter((q: any) => typeof q === "string" && q && q.trim());
+          } else {
+            questions = profile.global_insight_questions.filter((q: any) => typeof q === "string" && q.trim());
+          }
+        }
+      }
+      
+      // 3) Ultimate fallback: default questions
+      if (questions.length === 0) {
+        questions = [
+          "What are the key takeaways?",
+          "How credible is this source?",
+          "What potential biases are present?",
+          "What is the main argument or finding?"
+        ];
       }
     }
 

@@ -17,7 +17,7 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
-    const { type, url } = await req.json();
+    const { type, url, user_id } = await req.json();
 
     if (type !== "url" || !url) {
       return new Response(
@@ -59,7 +59,8 @@ serve(async (req) => {
         url: url,
         feed_type: "manual",
         is_active: true,
-        credibility_score: 5
+        credibility_score: 5,
+        user_id: user_id
       })
       .select()
       .single();
@@ -77,8 +78,9 @@ serve(async (req) => {
         source_url: url,
         source_type: "manual",
         source_feed_id: feedData?.id,
-        status: "needs_review",
+        status: "processing",
         global_relevance_score: 5,
+        user_id: user_id
       })
       .select()
       .single();
@@ -89,6 +91,17 @@ serve(async (req) => {
     }
 
     console.log("Successfully created reference card:", cardData?.id);
+
+    // Auto-process the card immediately
+    console.log("Triggering auto-processing for card:", cardData.id);
+    const { error: processError } = await supabase.functions.invoke("process-reference-card", {
+      body: { cardId: cardData.id }
+    });
+
+    if (processError) {
+      console.error("Failed to trigger auto-processing:", processError);
+      // Don't throw - we still created the card, just log the error
+    }
 
     return new Response(
       JSON.stringify({ success: true, cardId: cardData?.id }),

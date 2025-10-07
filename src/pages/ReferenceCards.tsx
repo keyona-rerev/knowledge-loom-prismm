@@ -226,8 +226,8 @@ const ReferenceCards = () => {
                         {processingCards.has(card.id) ? "Processing..." : "Process with AI"}
                       </Button>
                     )}
-                    <Button variant="ghost" size="icon" onClick={() => navigate(`/cards/${card.id}/edit`)}>
-                      <Edit2 className="h-4 w-4" />
+                    <Button variant="outline" size="sm" onClick={() => navigate(`/cards/${card.id}`)}>
+                      View Details
                     </Button>
                     <Button variant="ghost" size="icon" onClick={() => deleteCard(card.id, card.title || "Untitled")}>
                       <Trash2 className="h-4 w-4" />

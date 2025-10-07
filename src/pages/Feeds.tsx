@@ -459,7 +459,7 @@ Reference cards are created from your sources and can be used for content genera
                                 )}
                                 <span className="text-sm">{rc.title || 'Untitled'}</span>
                               </div>
-                              <Button variant="outline" size="sm" onClick={() => navigate(`/cards/${rc.id}/edit`)}>
+                              <Button variant="outline" size="sm" onClick={() => navigate(`/cards/${rc.id}`)}>
                                 Open
                               </Button>
                             </div>
@@ -514,7 +514,7 @@ Reference cards are created from your sources and can be used for content genera
                                 )}
                                 <span className="text-sm">{rc.title || 'Untitled'}</span>
                               </div>
-                              <Button variant="outline" size="sm" onClick={() => navigate(`/cards/${rc.id}/edit`)}>
+                              <Button variant="outline" size="sm" onClick={() => navigate(`/cards/${rc.id}`)}>
                                 Open
                               </Button>
                             </div>

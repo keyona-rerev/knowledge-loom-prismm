@@ -9,6 +9,7 @@ import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
 import Feeds from "./pages/Feeds";
 import ReferenceCards from "./pages/ReferenceCards";
+import CardDetail from "./pages/CardDetail";
 import CreateContent from "./pages/CreateContent";
 import Drafts from "./pages/Drafts";
 import AutopilotTemplates from "./pages/AutopilotTemplates";
@@ -28,6 +29,8 @@ const App = () => (
           <Route path="/settings" element={<Settings />} />
           <Route path="/feeds" element={<Feeds />} />
           <Route path="/cards" element={<ReferenceCards />} />
+          <Route path="/cards/:id" element={<CardDetail />} />
+          <Route path="/cards/:id/edit" element={<CardDetail />} />
           <Route path="/create" element={<CreateContent />} />
           <Route path="/drafts" element={<Drafts />} />
           <Route path="/autopilot" element={<AutopilotTemplates />} />

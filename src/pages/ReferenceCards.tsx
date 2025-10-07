@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { ArrowLeft, Search, Edit2, ExternalLink, Trash2, ChevronDown, Sparkles, AlertCircle } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
@@ -19,6 +20,7 @@ const ReferenceCards = () => {
   const [filterSource, setFilterSource] = useState<string>("all");
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [processingCards, setProcessingCards] = useState<Set<string>>(new Set());
+  const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
 
   const loadCards = async () => {
     let query = supabase
@@ -82,6 +84,50 @@ const ReferenceCards = () => {
       toast.error("AI processing failed: " + data.error);
     } else {
       toast.success("Card processed successfully!");
+      loadCards();
+    }
+  };
+
+  const toggleCardSelection = (cardId: string) => {
+    setSelectedCards(prev => {
+      const next = new Set(prev);
+      if (next.has(cardId)) {
+        next.delete(cardId);
+      } else {
+        next.add(cardId);
+      }
+      return next;
+    });
+  };
+
+  const toggleAllCards = () => {
+    if (selectedCards.size === filteredCards.length) {
+      setSelectedCards(new Set());
+    } else {
+      setSelectedCards(new Set(filteredCards.map(c => c.id)));
+    }
+  };
+
+  const bulkDeleteCards = async () => {
+    if (selectedCards.size === 0) {
+      toast.error("No cards selected");
+      return;
+    }
+
+    if (!confirm(`Delete ${selectedCards.size} selected card(s)? This action cannot be undone.`)) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("reference_cards")
+      .delete()
+      .in("id", Array.from(selectedCards));
+
+    if (error) {
+      toast.error("Failed to delete cards");
+    } else {
+      toast.success(`${selectedCards.size} card(s) deleted`);
+      setSelectedCards(new Set());
       loadCards();
     }
   };
@@ -165,11 +211,38 @@ const ReferenceCards = () => {
           </Select>
         </div>
 
+        {filteredCards.length > 0 && (
+          <div className="flex items-center gap-4 mb-4 p-4 bg-muted rounded-lg">
+            <Checkbox 
+              checked={selectedCards.size === filteredCards.length}
+              onCheckedChange={toggleAllCards}
+            />
+            <span className="text-sm font-medium">
+              {selectedCards.size > 0 ? `${selectedCards.size} selected` : "Select all"}
+            </span>
+            {selectedCards.size > 0 && (
+              <Button 
+                variant="destructive" 
+                size="sm"
+                onClick={bulkDeleteCards}
+              >
+                <Trash2 className="h-4 w-4 mr-1" />
+                Delete Selected
+              </Button>
+            )}
+          </div>
+        )}
+
         <div className="grid gap-4">
           {filteredCards.map((card) => (
             <Card key={card.id} className="hover:shadow-md transition-shadow">
               <CardHeader>
-                <div className="flex justify-between items-start">
+                <div className="flex justify-between items-start gap-3">
+                  <Checkbox 
+                    checked={selectedCards.has(card.id)}
+                    onCheckedChange={() => toggleCardSelection(card.id)}
+                    className="mt-1"
+                  />
                   <div className="flex-1">
                     <div className="flex items-start gap-2 mb-2">
                       <CardTitle className="text-lg flex-1">{card.title || "Untitled"}</CardTitle>

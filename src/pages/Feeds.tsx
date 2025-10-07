@@ -202,17 +202,24 @@ const Feeds = () => {
 
     toast.loading("Creating reference card from source...");
 
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      toast.error("You must be logged in to create sources");
+      return;
+    }
+
     const { error } = await supabase.functions.invoke("create-manual-source", {
       body: {
         type: manualSourceType,
         url: manualSourceType === "url" ? manualUrl : undefined,
+        user_id: session.user.id
       }
     });
 
     if (error) {
       toast.error("Failed to create source: " + error.message);
     } else {
-      toast.success("Reference card created!");
+      toast.success("Reference card created and processing!");
       setManualSourceDialogOpen(false);
       setManualUrl("");
       setManualPdfFile(null);

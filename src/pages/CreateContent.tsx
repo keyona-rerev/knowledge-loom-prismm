@@ -71,17 +71,19 @@ const CreateContent = () => {
     } = await supabase.auth.getSession();
 
     try {
-      // Create a draft in the database
+      // Create a draft in the database using the exact column names
       const { data: draftData, error } = await supabase
         .from("drafts")
         .insert({
           title: direction.title,
-          content: `# ${direction.title}\n\n${direction.description}\n\n**Angle:** ${direction.angle}\n\n**Original Insight:** ${seedInsight}`,
+          body: `# ${direction.title}\n\n${direction.description}\n\n**Angle:** ${direction.angle}\n\n**Original Insight:** ${seedInsight}`,
           status: "draft",
           user_id: session?.user?.id,
           seed_insight: seedInsight,
           seed_category: seedCategory,
           selected_direction: direction,
+          content_type: "article",
+          revision_count: 0,
         })
         .select()
         .single();

@@ -120,6 +120,12 @@ const Feeds = () => {
         loadFeeds();
       }
     } else {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error("You must be logged in");
+        return;
+      }
+
       const { data: inserted, error } = await supabase
         .from("source_feeds")
         .insert([
@@ -128,7 +134,7 @@ const Feeds = () => {
             url: formData.url,
             credibility_score: formData.credibility_score,
             topic_keywords: keywords,
-            user_id: "00000000-0000-0000-0000-000000000000", // Default user ID for no auth
+            user_id: session.user.id,
           },
         ])
         .select()

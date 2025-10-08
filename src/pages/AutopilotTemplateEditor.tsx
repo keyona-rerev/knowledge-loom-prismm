@@ -3,10 +3,12 @@ import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { ArrowLeft, Save, X } from "lucide-react";
 
@@ -14,41 +16,53 @@ const AutopilotTemplateEditor = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [isEditing] = useState(!!id);
+  const [isEditing] = useState(!!id); // If we have an ID, we're editing
   const [availableFeeds, setAvailableFeeds] = useState<any[]>([]);
+  const [availableTemplates, setAvailableTemplates] = useState<any[]>([]);
 
   const [formData, setFormData] = useState({
     name: "",
+    is_active: true,
     frequency: "weekly",
-    output_format: "blog_post",
-    topic_filters: [] as string[],
     source_feed_ids: [] as string[],
-    is_active: true
+    topic_filters: [] as string[],
+    output_format: "blog_post",
+    use_global_questions: true,
+    custom_template_id: null as string | null,
   });
 
   const [newTopic, setNewTopic] = useState("");
 
-  const loadFeeds = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
+  // Load available feeds and templates
+  const loadData = async () => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
     if (!session) return;
 
-    const { data } = await supabase
+    // Load feeds
+    const { data: feedsData } = await supabase
       .from("source_feeds")
       .select("id, name")
       .eq("user_id", session.user.id)
       .eq("is_active", true);
 
-    setAvailableFeeds(data || []);
+    setAvailableFeeds(feedsData || []);
+
+    // Load reference card templates
+    const { data: templatesData } = await supabase
+      .from("reference_card_templates")
+      .select("id, name")
+      .eq("user_id", session.user.id);
+
+    setAvailableTemplates(templatesData || []);
   };
 
+  // Load template data if editing
   const loadTemplate = async () => {
     if (!id) return;
 
-    const { data, error } = await supabase
-      .from("autopilot_templates")
-      .select("*")
-      .eq("id", id)
-      .single();
+    const { data, error } = await supabase.from("autopilot_templates").select("*").eq("id", id).single();
 
     if (error) {
       toast.error("Failed to load template");
@@ -56,17 +70,19 @@ const AutopilotTemplateEditor = () => {
     } else {
       setFormData({
         name: data.name || "",
+        is_active: data.is_active ?? true,
         frequency: data.frequency || "weekly",
-        output_format: data.output_format || "blog_post",
-        topic_filters: data.topic_filters || [],
         source_feed_ids: data.source_feed_ids || [],
-        is_active: data.is_active ?? true
+        topic_filters: data.topic_filters || [],
+        output_format: data.output_format || "blog_post",
+        use_global_questions: data.use_global_questions ?? true,
+        custom_template_id: data.custom_template_id || null,
       });
     }
   };
 
   useEffect(() => {
-    loadFeeds();
+    loadData();
     if (id) {
       loadTemplate();
     }
@@ -74,27 +90,27 @@ const AutopilotTemplateEditor = () => {
 
   const addTopic = () => {
     if (newTopic.trim() && !formData.topic_filters.includes(newTopic.trim())) {
-      setFormData(prev => ({
+      setFormData((prev) => ({
         ...prev,
-        topic_filters: [...prev.topic_filters, newTopic.trim()]
+        topic_filters: [...prev.topic_filters, newTopic.trim()],
       }));
       setNewTopic("");
     }
   };
 
   const removeTopic = (topic: string) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      topic_filters: prev.topic_filters.filter(t => t !== topic)
+      topic_filters: prev.topic_filters.filter((t) => t !== topic),
     }));
   };
 
   const toggleFeed = (feedId: string) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       source_feed_ids: prev.source_feed_ids.includes(feedId)
-        ? prev.source_feed_ids.filter(id => id !== feedId)
-        : [...prev.source_feed_ids, feedId]
+        ? prev.source_feed_ids.filter((id) => id !== feedId)
+        : [...prev.source_feed_ids, feedId],
     }));
   };
 
@@ -102,7 +118,9 @@ const AutopilotTemplateEditor = () => {
     e.preventDefault();
     setLoading(true);
 
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
     if (!session) {
       toast.error("You must be logged in");
       setLoading(false);
@@ -110,33 +128,63 @@ const AutopilotTemplateEditor = () => {
     }
 
     try {
+      console.log("🟡 Saving template with data:", formData);
+
       if (isEditing) {
-        const { error } = await supabase
+        // Update existing template
+        const { data, error } = await supabase
           .from("autopilot_templates")
           .update({
-            ...formData,
-            updated_at: new Date().toISOString()
+            name: formData.name,
+            is_active: formData.is_active,
+            frequency: formData.frequency,
+            source_feed_ids: formData.source_feed_ids,
+            topic_filters: formData.topic_filters,
+            output_format: formData.output_format,
+            use_global_questions: formData.use_global_questions,
+            custom_template_id: formData.custom_template_id,
+            updated_at: new Date().toISOString(),
           })
-          .eq("id", id);
+          .eq("id", id)
+          .select();
 
-        if (error) throw error;
+        if (error) {
+          console.error("❌ Update error:", error);
+          throw error;
+        }
+        console.log("✅ Template updated:", data);
         toast.success("Template updated successfully");
       } else {
-        const { error } = await supabase
+        // Create new template
+        const { data, error } = await supabase
           .from("autopilot_templates")
-          .insert([{
-            ...formData,
-            user_id: session.user.id
-          }]);
+          .insert([
+            {
+              name: formData.name,
+              is_active: formData.is_active,
+              frequency: formData.frequency,
+              source_feed_ids: formData.source_feed_ids,
+              topic_filters: formData.topic_filters,
+              output_format: formData.output_format,
+              use_global_questions: formData.use_global_questions,
+              custom_template_id: formData.custom_template_id,
+              user_id: session.user.id,
+            },
+          ])
+          .select();
 
-        if (error) throw error;
+        if (error) {
+          console.error("❌ Insert error:", error);
+          throw error;
+        }
+        console.log("✅ Template created:", data);
         toast.success("Template created successfully");
       }
 
       navigate("/autopilot");
-    } catch (error) {
-      console.error("Failed to save template:", error);
-      toast.error("Failed to save template");
+    } catch (error: any) {
+      console.error("💥 Failed to save template:", error);
+      toast.error(`Failed to save template: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -156,12 +204,8 @@ const AutopilotTemplateEditor = () => {
       <main className="container mx-auto px-4 py-8 max-w-2xl">
         <Card>
           <CardHeader>
-            <CardTitle>
-              {isEditing ? "Edit Template" : "Create New Template"}
-            </CardTitle>
-            <CardDescription>
-              Configure your automated content generation settings
-            </CardDescription>
+            <CardTitle>{isEditing ? "Edit Template" : "Create New Template"}</CardTitle>
+            <CardDescription>Configure your automated content generation settings</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -170,7 +214,7 @@ const AutopilotTemplateEditor = () => {
                 <Input
                   id="name"
                   value={formData.name}
-                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
                   placeholder="e.g., Weekly Tech Insights"
                   required
                 />
@@ -179,7 +223,10 @@ const AutopilotTemplateEditor = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="frequency">Frequency</Label>
-                  <Select value={formData.frequency} onValueChange={(value) => setFormData(prev => ({ ...prev, frequency: value }))}>
+                  <Select
+                    value={formData.frequency}
+                    onValueChange={(value) => setFormData((prev) => ({ ...prev, frequency: value }))}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -194,7 +241,10 @@ const AutopilotTemplateEditor = () => {
 
                 <div>
                   <Label htmlFor="format">Output Format</Label>
-                  <Select value={formData.output_format} onValueChange={(value) => setFormData(prev => ({ ...prev, output_format: value }))}>
+                  <Select
+                    value={formData.output_format}
+                    onValueChange={(value) => setFormData((prev) => ({ ...prev, output_format: value }))}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -206,6 +256,14 @@ const AutopilotTemplateEditor = () => {
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <Switch
+                  checked={formData.is_active}
+                  onCheckedChange={(checked) => setFormData((prev) => ({ ...prev, is_active: checked }))}
+                />
+                <Label>Template Active</Label>
               </div>
 
               <div>
@@ -225,10 +283,7 @@ const AutopilotTemplateEditor = () => {
                   {formData.topic_filters.map((topic) => (
                     <Badge key={topic} variant="secondary" className="flex items-center gap-1">
                       {topic}
-                      <X
-                        className="h-3 w-3 cursor-pointer"
-                        onClick={() => removeTopic(topic)}
-                      />
+                      <X className="h-3 w-3 cursor-pointer" onClick={() => removeTopic(topic)} />
                     </Badge>
                   ))}
                 </div>
@@ -236,7 +291,7 @@ const AutopilotTemplateEditor = () => {
 
               <div>
                 <Label>Source Feeds</Label>
-                <div className="space-y-2 mt-2">
+                <div className="space-y-2 mt-2 max-h-40 overflow-y-auto border rounded-md p-3">
                   {availableFeeds.map((feed) => (
                     <div key={feed.id} className="flex items-center space-x-2">
                       <input
@@ -246,13 +301,45 @@ const AutopilotTemplateEditor = () => {
                         onChange={() => toggleFeed(feed.id)}
                         className="rounded border-gray-300"
                       />
-                      <Label htmlFor={`feed-${feed.id}`} className="text-sm cursor-pointer">
+                      <Label htmlFor={`feed-${feed.id}`} className="text-sm">
                         {feed.name}
                       </Label>
                     </div>
                   ))}
+                  {availableFeeds.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No active feeds available</p>
+                  )}
                 </div>
               </div>
+
+              <div className="flex items-center space-x-2">
+                <Switch
+                  checked={formData.use_global_questions}
+                  onCheckedChange={(checked) => setFormData((prev) => ({ ...prev, use_global_questions: checked }))}
+                />
+                <Label>Use Global Questions</Label>
+              </div>
+
+              {!formData.use_global_questions && (
+                <div>
+                  <Label htmlFor="custom_template">Custom Question Template</Label>
+                  <Select
+                    value={formData.custom_template_id || ""}
+                    onValueChange={(value) => setFormData((prev) => ({ ...prev, custom_template_id: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a template" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableTemplates.map((template) => (
+                        <SelectItem key={template.id} value={template.id}>
+                          {template.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => navigate("/autopilot")}>
@@ -260,7 +347,7 @@ const AutopilotTemplateEditor = () => {
                 </Button>
                 <Button type="submit" disabled={loading}>
                   <Save className="mr-2 h-4 w-4" />
-                  {loading ? "Saving..." : (isEditing ? "Update Template" : "Create Template")}
+                  {loading ? "Saving..." : isEditing ? "Update Template" : "Create Template"}
                 </Button>
               </div>
             </form>

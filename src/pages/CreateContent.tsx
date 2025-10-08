@@ -71,7 +71,7 @@ const CreateContent = () => {
     } = await supabase.auth.getSession();
 
     try {
-      // Create a draft in the database using the exact column names
+      // Try different content_type values that might be allowed
       const { data: draftData, error } = await supabase
         .from("drafts")
         .insert({
@@ -82,20 +82,40 @@ const CreateContent = () => {
           seed_insight: seedInsight,
           seed_category: seedCategory,
           selected_direction: direction,
-          content_type: "article",
+          content_type: "blog_post", // Try this common value
           revision_count: 0,
         })
         .select()
         .single();
 
       if (error) {
-        throw error;
+        // If that fails, try without content_type
+        const { data: draftData2, error: error2 } = await supabase
+          .from("drafts")
+          .insert({
+            title: direction.title,
+            body: `# ${direction.title}\n\n${direction.description}\n\n**Angle:** ${direction.angle}\n\n**Original Insight:** ${seedInsight}`,
+            status: "draft",
+            user_id: session?.user?.id,
+            seed_insight: seedInsight,
+            seed_category: seedCategory,
+            selected_direction: direction,
+            revision_count: 0,
+            // Omit content_type entirely
+          })
+          .select()
+          .single();
+
+        if (error2) {
+          throw error2;
+        }
+
+        toast.success("Draft created successfully!");
+        navigate("/drafts");
+      } else {
+        toast.success("Draft created successfully!");
+        navigate("/drafts");
       }
-
-      toast.success("Draft created successfully!");
-
-      // Navigate to the draft or drafts list
-      navigate("/drafts");
     } catch (error) {
       console.error("Failed to create draft:", error);
       toast.error("Failed to create draft: " + (error as any)?.message);

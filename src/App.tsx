@@ -11,6 +11,7 @@ import ReferenceCards from "./pages/ReferenceCards";
 import CardDetail from "./pages/CardDetail";
 import CreateContent from "./pages/CreateContent";
 import Drafts from "./pages/Drafts";
+import DraftDetail from "./pages/DraftDetail";
 import AutopilotTemplates from "./pages/AutopilotTemplates";
 import QuestionSettings from "./pages/QuestionSettings";
 import Auth from "./pages/Auth";
@@ -34,6 +35,7 @@ const App = () => (
           <Route path="/cards/:id/edit" element={<CardDetail />} />
           <Route path="/create" element={<CreateContent />} />
           <Route path="/drafts" element={<Drafts />} />
+          <Route path="/drafts/:id" element={<DraftDetail />} />
           <Route path="/autopilot" element={<AutopilotTemplates />} />
           <Route path="/questions" element={<QuestionSettings />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

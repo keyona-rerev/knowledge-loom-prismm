@@ -226,7 +226,7 @@ export type Database = {
           id: string
           target_audience: string | null
           updated_at: string | null
-          user_id: string | null
+          user_id: string
         }
         Insert: {
           active_question_indices?: number[] | null
@@ -238,7 +238,7 @@ export type Database = {
           id?: string
           target_audience?: string | null
           updated_at?: string | null
-          user_id?: string | null
+          user_id: string
         }
         Update: {
           active_question_indices?: number[] | null
@@ -250,7 +250,7 @@ export type Database = {
           id?: string
           target_audience?: string | null
           updated_at?: string | null
-          user_id?: string | null
+          user_id?: string
         }
         Relationships: []
       }

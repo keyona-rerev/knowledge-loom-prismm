@@ -30,6 +30,7 @@ import {
   AlertTriangle,
   AlertCircle,
   ChevronDown,
+  Sparkles,
 } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -527,8 +528,8 @@ Reference cards are created from your sources and can be used for content genera
                       {expandedFeeds.has(feed.id) && (
                         <div className="mt-3 space-y-2">
                           {(refCardsByFeed[feed.id] ?? []).map((rc: any) => (
-                            <div key={rc.id} className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
+                            <div key={rc.id} className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 flex-1">
                                 {rc.content_quality === "error" ? (
                                   <AlertTriangle className="h-4 w-4 text-destructive" />
                                 ) : rc.content_quality === "partial" || rc.content_quality === "title_only" ? (
@@ -536,11 +537,34 @@ Reference cards are created from your sources and can be used for content genera
                                 ) : (
                                   <Badge variant="outline">Good</Badge>
                                 )}
-                                <span className="text-sm">{rc.title || "Untitled"}</span>
+                                <span className="text-sm truncate">{rc.title || "Untitled"}</span>
+                                <Badge variant="outline" className="text-xs">{rc.status}</Badge>
                               </div>
-                              <Button variant="outline" size="sm" onClick={() => navigate(`/cards/${rc.id}`)}>
-                                Open
-                              </Button>
+                              <div className="flex gap-1">
+                                {(rc.status === "needs_review" || rc.content_quality === "error") && (
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={async () => {
+                                      const toastId = toast.loading("Processing with AI...");
+                                      const { error } = await supabase.functions.invoke("process-reference-card", {
+                                        body: { cardId: rc.id }
+                                      });
+                                      if (error) {
+                                        toast.error("Failed to process: " + error.message, { id: toastId });
+                                      } else {
+                                        toast.success("Card processed successfully!", { id: toastId });
+                                        loadFeeds();
+                                      }
+                                    }}
+                                  >
+                                    <Sparkles className="h-3 w-3" />
+                                  </Button>
+                                )}
+                                <Button variant="outline" size="sm" onClick={() => navigate(`/cards/${rc.id}`)}>
+                                  Open
+                                </Button>
+                              </div>
                             </div>
                           ))}
                           {loadingRefs && <p className="text-sm text-muted-foreground">Loading reference cards...</p>}
@@ -586,8 +610,8 @@ Reference cards are created from your sources and can be used for content genera
                       {expandedFeeds.has(feed.id) && (
                         <div className="mt-3 space-y-2">
                           {(refCardsByFeed[feed.id] ?? []).map((rc: any) => (
-                            <div key={rc.id} className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
+                            <div key={rc.id} className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 flex-1">
                                 {rc.content_quality === "error" ? (
                                   <AlertTriangle className="h-4 w-4 text-destructive" />
                                 ) : rc.content_quality === "partial" || rc.content_quality === "title_only" ? (
@@ -595,11 +619,34 @@ Reference cards are created from your sources and can be used for content genera
                                 ) : (
                                   <Badge variant="outline">Good</Badge>
                                 )}
-                                <span className="text-sm">{rc.title || "Untitled"}</span>
+                                <span className="text-sm truncate">{rc.title || "Untitled"}</span>
+                                <Badge variant="outline" className="text-xs">{rc.status}</Badge>
                               </div>
-                              <Button variant="outline" size="sm" onClick={() => navigate(`/cards/${rc.id}`)}>
-                                Open
-                              </Button>
+                              <div className="flex gap-1">
+                                {(rc.status === "needs_review" || rc.content_quality === "error") && (
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={async () => {
+                                      const toastId = toast.loading("Processing with AI...");
+                                      const { error } = await supabase.functions.invoke("process-reference-card", {
+                                        body: { cardId: rc.id }
+                                      });
+                                      if (error) {
+                                        toast.error("Failed to process: " + error.message, { id: toastId });
+                                      } else {
+                                        toast.success("Card processed successfully!", { id: toastId });
+                                        loadFeeds();
+                                      }
+                                    }}
+                                  >
+                                    <Sparkles className="h-3 w-3" />
+                                  </Button>
+                                )}
+                                <Button variant="outline" size="sm" onClick={() => navigate(`/cards/${rc.id}`)}>
+                                  Open
+                                </Button>
+                              </div>
                             </div>
                           ))}
                           {loadingRefs && <p className="text-sm text-muted-foreground">Loading reference cards...</p>}

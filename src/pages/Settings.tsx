@@ -24,11 +24,14 @@ const Settings = () => {
 
   useEffect(() => {
     const loadProfile = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
       const { data, error } = await supabase
         .from("profiles")
         .select("*")
-        .limit(1)
-        .single();
+        .eq("user_id", session.user.id)
+        .maybeSingle();
 
       if (data) {
         const questions = Array.isArray(data.global_insight_questions) 
@@ -52,10 +55,18 @@ const Settings = () => {
   const handleSave = async () => {
     setLoading(true);
 
+    // Get current user
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      toast.error("You must be logged in to save settings");
+      setLoading(false);
+      return;
+    }
+
     const { data: existingProfile } = await supabase
       .from("profiles")
       .select("id")
-      .limit(1)
+      .eq("user_id", session.user.id)
       .maybeSingle();
 
     let error;
@@ -66,9 +77,10 @@ const Settings = () => {
         .eq("id", existingProfile.id);
       error = result.error;
     } else {
+      // Include user_id when creating new profile
       const result = await supabase
         .from("profiles")
-        .insert([profile]);
+        .insert([{ ...profile, user_id: session.user.id }]);
       error = result.error;
     }
 

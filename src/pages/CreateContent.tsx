@@ -18,7 +18,9 @@ const CreateContent = () => {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (!session) {
         navigate("/auth");
       }
@@ -37,14 +39,16 @@ const CreateContent = () => {
     setLoading(true);
     toast.info("Generating content directions...");
 
-    const { data: { session } } = await supabase.auth.getSession();
-    
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
     const { data, error } = await supabase.functions.invoke("generate-content-directions", {
-      body: { 
-        seedInsight, 
+      body: {
+        seedInsight,
         seedCategory,
-        userId: session?.user?.id
-      }
+        userId: session?.user?.id,
+      },
     });
 
     setLoading(false);
@@ -55,6 +59,46 @@ const CreateContent = () => {
       setDirections(data.directions || []);
       setStep("directions");
       toast.success("Directions generated!");
+    }
+  };
+
+  const handleSelectDirection = async (direction: any) => {
+    setLoading(true);
+    toast.info("Creating draft from selected direction...");
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    try {
+      // Create a draft in the database
+      const { data: draftData, error } = await supabase
+        .from("drafts")
+        .insert({
+          title: direction.title,
+          content: `# ${direction.title}\n\n${direction.description}\n\n**Angle:** ${direction.angle}\n\n**Original Insight:** ${seedInsight}`,
+          status: "draft",
+          user_id: session?.user?.id,
+          seed_insight: seedInsight,
+          seed_category: seedCategory,
+          selected_direction: direction,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      toast.success("Draft created successfully!");
+
+      // Navigate to the draft or drafts list
+      navigate("/drafts");
+    } catch (error) {
+      console.error("Failed to create draft:", error);
+      toast.error("Failed to create draft: " + (error as any)?.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -79,9 +123,7 @@ const CreateContent = () => {
           <Card>
             <CardHeader>
               <CardTitle>Seed Insight</CardTitle>
-              <CardDescription>
-                What's the core idea you want to explore?
-              </CardDescription>
+              <CardDescription>What's the core idea you want to explore?</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
@@ -95,7 +137,7 @@ const CreateContent = () => {
                   className="mt-2"
                 />
               </div>
-              
+
               <div>
                 <Label htmlFor="category">Insight Type</Label>
                 <Select value={seedCategory} onValueChange={setSeedCategory}>
@@ -112,12 +154,7 @@ const CreateContent = () => {
                 </Select>
               </div>
 
-              <Button 
-                onClick={handleGenerateDirections} 
-                disabled={loading}
-                className="w-full"
-                size="lg"
-              >
+              <Button onClick={handleGenerateDirections} disabled={loading} className="w-full" size="lg">
                 <Sparkles className="mr-2 h-5 w-5" />
                 {loading ? "Generating..." : "Generate Content Directions"}
               </Button>
@@ -128,23 +165,28 @@ const CreateContent = () => {
         {step === "directions" && (
           <Card>
             <CardHeader>
-              <CardTitle>Content Directions</CardTitle>
-              <CardDescription>
-                Select the direction that resonates most
-              </CardDescription>
+              <div className="flex justify-between items-center">
+                <div>
+                  <CardTitle>Content Directions</CardTitle>
+                  <CardDescription>Select the direction that resonates most</CardDescription>
+                </div>
+                <Button variant="outline" onClick={() => setStep("input")}>
+                  Back
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
                 {directions.map((dir, i) => (
-                  <Card key={i} className="cursor-pointer hover:border-primary transition-colors">
+                  <Card
+                    key={i}
+                    className="cursor-pointer hover:border-primary transition-colors"
+                    onClick={() => handleSelectDirection(dir)}
+                  >
                     <CardContent className="p-4">
                       <h3 className="font-semibold mb-2">{dir.title}</h3>
-                      <p className="text-sm text-muted-foreground mb-2">
-                        {dir.description}
-                      </p>
-                      <p className="text-xs text-muted-foreground italic">
-                        Angle: {dir.angle}
-                      </p>
+                      <p className="text-sm text-muted-foreground mb-2">{dir.description}</p>
+                      <p className="text-xs text-muted-foreground italic">Angle: {dir.angle}</p>
                     </CardContent>
                   </Card>
                 ))}

@@ -145,7 +145,15 @@ const ReferenceCards = () => {
   };
 
   useEffect(() => {
-    loadCards();
+    const checkAuthAndLoad = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        navigate("/auth");
+        return;
+      }
+      loadCards();
+    };
+    checkAuthAndLoad();
   }, [navigate, filterStatus, filterSource]);
 
   const filteredCards = cards.filter(card => 

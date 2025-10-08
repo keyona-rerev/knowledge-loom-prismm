@@ -24,6 +24,12 @@ const CardDetail = () => {
   const loadCard = async () => {
     if (!id) return;
 
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      navigate("/auth");
+      return;
+    }
+
     const { data, error } = await supabase
       .from("reference_cards")
       .select("*, source_feeds(name), reference_card_templates(custom_questions)")

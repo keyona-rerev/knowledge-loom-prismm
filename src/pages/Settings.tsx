@@ -25,7 +25,10 @@ const Settings = () => {
   useEffect(() => {
     const loadProfile = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
+      if (!session) {
+        navigate("/auth");
+        return;
+      }
 
       const { data, error } = await supabase
         .from("profiles")

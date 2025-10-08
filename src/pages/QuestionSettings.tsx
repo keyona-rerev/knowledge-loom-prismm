@@ -15,6 +15,12 @@ const QuestionSettings = () => {
   const [questions, setQuestions] = useState<{ [key: string]: string[] }>({});
 
   const loadTemplates = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      navigate("/auth");
+      return;
+    }
+
     const { data, error } = await supabase
       .from("reference_card_templates")
       .select("*")

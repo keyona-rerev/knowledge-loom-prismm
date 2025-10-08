@@ -3,13 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { z } from "zod";
 
 const emailSchema = z.string().email("Invalid email address");
-const passwordSchema = z.string().min(6, "Password must be at least 6 characters");
+const passwordSchema = z.string().min(8, "Password must be at least 8 characters");
 
 const Auth = () => {
   const navigate = useNavigate();
@@ -19,82 +19,72 @@ const Auth = () => {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Check if user is already logged in
-    const checkUser = async () => {
+    const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         navigate("/dashboard");
       }
     };
-    checkUser();
+    checkSession();
   }, [navigate]);
 
-  const validateInputs = () => {
-    try {
-      emailSchema.parse(email);
-      passwordSchema.parse(password);
-      return true;
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        toast.error(error.errors[0].message);
-      }
-      return false;
-    }
-  };
-
-  const handleSignUp = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateInputs()) return;
-
     setLoading(true);
-    try {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/dashboard`
-        }
-      });
 
-      if (error) {
-        if (error.message.includes("already registered")) {
-          toast.error("This email is already registered. Please log in instead.");
-        } else {
-          toast.error(error.message);
-        }
-      } else {
-        toast.success("Account created successfully! You can now log in.");
-        setIsLogin(true);
-      }
-    } catch (error) {
-      toast.error("An unexpected error occurred");
-    } finally {
+    const emailValidation = emailSchema.safeParse(email);
+    const passwordValidation = passwordSchema.safeParse(password);
+
+    if (!emailValidation.success) {
+      toast.error(emailValidation.error.errors[0].message);
       setLoading(false);
+      return;
     }
-  };
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validateInputs()) return;
+    if (!passwordValidation.success) {
+      toast.error(passwordValidation.error.errors[0].message);
+      setLoading(false);
+      return;
+    }
 
-    setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      if (isLogin) {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
 
-      if (error) {
-        if (error.message.includes("Invalid login credentials")) {
-          toast.error("Invalid email or password");
+        if (error) {
+          if (error.message.includes("Invalid login credentials")) {
+            toast.error("Invalid email or password");
+          } else {
+            toast.error(error.message);
+          }
         } else {
-          toast.error(error.message);
+          toast.success("Logged in successfully!");
+          navigate("/dashboard");
         }
       } else {
-        toast.success("Logged in successfully!");
-        navigate("/dashboard");
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/dashboard`,
+          },
+        });
+
+        if (error) {
+          if (error.message.includes("User already registered")) {
+            toast.error("This email is already registered. Please login instead.");
+          } else {
+            toast.error(error.message);
+          }
+        } else {
+          toast.success("Account created! You can now log in.");
+          setIsLogin(true);
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
       toast.error("An unexpected error occurred");
     } finally {
       setLoading(false);
@@ -105,7 +95,7 @@ const Auth = () => {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>{isLogin ? "Welcome Back" : "Create Account"}</CardTitle>
+          <CardTitle>{isLogin ? "Login" : "Create Account"}</CardTitle>
           <CardDescription>
             {isLogin
               ? "Enter your credentials to access your account"
@@ -113,17 +103,17 @@ const Auth = () => {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={isLogin ? handleLogin : handleSignUp} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
                 type="email"
-                placeholder="you@example.com"
+                placeholder="your@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                disabled={loading}
+                autoComplete="email"
               />
             </div>
             <div className="space-y-2">
@@ -135,29 +125,27 @@ const Auth = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                disabled={loading}
-                minLength={6}
+                autoComplete={isLogin ? "current-password" : "new-password"}
               />
               {!isLogin && (
                 <p className="text-xs text-muted-foreground">
-                  Must be at least 6 characters
+                  Must be at least 8 characters
                 </p>
               )}
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Please wait..." : isLogin ? "Log In" : "Sign Up"}
+              {loading ? "Processing..." : isLogin ? "Login" : "Sign Up"}
             </Button>
           </form>
-          <div className="mt-4 text-center text-sm">
+          <div className="mt-4 text-center">
             <button
               type="button"
               onClick={() => setIsLogin(!isLogin)}
-              className="text-primary hover:underline"
-              disabled={loading}
+              className="text-sm text-primary hover:underline"
             >
               {isLogin
                 ? "Don't have an account? Sign up"
-                : "Already have an account? Log in"}
+                : "Already have an account? Login"}
             </button>
           </div>
         </CardContent>

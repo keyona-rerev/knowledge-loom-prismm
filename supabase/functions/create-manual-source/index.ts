@@ -31,7 +31,15 @@ serve(async (req) => {
     const requestBody = await req.json();
     console.log("📦 Request body:", requestBody);
 
-    const { type, url } = requestBody;
+    const { type, url, user_id } = requestBody;
+
+    if (!user_id) {
+      console.error("❌ Missing user_id");
+      return new Response(JSON.stringify({ error: "Authentication required - user_id missing" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     if (type !== "url" || !url) {
       console.log("❌ Invalid parameters:", { type, url });
@@ -58,7 +66,7 @@ serve(async (req) => {
       }
     } catch (fetchError) {
       console.error("❌ Fetch failed:", fetchError);
-      return new Response(JSON.stringify({ error: `Failed to fetch URL: ${fetchError.message}` }), {
+      return new Response(JSON.stringify({ error: `Failed to fetch URL: ${fetchError instanceof Error ? fetchError.message : 'Unknown error'}` }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -109,7 +117,7 @@ serve(async (req) => {
         feed_type: "manual",
         is_active: true,
         credibility_score: 5,
-        user_id: "00000000-0000-0000-0000-000000000000", // Default user ID for no auth
+        user_id: user_id,
       })
       .select()
       .single();
@@ -133,14 +141,20 @@ serve(async (req) => {
         source_feed_id: feedData?.id,
         status: "processing",
         global_relevance_score: 5,
-        user_id: "00000000-0000-0000-0000-000000000000", // Default user ID for no auth
+        user_id: user_id,
       })
       .select()
       .single();
 
     if (insertError) {
       console.error("❌ Failed to create reference card:", insertError);
-      throw new Error(`Database error: ${insertError.message}`);
+      return new Response(
+        JSON.stringify({
+          error: "Failed to create reference card",
+          details: insertError.message,
+        }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     console.log("✅ Reference card created:", cardData.id);

@@ -173,6 +173,56 @@ export type Database = {
           },
         ]
       }
+      insight_cards: {
+        Row: {
+          content: string
+          context: string | null
+          created_at: string
+          id: string
+          insight_type: string | null
+          priority: number | null
+          status: string | null
+          tags: string[] | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          context?: string | null
+          created_at?: string
+          id?: string
+          insight_type?: string | null
+          priority?: number | null
+          status?: string | null
+          tags?: string[] | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          context?: string | null
+          created_at?: string
+          id?: string
+          insight_type?: string | null
+          priority?: number | null
+          status?: string | null
+          tags?: string[] | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "insight_cards_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       insight_ratings: {
         Row: {
           created_at: string | null

@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { ArrowLeft, Sparkles, Lightbulb } from "lucide-react";
+import { useEmailNotifications } from "@/hooks/useEmailNotifications";
 
 // Define types based on existing patterns
 interface ContentDirection {
@@ -26,6 +27,8 @@ interface InsightCard {
 
 const CreateContent = () => {
   const navigate = useNavigate();
+  const { sendDraftNotification } = useEmailNotifications();
+  
   const [seedInsight, setSeedInsight] = useState("");
   const [seedCategory, setSeedCategory] = useState<string>("thesis");
   const [loading, setLoading] = useState(false);
@@ -52,10 +55,8 @@ const CreateContent = () => {
 
   // NEW FUNCTION: Load user's insight cards
   const loadInsightCards = async () => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
+    const { data: { session } } = await supabase.auth.getSession();
+    
     const { data, error } = await supabase
       .from("insight_cards")
       .select("id, title, content, insight_type")
@@ -66,7 +67,7 @@ const CreateContent = () => {
     if (error) {
       console.error("Error loading insight cards:", error);
       // If table doesn't exist yet, fail gracefully
-      if (error.code === "42P01") {
+      if (error.code === '42P01') {
         console.log("Insight cards table not created yet - this is expected during initial deployment");
         setInsightCards([]);
         return;
@@ -105,10 +106,10 @@ const CreateContent = () => {
     } else {
       setDirections(data.directions || []);
       setStep("directions");
-
+      
       // Load insight cards when directions are ready
       await loadInsightCards();
-
+      
       toast.success("Directions generated!");
     }
   };
@@ -124,9 +125,7 @@ const CreateContent = () => {
     setLoading(true);
     toast.info("Creating enhanced draft with your insights...");
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    const { data: { session } } = await supabase.auth.getSession();
 
     try {
       const { data, error } = await supabase.functions.invoke("generate-final-content", {
@@ -146,19 +145,20 @@ const CreateContent = () => {
         return;
       }
 
-      // Create draft with enhanced content
+      // Create draft with enhanced content - USE EXISTING COLUMNS ONLY
       const { data: draftData, error: draftError } = await supabase
         .from("drafts")
         .insert({
-          title: data.title || direction.title,
+          // Use seed_insight as the title since title column doesn't exist yet
+          seed_insight: data.title || direction.title,
           body: data.content,
           status: "draft",
           user_id: session?.user?.id,
-          seed_insight: seedInsight,
           seed_category: seedCategory,
           selected_direction: direction,
           content_type: "blog_post",
           revision_count: 0,
+          approval_status: "pending"
         })
         .select()
         .single();
@@ -168,14 +168,14 @@ const CreateContent = () => {
         const { data: draftData2, error: error2 } = await supabase
           .from("drafts")
           .insert({
-            title: data.title || direction.title,
+            seed_insight: data.title || direction.title,
             body: data.content,
             status: "draft",
             user_id: session?.user?.id,
-            seed_insight: seedInsight,
             seed_category: seedCategory,
             selected_direction: direction,
             revision_count: 0,
+            approval_status: "pending"
           })
           .select()
           .single();
@@ -184,9 +184,15 @@ const CreateContent = () => {
           throw error2;
         }
 
+        // Send notification for the created draft
+        sendDraftNotification(draftData2.id);
+        
         toast.success("Enhanced draft created with your insights!");
         navigate("/drafts");
       } else {
+        // Send notification for the created draft
+        sendDraftNotification(draftData.id);
+        
         toast.success("Enhanced draft created with your insights!");
         navigate("/drafts");
       }
@@ -198,7 +204,7 @@ const CreateContent = () => {
     }
   };
 
-  // ORIGINAL FUNCTION: Preserved exactly for backward compatibility
+  // ORIGINAL FUNCTION: Modified to work without title column and with notifications
   const handleSelectDirection = async (direction: ContentDirection) => {
     setLoading(true);
     toast.info("Creating draft from selected direction...");
@@ -208,19 +214,19 @@ const CreateContent = () => {
     } = await supabase.auth.getSession();
 
     try {
-      // Try different content_type values that might be allowed
+      // Use seed_insight as the title since title column doesn't exist
       const { data: draftData, error } = await supabase
         .from("drafts")
         .insert({
-          title: direction.title,
+          seed_insight: direction.title, // Using seed_insight as title
           body: `# ${direction.title}\n\n${direction.description}\n\n**Angle:** ${direction.angle}\n\n**Original Insight:** ${seedInsight}`,
           status: "draft",
           user_id: session?.user?.id,
-          seed_insight: seedInsight,
           seed_category: seedCategory,
           selected_direction: direction,
-          content_type: "blog_post", // Try this common value
+          content_type: "blog_post",
           revision_count: 0,
+          approval_status: "pending"
         })
         .select()
         .single();
@@ -230,15 +236,14 @@ const CreateContent = () => {
         const { data: draftData2, error: error2 } = await supabase
           .from("drafts")
           .insert({
-            title: direction.title,
+            seed_insight: direction.title, // Using seed_insight as title
             body: `# ${direction.title}\n\n${direction.description}\n\n**Angle:** ${direction.angle}\n\n**Original Insight:** ${seedInsight}`,
             status: "draft",
             user_id: session?.user?.id,
-            seed_insight: seedInsight,
             seed_category: seedCategory,
             selected_direction: direction,
             revision_count: 0,
-            // Omit content_type entirely
+            approval_status: "pending"
           })
           .select()
           .single();
@@ -247,9 +252,15 @@ const CreateContent = () => {
           throw error2;
         }
 
+        // Send notification for the created draft
+        sendDraftNotification(draftData2.id);
+        
         toast.success("Draft created successfully!");
         navigate("/drafts");
       } else {
+        // Send notification for the created draft
+        sendDraftNotification(draftData.id);
+        
         toast.success("Draft created successfully!");
         navigate("/drafts");
       }
@@ -262,8 +273,10 @@ const CreateContent = () => {
   };
 
   const toggleInsightCard = (insightId: string) => {
-    setSelectedInsightCards((prev) =>
-      prev.includes(insightId) ? prev.filter((id) => id !== insightId) : [...prev, insightId],
+    setSelectedInsightCards(prev => 
+      prev.includes(insightId) 
+        ? prev.filter(id => id !== insightId)
+        : [...prev, insightId]
     );
   };
 
@@ -336,13 +349,18 @@ const CreateContent = () => {
                   <CardDescription>
                     Select the direction that resonates most
                     {insightCards.length > 0 && (
-                      <span className="ml-2 text-sm">• {selectedInsightCards.length} insights selected</span>
+                      <span className="ml-2 text-sm">
+                        • {selectedInsightCards.length} insights selected
+                      </span>
                     )}
                   </CardDescription>
                 </div>
                 <div className="flex gap-2">
                   {insightCards.length > 0 && (
-                    <Button variant="outline" onClick={() => setShowInsightSelection(!showInsightSelection)}>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => setShowInsightSelection(!showInsightSelection)}
+                    >
                       <Lightbulb className="mr-2 h-4 w-4" />
                       {showInsightSelection ? "Hide Insights" : "Add Insights"}
                     </Button>
@@ -353,14 +371,16 @@ const CreateContent = () => {
                 </div>
               </div>
             </CardHeader>
-
+            
             <CardContent className="space-y-6">
               {/* NEW: Insight Card Selection Section */}
               {showInsightSelection && insightCards.length > 0 && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-lg">Select Insight Cards</CardTitle>
-                    <CardDescription>Choose relevant insights to enhance your content</CardDescription>
+                    <CardDescription>
+                      Choose relevant insights to enhance your content
+                    </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3 max-h-60 overflow-y-auto">
                     {insightCards.map((insight) => (
@@ -376,7 +396,9 @@ const CreateContent = () => {
                               {insight.insight_type}
                             </span>
                           </div>
-                          <p className="text-sm text-muted-foreground line-clamp-2">{insight.content}</p>
+                          <p className="text-sm text-muted-foreground line-clamp-2">
+                            {insight.content}
+                          </p>
                         </div>
                       </div>
                     ))}
@@ -401,7 +423,8 @@ const CreateContent = () => {
                         </div>
                         {selectedInsightCards.length > 0 && (
                           <div className="flex items-center gap-1 text-xs text-primary bg-primary/10 px-2 py-1 rounded">
-                            <Lightbulb className="h-3 w-3" />+{selectedInsightCards.length} insights
+                            <Lightbulb className="h-3 w-3" />
+                            +{selectedInsightCards.length} insights
                           </div>
                         )}
                       </div>

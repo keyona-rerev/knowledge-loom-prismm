@@ -1,13 +1,76 @@
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Sparkles, Rss, Database, FileEdit, Settings, Plus, MessageCircleQuestion, LogOut } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { FileText, Sparkles, Rss, Database, FileEdit, Settings, Plus, MessageCircleQuestion, LogOut, CheckCheck, Clock, Ban, Lightbulb } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useState, useEffect } from "react";
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const [stats, setStats] = useState({
+    pendingReviews: 0,
+    approvedDrafts: 0,
+    rejectedDrafts: 0,
+    totalInsights: 0,
+    activeTemplates: 0
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadDashboardStats();
+  }, []);
+
+  const loadDashboardStats = async () => {
+    setLoading(true);
+    const { data: { session } } = await supabase.auth.getSession();
+
+    try {
+      // Get draft counts by approval status
+      const { data: drafts, error: draftsError } = await supabase
+        .from("drafts")
+        .select("approval_status")
+        .eq("user_id", session?.user?.id);
+
+      if (draftsError) throw draftsError;
+
+      const pendingReviews = drafts?.filter(d => d.approval_status === "pending").length || 0;
+      const approvedDrafts = drafts?.filter(d => d.approval_status === "approved").length || 0;
+      const rejectedDrafts = drafts?.filter(d => d.approval_status === "rejected").length || 0;
+
+      // Get insight cards count
+      const { data: insights, error: insightsError } = await supabase
+        .from("insight_cards")
+        .select("id")
+        .eq("user_id", session?.user?.id)
+        .eq("status", "active");
+
+      if (insightsError && insightsError.code !== '42P01') throw insightsError;
+
+      // Get active templates count
+      const { data: templates, error: templatesError } = await supabase
+        .from("autopilot_templates")
+        .select("id")
+        .eq("user_id", session?.user?.id)
+        .eq("is_active", true);
+
+      if (templatesError) throw templatesError;
+
+      setStats({
+        pendingReviews,
+        approvedDrafts,
+        rejectedDrafts,
+        totalInsights: insights?.length || 0,
+        activeTemplates: templates?.length || 0
+      });
+    } catch (error) {
+      console.error("Error loading dashboard stats:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
@@ -19,6 +82,39 @@ const Dashboard = () => {
     }
   };
 
+  const approvalPipeline = [
+    {
+      title: "Pending Review",
+      count: stats.pendingReviews,
+      description: "Drafts awaiting your approval",
+      icon: Clock,
+      path: "/review",
+      color: "text-yellow-500",
+      badgeVariant: "outline" as const,
+      badgeClass: "bg-yellow-50 text-yellow-700 border-yellow-200"
+    },
+    {
+      title: "Approved",
+      count: stats.approvedDrafts,
+      description: "Drafts ready for publishing",
+      icon: CheckCheck,
+      path: "/drafts",
+      color: "text-green-500",
+      badgeVariant: "outline" as const,
+      badgeClass: "bg-green-50 text-green-700 border-green-200"
+    },
+    {
+      title: "Rejected",
+      count: stats.rejectedDrafts,
+      description: "Drafts that need revision",
+      icon: Ban,
+      path: "/drafts",
+      color: "text-red-500",
+      badgeVariant: "outline" as const,
+      badgeClass: "bg-red-50 text-red-700 border-red-200"
+    }
+  ];
+
   const gettingStarted = [
     {
       title: "Feed Manager",
@@ -26,6 +122,13 @@ const Dashboard = () => {
       icon: Rss,
       path: "/feeds",
       color: "text-orange-500",
+    },
+    {
+      title: "Observation Journal",
+      description: "Capture and manage your insights",
+      icon: Lightbulb,
+      path: "/insights",
+      color: "text-amber-500",
     },
     {
       title: "Question Settings",
@@ -68,6 +171,13 @@ const Dashboard = () => {
       path: "/autopilot",
       color: "text-purple-500",
     },
+    {
+      title: "Review Queue",
+      description: "Approve or reject automated drafts",
+      icon: CheckCheck,
+      path: "/review",
+      color: "text-blue-500",
+    },
   ];
 
   const configuration = [
@@ -103,20 +213,99 @@ const Dashboard = () => {
         <InstructionsToggle 
           instructions={`Getting Started:
 1. Add your first RSS feed or create a manual source
-2. Configure questions to extract insights from content
-3. Create content using your collected insights
+2. Capture insights in your Observation Journal
+3. Configure questions to extract insights from content
+4. Create content using your collected insights
+5. Set up automations and review generated drafts
 
-The dashboard is organized into sections to help you navigate easily.`}
+The dashboard shows your content pipeline and quick access to all features.`}
         />
 
         <div className="space-y-8">
+          {/* Approval Pipeline Section */}
+          {stats.pendingReviews > 0 && (
+            <section>
+              <div className="flex items-center gap-2 mb-4">
+                <CheckCheck className="h-5 w-5 text-primary" />
+                <h3 className="text-xl font-semibold">Approval Pipeline</h3>
+                {stats.pendingReviews > 0 && (
+                  <Badge variant="destructive" className="ml-2">
+                    {stats.pendingReviews} needs attention
+                  </Badge>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {approvalPipeline.map((item) => (
+                  <Card
+                    key={item.path}
+                    className={`cursor-pointer hover:shadow-lg transition-shadow ${
+                      item.title === "Pending Review" && item.count > 0 
+                        ? "border-2 border-yellow-300 bg-yellow-50" 
+                        : "border-2 border-primary/20"
+                    }`}
+                    onClick={() => navigate(item.path)}
+                  >
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <item.icon className={`h-8 w-8 ${item.color}`} />
+                          <CardTitle className="text-lg">{item.title}</CardTitle>
+                        </div>
+                        <Badge 
+                          variant={item.badgeVariant} 
+                          className={item.badgeClass}
+                        >
+                          {item.count}
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <CardDescription>{item.description}</CardDescription>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Quick Stats */}
+          <section>
+            <h3 className="text-xl font-semibold mb-4">At a Glance</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <Card>
+                <CardContent className="p-4 text-center">
+                  <div className="text-2xl font-bold text-blue-600">{stats.totalInsights}</div>
+                  <div className="text-sm text-muted-foreground">Insight Cards</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 text-center">
+                  <div className="text-2xl font-bold text-purple-600">{stats.activeTemplates}</div>
+                  <div className="text-sm text-muted-foreground">Active Automations</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 text-center">
+                  <div className="text-2xl font-bold text-yellow-600">{stats.pendingReviews}</div>
+                  <div className="text-sm text-muted-foreground">Pending Reviews</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 text-center">
+                  <div className="text-2xl font-bold text-green-600">{stats.approvedDrafts}</div>
+                  <div className="text-sm text-muted-foreground">Approved Drafts</div>
+                </CardContent>
+              </Card>
+            </div>
+          </section>
+
           {/* Getting Started Section */}
           <section>
             <div className="flex items-center gap-2 mb-4">
               <Plus className="h-5 w-5 text-primary" />
               <h3 className="text-xl font-semibold">Getting Started</h3>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {gettingStarted.map((item) => (
                 <Card
                   key={item.path}

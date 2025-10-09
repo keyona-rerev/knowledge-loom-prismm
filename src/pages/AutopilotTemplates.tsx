@@ -5,12 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, ToggleLeft, ToggleRight, Edit, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, ToggleLeft, ToggleRight, Edit, Trash2, Clock, CheckCheck, Play } from "lucide-react";
 
 const AutopilotTemplates = () => {
   const navigate = useNavigate();
   const [templates, setTemplates] = useState<any[]>([]);
   const [templateCount, setTemplateCount] = useState(0);
+  const [draftStats, setDraftStats] = useState<{[key: string]: number}>({});
   const MAX_TEMPLATES = 12;
 
   const loadTemplates = async () => {
@@ -31,7 +32,34 @@ const AutopilotTemplates = () => {
     } else {
       setTemplates(data || []);
       setTemplateCount(count || 0);
+      loadDraftStats(data || []);
     }
+  };
+
+  const loadDraftStats = async (templates: any[]) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const templateIds = templates.map(t => t.id);
+    if (templateIds.length === 0) return;
+
+    const { data, error } = await supabase
+      .from("drafts")
+      .select("autopilot_template_id, approval_status")
+      .in("autopilot_template_id", templateIds);
+
+    if (error) {
+      console.error("Error loading draft stats:", error);
+      return;
+    }
+
+    const stats: {[key: string]: number} = {};
+    templates.forEach(template => {
+      const templateDrafts = data?.filter(d => d.autopilot_template_id === template.id) || [];
+      stats[template.id] = templateDrafts.filter(d => d.approval_status === 'pending').length;
+    });
+
+    setDraftStats(stats);
   };
 
   useEffect(() => {
@@ -70,9 +98,77 @@ const AutopilotTemplates = () => {
     }
   };
 
-  const testRunTemplate = async (template: any) => {
-    toast.info("Running test generation...");
-    // TODO: Implement test run functionality
+ // ❌ REPLACE THIS WHOLE FUNCTION (lines ~78-100):
+const testRunTemplate = async (template: any) => {
+  toast.info("Running test generation...");
+  
+  try {
+    const { data, error } = await supabase.functions.invoke("pull-rss-feed", {
+      body: {
+        templateId: template.id,
+        isTestRun: true
+      }
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    if (data.success) {
+      toast.success("Test run completed! Check your review queue for the new draft.");
+      loadTemplates(); // Refresh to show new draft count
+    } else {
+      toast.error("Test run failed: " + (data.error || "Unknown error"));
+    }
+  } catch (error) {
+    console.error("Test run error:", error);
+    toast.error("Test run failed");
+  }
+};
+
+// ✅ WITH THIS UPDATED VERSION:
+const testRunTemplate = async (template: any) => {
+  toast.info("Running test generation...");
+  
+  try {
+    const { data, error } = await supabase.functions.invoke("execute-autopilot-template", {
+      body: {
+        templateId: template.id,
+        isTestRun: true
+      }
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    if (data.success) {
+      toast.success(`Test run completed! Created ${data.draftsCreated} draft(s). Check your review queue.`);
+      loadTemplates(); // Refresh to show new draft count
+    } else {
+      toast.error("Test run failed: " + (data.error || "Unknown error"));
+    }
+  } catch (error) {
+    console.error("Test run error:", error);
+    toast.error("Test run failed");
+  }
+};
+
+  const getNextRunTime = (template: any) => {
+    if (!template.is_active) return "Paused";
+    if (template.next_run_at) {
+      return new Date(template.next_run_at).toLocaleDateString();
+    }
+    
+    // Fallback calculation based on frequency
+    const now = new Date();
+    switch (template.frequency) {
+      case 'daily': return 'Tomorrow';
+      case 'weekly': return 'Next week';
+      case 'biweekly': return 'In 2 weeks';
+      case 'monthly': return 'Next month';
+      default: return 'Soon';
+    }
   };
 
   return (
@@ -108,16 +204,32 @@ const AutopilotTemplates = () => {
 
         <div className="grid gap-4">
           {templates.map((template) => (
-            <Card key={template.id}>
+            <Card key={template.id} className="hover:shadow-md transition-shadow">
               <CardHeader>
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
-                    <CardTitle>{template.name}</CardTitle>
+                    <div className="flex items-center gap-3 mb-2">
+                      <CardTitle>{template.name}</CardTitle>
+                      {draftStats[template.id] > 0 && (
+                        <Badge variant="destructive" className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {draftStats[template.id]} pending
+                        </Badge>
+                      )}
+                    </div>
                     <CardDescription className="mt-1">
-                      {template.frequency} • {template.output_format}
+                      {template.frequency} • {template.output_format} • Next run: {getNextRunTime(template)}
                     </CardDescription>
                   </div>
                   <div className="flex gap-2">
+                    <Button 
+                      variant="outline"
+                      size="sm"
+                      onClick={() => testRunTemplate(template)}
+                    >
+                      <Play className="h-4 w-4 mr-1" />
+                      Test Run
+                    </Button>
                     <Button 
                       variant="ghost" 
                       size="icon" 
@@ -150,6 +262,9 @@ const AutopilotTemplates = () => {
                   <Badge variant={template.is_active ? "default" : "secondary"}>
                     {template.is_active ? "Active" : "Inactive"}
                   </Badge>
+                  <Badge variant="outline">
+                    Requires Approval
+                  </Badge>
                   {template.topic_filters?.map((topic: string) => (
                     <Badge key={topic} variant="outline">{topic}</Badge>
                   ))}
@@ -158,13 +273,16 @@ const AutopilotTemplates = () => {
                   <span className="text-sm text-muted-foreground">
                     {template.source_feed_ids?.length || 0} feeds configured
                   </span>
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => testRunTemplate(template)}
-                  >
-                    Test Run
-                  </Button>
+                  {draftStats[template.id] > 0 && (
+                    <Button 
+                      variant="default" 
+                      size="sm"
+                      onClick={() => navigate("/review")}
+                    >
+                      <CheckCheck className="h-4 w-4 mr-1" />
+                      Review Drafts
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>

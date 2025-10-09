@@ -10,13 +10,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ArrowLeft, Save, X } from "lucide-react";
+import { ArrowLeft, Save, X, CheckCheck } from "lucide-react";
 
 const AutopilotTemplateEditor = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [isEditing] = useState(!!id); // If we have an ID, we're editing
+  const [isEditing] = useState(!!id);
   const [availableFeeds, setAvailableFeeds] = useState<any[]>([]);
   const [availableTemplates, setAvailableTemplates] = useState<any[]>([]);
 
@@ -26,21 +26,20 @@ const AutopilotTemplateEditor = () => {
     frequency: "weekly",
     source_feed_ids: [] as string[],
     topic_filters: [] as string[],
-    output_format: "text", // Use the correct allowed values: "text" or "visual"
+    output_format: "text",
     use_global_questions: true,
     custom_template_id: null as string | null,
+    approval_required: true,
   });
 
   const [newTopic, setNewTopic] = useState("");
 
-  // Load available feeds and templates
   const loadData = async () => {
     const {
       data: { session },
     } = await supabase.auth.getSession();
     if (!session) return;
 
-    // Load feeds
     const { data: feedsData } = await supabase
       .from("source_feeds")
       .select("id, name")
@@ -49,7 +48,6 @@ const AutopilotTemplateEditor = () => {
 
     setAvailableFeeds(feedsData || []);
 
-    // Load reference card templates
     const { data: templatesData } = await supabase
       .from("reference_card_templates")
       .select("id, name")
@@ -58,7 +56,6 @@ const AutopilotTemplateEditor = () => {
     setAvailableTemplates(templatesData || []);
   };
 
-  // Load template data if editing
   const loadTemplate = async () => {
     if (!id) return;
 
@@ -74,9 +71,10 @@ const AutopilotTemplateEditor = () => {
         frequency: data.frequency || "weekly",
         source_feed_ids: data.source_feed_ids || [],
         topic_filters: data.topic_filters || [],
-        output_format: data.output_format || "text", // Use correct default
+        output_format: data.output_format || "text",
         use_global_questions: data.use_global_questions ?? true,
         custom_template_id: data.custom_template_id || null,
+        approval_required: data.approval_required !== false,
       });
     }
   };
@@ -131,7 +129,6 @@ const AutopilotTemplateEditor = () => {
       console.log("🟡 Saving template with data:", formData);
 
       if (isEditing) {
-        // Update existing template
         const { data, error } = await supabase
           .from("autopilot_templates")
           .update({
@@ -143,6 +140,7 @@ const AutopilotTemplateEditor = () => {
             output_format: formData.output_format,
             use_global_questions: formData.use_global_questions,
             custom_template_id: formData.custom_template_id,
+            approval_required: formData.approval_required,
             updated_at: new Date().toISOString(),
           })
           .eq("id", id)
@@ -155,7 +153,6 @@ const AutopilotTemplateEditor = () => {
         console.log("✅ Template updated:", data);
         toast.success("Template updated successfully");
       } else {
-        // Create new template
         const { data, error } = await supabase
           .from("autopilot_templates")
           .insert([
@@ -168,6 +165,7 @@ const AutopilotTemplateEditor = () => {
               output_format: formData.output_format,
               use_global_questions: formData.use_global_questions,
               custom_template_id: formData.custom_template_id,
+              approval_required: formData.approval_required,
               user_id: session.user.id,
             },
           ])
@@ -338,6 +336,43 @@ const AutopilotTemplateEditor = () => {
                   </Select>
                 </div>
               )}
+
+              {/* Approval Settings Section */}
+              <div className="border-t pt-6">
+                <CardTitle className="text-lg mb-4">Approval Settings</CardTitle>
+                
+                <div className="flex items-center space-x-2 mb-4">
+                  <Switch
+                    checked={formData.approval_required}
+                    onCheckedChange={(checked) => setFormData((prev) => ({ 
+                      ...prev, 
+                      approval_required: checked 
+                    }))}
+                  />
+                  <Label className="flex items-center gap-2">
+                    Require approval before publishing
+                    <Badge variant="outline" className="text-xs">
+                      Recommended
+                    </Badge>
+                  </Label>
+                </div>
+
+                {formData.approval_required && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div className="flex items-start gap-3">
+                      <CheckCheck className="h-5 w-5 text-blue-600 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-medium text-blue-900 mb-1">
+                          Human-in-the-Loop Workflow
+                        </p>
+                        <p className="text-sm text-blue-700">
+                          Drafts will be created with 'pending' status and appear in your review queue for approval before publishing.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => navigate("/autopilot")}>

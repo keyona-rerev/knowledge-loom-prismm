@@ -16,6 +16,8 @@ import AutopilotTemplates from "./pages/AutopilotTemplates";
 import AutopilotTemplateEditor from "./pages/AutopilotTemplateEditor";
 import QuestionSettings from "./pages/QuestionSettings";
 import Auth from "./pages/Auth";
+import Insights from "./pages/Insights";
+import InsightDetail from "./pages/InsightDetail";
 
 const queryClient = new QueryClient();
 
@@ -41,6 +43,10 @@ const App = () => (
           <Route path="/autopilot/new" element={<AutopilotTemplateEditor />} />
           <Route path="/autopilot/:id/edit" element={<AutopilotTemplateEditor />} />
           <Route path="/questions" element={<QuestionSettings />} />
+          <Route path="/insights" element={<Insights />} />
+          <Route path="/insights/new" element={<InsightDetail />} />
+          <Route path="/insights/:id" element={<InsightDetail />} />
+          <Route path="/review" element={<Review />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

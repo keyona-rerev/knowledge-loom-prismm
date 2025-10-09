@@ -6,8 +6,23 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { ArrowLeft, Sparkles } from "lucide-react";
+import { ArrowLeft, Sparkles, Lightbulb } from "lucide-react";
+
+// Define types based on existing patterns
+interface ContentDirection {
+  title: string;
+  description: string;
+  angle: string;
+}
+
+interface InsightCard {
+  id: string;
+  title: string;
+  content: string;
+  insight_type: string;
+}
 
 const CreateContent = () => {
   const navigate = useNavigate();
@@ -15,6 +30,11 @@ const CreateContent = () => {
   const [seedCategory, setSeedCategory] = useState<string>("thesis");
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<"input" | "directions" | "cards">("input");
+
+  // NEW STATE: Insight cards integration
+  const [insightCards, setInsightCards] = useState<InsightCard[]>([]);
+  const [selectedInsightCards, setSelectedInsightCards] = useState<string[]>([]);
+  const [showInsightSelection, setShowInsightSelection] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -28,7 +48,34 @@ const CreateContent = () => {
     checkAuth();
   }, [navigate]);
 
-  const [directions, setDirections] = useState<any[]>([]);
+  const [directions, setDirections] = useState<ContentDirection[]>([]);
+
+  // NEW FUNCTION: Load user's insight cards
+  const loadInsightCards = async () => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    const { data, error } = await supabase
+      .from("insight_cards")
+      .select("id, title, content, insight_type")
+      .eq("user_id", session?.user?.id)
+      .eq("status", "active")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error loading insight cards:", error);
+      // If table doesn't exist yet, fail gracefully
+      if (error.code === "42P01") {
+        console.log("Insight cards table not created yet - this is expected during initial deployment");
+        setInsightCards([]);
+        return;
+      }
+      toast.error("Failed to load insight cards");
+    } else {
+      setInsightCards(data || []);
+    }
+  };
 
   const handleGenerateDirections = async () => {
     if (!seedInsight.trim()) {
@@ -58,11 +105,101 @@ const CreateContent = () => {
     } else {
       setDirections(data.directions || []);
       setStep("directions");
+
+      // Load insight cards when directions are ready
+      await loadInsightCards();
+
       toast.success("Directions generated!");
     }
   };
 
-  const handleSelectDirection = async (direction: any) => {
+  // NEW FUNCTION: Enhanced content generation with insight cards
+  const handleGenerateWithInsights = async (direction: ContentDirection) => {
+    if (selectedInsightCards.length === 0) {
+      // Fall back to original behavior if no insight cards selected
+      await handleSelectDirection(direction);
+      return;
+    }
+
+    setLoading(true);
+    toast.info("Creating enhanced draft with your insights...");
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-final-content", {
+        body: {
+          direction,
+          seedInsight,
+          seedCategory,
+          insightCardIds: selectedInsightCards,
+          userId: session?.user?.id,
+        },
+      });
+
+      if (error) {
+        // If enhanced function fails, fall back to original
+        console.warn("Enhanced content generation failed, falling back to basic:", error);
+        await handleSelectDirection(direction);
+        return;
+      }
+
+      // Create draft with enhanced content
+      const { data: draftData, error: draftError } = await supabase
+        .from("drafts")
+        .insert({
+          title: data.title || direction.title,
+          body: data.content,
+          status: "draft",
+          user_id: session?.user?.id,
+          seed_insight: seedInsight,
+          seed_category: seedCategory,
+          selected_direction: direction,
+          content_type: "blog_post",
+          revision_count: 0,
+        })
+        .select()
+        .single();
+
+      if (draftError) {
+        // Try without content_type if that fails
+        const { data: draftData2, error: error2 } = await supabase
+          .from("drafts")
+          .insert({
+            title: data.title || direction.title,
+            body: data.content,
+            status: "draft",
+            user_id: session?.user?.id,
+            seed_insight: seedInsight,
+            seed_category: seedCategory,
+            selected_direction: direction,
+            revision_count: 0,
+          })
+          .select()
+          .single();
+
+        if (error2) {
+          throw error2;
+        }
+
+        toast.success("Enhanced draft created with your insights!");
+        navigate("/drafts");
+      } else {
+        toast.success("Enhanced draft created with your insights!");
+        navigate("/drafts");
+      }
+    } catch (error) {
+      console.error("Failed to create enhanced draft:", error);
+      toast.error("Failed to create draft: " + (error as any)?.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ORIGINAL FUNCTION: Preserved exactly for backward compatibility
+  const handleSelectDirection = async (direction: ContentDirection) => {
     setLoading(true);
     toast.info("Creating draft from selected direction...");
 
@@ -122,6 +259,12 @@ const CreateContent = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const toggleInsightCard = (insightId: string) => {
+    setSelectedInsightCards((prev) =>
+      prev.includes(insightId) ? prev.filter((id) => id !== insightId) : [...prev, insightId],
+    );
   };
 
   return (
@@ -190,25 +333,78 @@ const CreateContent = () => {
               <div className="flex justify-between items-center">
                 <div>
                   <CardTitle>Content Directions</CardTitle>
-                  <CardDescription>Select the direction that resonates most</CardDescription>
+                  <CardDescription>
+                    Select the direction that resonates most
+                    {insightCards.length > 0 && (
+                      <span className="ml-2 text-sm">• {selectedInsightCards.length} insights selected</span>
+                    )}
+                  </CardDescription>
                 </div>
-                <Button variant="outline" onClick={() => setStep("input")}>
-                  Back
-                </Button>
+                <div className="flex gap-2">
+                  {insightCards.length > 0 && (
+                    <Button variant="outline" onClick={() => setShowInsightSelection(!showInsightSelection)}>
+                      <Lightbulb className="mr-2 h-4 w-4" />
+                      {showInsightSelection ? "Hide Insights" : "Add Insights"}
+                    </Button>
+                  )}
+                  <Button variant="outline" onClick={() => setStep("input")}>
+                    Back
+                  </Button>
+                </div>
               </div>
             </CardHeader>
-            <CardContent>
+
+            <CardContent className="space-y-6">
+              {/* NEW: Insight Card Selection Section */}
+              {showInsightSelection && insightCards.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Select Insight Cards</CardTitle>
+                    <CardDescription>Choose relevant insights to enhance your content</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3 max-h-60 overflow-y-auto">
+                    {insightCards.map((insight) => (
+                      <div key={insight.id} className="flex items-start space-x-3 p-3 border rounded-lg">
+                        <Checkbox
+                          checked={selectedInsightCards.includes(insight.id)}
+                          onCheckedChange={() => toggleInsightCard(insight.id)}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-sm font-medium">{insight.title}</span>
+                            <span className="text-xs bg-secondary text-secondary-foreground px-2 py-1 rounded">
+                              {insight.insight_type}
+                            </span>
+                          </div>
+                          <p className="text-sm text-muted-foreground line-clamp-2">{insight.content}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Original Directions List - Enhanced */}
               <div className="space-y-4">
                 {directions.map((dir, i) => (
                   <Card
                     key={i}
                     className="cursor-pointer hover:border-primary transition-colors"
-                    onClick={() => handleSelectDirection(dir)}
+                    onClick={() => handleGenerateWithInsights(dir)}
                   >
                     <CardContent className="p-4">
-                      <h3 className="font-semibold mb-2">{dir.title}</h3>
-                      <p className="text-sm text-muted-foreground mb-2">{dir.description}</p>
-                      <p className="text-xs text-muted-foreground italic">Angle: {dir.angle}</p>
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <h3 className="font-semibold mb-2">{dir.title}</h3>
+                          <p className="text-sm text-muted-foreground mb-2">{dir.description}</p>
+                          <p className="text-xs text-muted-foreground italic">Angle: {dir.angle}</p>
+                        </div>
+                        {selectedInsightCards.length > 0 && (
+                          <div className="flex items-center gap-1 text-xs text-primary bg-primary/10 px-2 py-1 rounded">
+                            <Lightbulb className="h-3 w-3" />+{selectedInsightCards.length} insights
+                          </div>
+                        )}
+                      </div>
                     </CardContent>
                   </Card>
                 ))}

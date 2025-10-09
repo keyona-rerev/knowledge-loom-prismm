@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.generate-content-directions]
 verify_jwt = false
+
+[functions.generate-final-content]
+verify_jwt = false

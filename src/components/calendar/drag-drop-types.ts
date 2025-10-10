@@ -4,9 +4,10 @@ export interface CalendarSlot {
   user_id: string;
   draft_id: string;
   scheduled_date: string;
-  content_type: 'blog_post' | 'newsletter' | 'social_post' | 'video_script';
-  status: 'scheduled' | 'published' | 'cancelled';
+  content_type: string;
+  status: string;
   created_at: string;
+  updated_at?: string;
   draft?: {
     id: string;
     title: string;

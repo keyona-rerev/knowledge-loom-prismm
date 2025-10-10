@@ -17,6 +17,7 @@ export type Database = {
       autopilot_templates: {
         Row: {
           approval_required: boolean | null
+          content_type: string | null
           created_at: string | null
           custom_template_id: string | null
           expected_delivery_time: string | null
@@ -36,6 +37,7 @@ export type Database = {
         }
         Insert: {
           approval_required?: boolean | null
+          content_type?: string | null
           created_at?: string | null
           custom_template_id?: string | null
           expected_delivery_time?: string | null
@@ -55,6 +57,7 @@ export type Database = {
         }
         Update: {
           approval_required?: boolean | null
+          content_type?: string | null
           created_at?: string | null
           custom_template_id?: string | null
           expected_delivery_time?: string | null
@@ -78,6 +81,47 @@ export type Database = {
             columns: ["custom_template_id"]
             isOneToOne: false
             referencedRelation: "reference_card_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      content_calendar: {
+        Row: {
+          content_type: string | null
+          created_at: string | null
+          draft_id: string | null
+          id: string
+          scheduled_date: string
+          status: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          content_type?: string | null
+          created_at?: string | null
+          draft_id?: string | null
+          id?: string
+          scheduled_date: string
+          status?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          content_type?: string | null
+          created_at?: string | null
+          draft_id?: string | null
+          id?: string
+          scheduled_date?: string
+          status?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "content_calendar_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "drafts"
             referencedColumns: ["id"]
           },
         ]
@@ -131,7 +175,10 @@ export type Database = {
           reference_card_ids: string[] | null
           review_notes: string | null
           reviewed_at: string | null
+          revised_from: string | null
           revision_count: number | null
+          revision_feedback: string | null
+          scheduled_publish_date: string | null
           seed_category: string | null
           seed_insight: string | null
           selected_direction: string | null
@@ -154,7 +201,10 @@ export type Database = {
           reference_card_ids?: string[] | null
           review_notes?: string | null
           reviewed_at?: string | null
+          revised_from?: string | null
           revision_count?: number | null
+          revision_feedback?: string | null
+          scheduled_publish_date?: string | null
           seed_category?: string | null
           seed_insight?: string | null
           selected_direction?: string | null
@@ -177,7 +227,10 @@ export type Database = {
           reference_card_ids?: string[] | null
           review_notes?: string | null
           reviewed_at?: string | null
+          revised_from?: string | null
           revision_count?: number | null
+          revision_feedback?: string | null
+          scheduled_publish_date?: string | null
           seed_category?: string | null
           seed_insight?: string | null
           selected_direction?: string | null
@@ -193,6 +246,13 @@ export type Database = {
             columns: ["autopilot_template_id"]
             isOneToOne: false
             referencedRelation: "autopilot_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drafts_revised_from_fkey"
+            columns: ["revised_from"]
+            isOneToOne: false
+            referencedRelation: "drafts"
             referencedColumns: ["id"]
           },
         ]

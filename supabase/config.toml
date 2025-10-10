@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.send-draft-notification]
 verify_jwt = false
+
+[functions.regenerate-draft-with-feedback]
+verify_jwt = false

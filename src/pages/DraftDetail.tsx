@@ -5,9 +5,19 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { ArrowLeft, FileText, Clock, Edit, Save } from "lucide-react";
+import { ArrowLeft, FileText, Clock, Edit, Save, Sparkles } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+
+interface ContentTemplate {
+  id: string;
+  name: string;
+  description: string;
+  output_format: string;
+  template_structure: any;
+}
 
 const DraftDetail = () => {
   const { id } = useParams();
@@ -16,6 +26,9 @@ const DraftDetail = () => {
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [editedBody, setEditedBody] = useState("");
+  const [templates, setTemplates] = useState<ContentTemplate[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<string>("");
+  const [regenerating, setRegenerating] = useState(false);
 
   const loadDraft = async () => {
     if (!id) return;
@@ -27,17 +40,45 @@ const DraftDetail = () => {
       .single();
 
     if (error) {
+      console.error("Error loading draft:", error);
       toast.error("Failed to load draft");
       navigate("/drafts");
     } else {
       setDraft(data);
       setEditedBody(data.body || "");
+      // ✅ FIXED: Use autopilot_template_id instead of template_id
+      setSelectedTemplate(data.autopilot_template_id || "");
       setLoading(false);
+    }
+  };
+
+  // Load available templates
+  const loadTemplates = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("content_templates")
+        .select("*")
+        .eq("is_active", true)
+        .order("name");
+
+      if (error) {
+        console.error("Error loading templates:", error);
+        if (error.code === '42P01') {
+          console.log("Content templates table not created yet");
+          setTemplates([]);
+          return;
+        }
+      } else {
+        setTemplates(data || []);
+      }
+    } catch (error) {
+      console.error("Error loading templates:", error);
     }
   };
 
   useEffect(() => {
     loadDraft();
+    loadTemplates();
   }, [id]);
 
   const handleSave = async () => {
@@ -57,6 +98,46 @@ const DraftDetail = () => {
       toast.success("Draft saved");
       setIsEditing(false);
       loadDraft(); // Reload to get updated timestamp
+    }
+  };
+
+  // NEW FUNCTION: Regenerate draft with template
+  const handleRegenerate = async () => {
+    if (!draft || !selectedTemplate) {
+      toast.error("Please select a template");
+      return;
+    }
+
+    setRegenerating(true);
+    toast.info("Regenerating draft with template...");
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const { data, error } = await supabase.functions.invoke("regenerate-draft-with-feedback", {
+        body: {
+          draftId: draft.id,
+          templateId: selectedTemplate,
+          userId: session?.user?.id,
+          feedback: "Regenerate with selected template structure"
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (data.success) {
+        toast.success("Draft regenerated with template!");
+        await loadDraft(); // Reload the updated draft
+      } else {
+        toast.error("Failed to regenerate draft");
+      }
+    } catch (error) {
+      console.error("Regeneration error:", error);
+      toast.error("Failed to regenerate draft: " + (error as any)?.message);
+    } finally {
+      setRegenerating(false);
     }
   };
 
@@ -96,10 +177,22 @@ const DraftDetail = () => {
                 </Button>
               </>
             ) : (
-              <Button onClick={() => setIsEditing(true)}>
-                <Edit className="mr-2 h-4 w-4" />
-                Edit
-              </Button>
+              <>
+                {templates.length > 0 && (
+                  <Button 
+                    onClick={handleRegenerate} 
+                    disabled={regenerating}
+                    variant="outline"
+                  >
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    {regenerating ? "Regenerating..." : "Regenerate with Template"}
+                  </Button>
+                )}
+                <Button onClick={() => setIsEditing(true)}>
+                  <Edit className="mr-2 h-4 w-4" />
+                  Edit
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -118,13 +211,54 @@ const DraftDetail = () => {
               </div>
               <FileText className="h-6 w-6 text-muted-foreground" />
             </div>
+            
+            {/* NEW: Template Selection for Regeneration */}
+            {templates.length > 0 && !isEditing && (
+              <div className="mt-4">
+                <Label htmlFor="regenerate-template" className="text-sm font-medium">
+                  Regenerate with Template
+                </Label>
+                <div className="flex gap-2 mt-1">
+                  <Select value={selectedTemplate} onValueChange={setSelectedTemplate}>
+                    <SelectTrigger id="regenerate-template" className="flex-1">
+                      <SelectValue placeholder="Select template..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {templates.map((template) => (
+                        <SelectItem key={template.id} value={template.id}>
+                          <div className="flex items-center gap-2">
+                            <FileText className="h-4 w-4" />
+                            {template.name}
+                            <span className="text-xs text-muted-foreground ml-1">
+                              ({template.output_format})
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {selectedTemplate && (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {templates.find(t => t.id === selectedTemplate)?.description}
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="flex flex-wrap gap-2 mt-3">
               <Badge variant="default">
-                {draft.status.replace("_", " ")}
+                {draft.status?.replace("_", " ") || "draft"}
               </Badge>
               <Badge variant="outline">
                 {draft.content_type || "ad-hoc"}
               </Badge>
+              {/* ✅ FIXED: Use autopilot_template_id instead of template_id */}
+              {draft.autopilot_template_id && (
+                <Badge variant="secondary">
+                  Template: {templates.find(t => t.id === draft.autopilot_template_id)?.name || "Unknown"}
+                </Badge>
+              )}
               {draft.revision_count > 0 && (
                 <Badge variant="secondary">
                   v{draft.revision_count + 1}

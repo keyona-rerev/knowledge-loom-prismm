@@ -32,17 +32,10 @@ serve(async (req) => {
 
     console.log("🔄 Executing autopilot template:", templateId, "Test run:", isTestRun);
 
-    // Get autopilot template with feed details
+    // Get template with feed details
     const { data: template, error: templateError } = await supabaseClient
-      .from("autopilot_templates")
-      .select(`
-        *,
-        source_feeds (
-          id,
-          name,
-          url
-        )
-      `)
+      .from("content_templates")
+      .select("*")
       .eq("id", templateId)
       .single();
 
@@ -51,19 +44,18 @@ serve(async (req) => {
       throw new Error("Template not found");
     }
 
-    if (!template.is_active && !isTestRun) {
-      console.log("⏸️ Template is inactive, skipping");
-      return new Response(
-        JSON.stringify({ success: true, message: "Template inactive", draftsCreated: 0 }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    // Get recent reference cards for the user
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    const userId = session?.user?.id;
+
+    if (!userId) {
+      throw new Error("User not authenticated");
     }
 
-    // Get recent reference cards from template's feeds
     const { data: referenceCards, error: cardsError } = await supabaseClient
       .from("reference_cards")
       .select("id, title, ai_summary, insight_answers, source_feed_id")
-      .in("source_feed_id", template.source_feed_ids || [])
+      .eq("user_id", userId)
       .eq("status", "active")
       .order("created_at", { ascending: false })
       .limit(3);
@@ -74,7 +66,7 @@ serve(async (req) => {
     }
 
     if (!referenceCards || referenceCards.length === 0) {
-      console.log("📭 No reference cards found for template");
+      console.log("📭 No reference cards found for user");
       return new Response(
         JSON.stringify({ success: true, message: "No content available", draftsCreated: 0 }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -117,18 +109,17 @@ serve(async (req) => {
           continue;
         }
 
-        // Create draft with approval status
+        // Create draft with template
         const { data: draftData, error: draftError } = await supabaseClient
           .from("drafts")
           .insert({
             title: generatedContent?.title || `Draft from ${card.title}`,
             body: generatedContent?.content || "Content generation in progress...",
             status: "draft",
-            user_id: template.user_id,
+            user_id: userId,
             seed_insight: card.ai_summary,
-            content_type: template.content_type,
+            content_type: template.output_format,
             autopilot_template_id: template.id,
-            template_id: contentTemplate?.id,
             approval_status: template.approval_required !== false ? 'pending' : 'draft',
             revision_count: 0
           })
@@ -142,8 +133,8 @@ serve(async (req) => {
 
         console.log("✅ Draft created:", draftData.id);
 
-        // Send notification if approval is required
-        if (template.approval_required !== false && draftData) {
+        // Send notification
+        if (draftData) {
           console.log("📧 Triggering notification for draft:", draftData.id);
           await supabaseClient.functions.invoke('send-draft-notification', {
             body: { draftId: draftData.id }
@@ -160,10 +151,9 @@ serve(async (req) => {
     // Update template last run time
     if (!isTestRun) {
       await supabaseClient
-        .from("autopilot_templates")
+        .from("content_templates")
         .update({ 
-          last_run_at: new Date().toISOString(),
-          next_run_at: calculateNextRun(template.frequency)
+          last_run_at: new Date().toISOString()
         })
         .eq("id", templateId);
     }
@@ -191,19 +181,3 @@ serve(async (req) => {
     );
   }
 });
-
-function calculateNextRun(frequency: string): string {
-  const now = new Date();
-  switch (frequency) {
-    case 'daily':
-      return new Date(now.setDate(now.getDate() + 1)).toISOString();
-    case 'weekly':
-      return new Date(now.setDate(now.getDate() + 7)).toISOString();
-    case 'biweekly':
-      return new Date(now.setDate(now.getDate() + 14)).toISOString();
-    case 'monthly':
-      return new Date(now.setMonth(now.getMonth() + 1)).toISOString();
-    default:
-      return new Date(now.setDate(now.getDate() + 7)).toISOString();
-  }
-}

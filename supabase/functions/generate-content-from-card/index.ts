@@ -30,7 +30,7 @@ serve(async (req) => {
       { global: { headers: { Authorization: req.headers.get("Authorization")! } } }
     );
 
-    console.log("🔄 Generating content from card:", cardId);
+    console.log("🔄 Generating content from card:", cardId, "with template:", templateId);
 
     // Get reference card with insights
     const { data: card, error: cardError } = await supabaseClient
@@ -50,30 +50,19 @@ serve(async (req) => {
       throw new Error("Reference card not found");
     }
 
-    // ✅ UPDATED: Get content template based on output format
-    const { data: contentTemplate } = await supabaseClient
-      .from("content_templates")
-      .select("*")
-      .eq("content_type", outputFormat || 'blog_post')
-      .eq("is_active", true)
-      .or(`user_id.eq.${card.user_id},is_system_template.eq.true`)
-      .order("is_system_template", { ascending: false })
-      .limit(1)
-      .single();
-
-    // Get autopilot template if provided (for backward compatibility)
-    let autopilotTemplate = null;
+    // Get template if provided
+    let template = null;
     if (templateId) {
-      const { data: templateData } = await supabaseClient
-        .from("autopilot_templates")
+      const { data: templateData, error: templateError } = await supabaseClient
+        .from("content_templates")  // ✅ CORRECT TABLE
         .select("*")
         .eq("id", templateId)
         .single();
-      autopilotTemplate = templateData;
+      template = templateData;
     }
 
-    // ✅ UPDATED: Use template-driven prompt
-    const prompt = await createContentPrompt(card, contentTemplate, autopilotTemplate, outputFormat, supabaseClient);
+    // Prepare AI prompt
+    const prompt = createContentPrompt(card, template, outputFormat);
 
     // Call AI API through Lovable gateway
     const aiResponse = await fetch("https://gateway.lovable.app/v1/proxy", {
@@ -117,7 +106,7 @@ serve(async (req) => {
           title: card.title,
           source: card.source_feeds?.name
         },
-        templateUsed: contentTemplate?.name || autopilotTemplate?.name || "manual"
+        templateUsed: templateId || "manual"
       }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -136,65 +125,7 @@ serve(async (req) => {
   }
 });
 
-// ✅ UPDATED: Template-driven prompt generation
-async function createContentPrompt(card: any, contentTemplate: any, autopilotTemplate: any, outputFormat: string, supabaseClient: any) {
-  const primaryInsight = card.insight_answers ? Object.values(card.insight_answers)[0] : card.ai_summary;
-  
-  // Use content template if available
-  if (contentTemplate) {
-    return buildPromptFromTemplate(card, contentTemplate, primaryInsight);
-  }
-  
-  // Fallback to original logic for backward compatibility
-  return buildBasicPrompt(card, autopilotTemplate, outputFormat, primaryInsight);
-}
-
-function buildPromptFromTemplate(card: any, template: any, primaryInsight: any) {
-  const templateConfig = template.template_structure;
-  
-  return `STRICTLY FOLLOW THIS CONTENT TEMPLATE. DO NOT DEVIATE FROM THE STRUCTURE.
-
-TEMPLATE: ${template.name}
-GOAL: ${templateConfig.goal}
-
-REQUIRED STRUCTURE:
-${formatStructureRequirements(templateConfig.structure)}
-
-VOICE & TONE: ${templateConfig.voice_guidelines}
-
-CONTENT SOURCE:
-Title: ${card.title}
-Source: ${card.source_feeds?.name || 'Unknown'}
-Primary Strategic Insight: "${primaryInsight || 'No specific insight'}"
-
-QUALITY CHECKS:
-${templateConfig.quality_checks?.map((check: string) => `• ${check}`).join('\n') || '• Ensure high-quality, engaging content'}
-
-ADDITIONAL INSIGHTS:
-${card.insight_answers ? Object.entries(card.insight_answers).slice(1).map(([key, value]) => `• ${value}`).join('\n') : 'No additional insights'}
-
-RESPONSE FORMAT - STRICTLY FOLLOW:
-TITLE: [Generated title following template requirements]
-CONTENT: [Full content following the exact structure above]
-
-CRITICAL: Preserve the strategic angle and core insight throughout the content.`;
-}
-
-function formatStructureRequirements(structure: any) {
-  return Object.entries(structure).map(([section, config]: [string, any]) => {
-    let requirements = `${section.toUpperCase()}: ${config.description}`;
-    if (config.approx_words) requirements += ` (~${config.approx_words} words)`;
-    if (config.min_words && config.max_words) requirements += ` (${config.min_words}-${config.max_words} words)`;
-    if (config.max_chars) requirements += ` (max ${config.max_chars} characters)`;
-    if (config.sentences) requirements += ` (${config.sentences} sentences)`;
-    if (config.count) requirements += ` (${config.count} items)`;
-    if (config.required === false) requirements += ` [OPTIONAL]`;
-    if (config.formatting) requirements += ` [Format: ${config.formatting}]`;
-    return requirements;
-  }).join('\n');
-}
-
-function buildBasicPrompt(card: any, template: any, outputFormat: string, primaryInsight: any) {
+function createContentPrompt(card: any, template: any, outputFormat: string) {
   let prompt = `Create a ${outputFormat === 'visual' ? 'visually engaging' : 'well-structured'} content piece based on this reference material:
 
 REFERENCE CONTENT:
@@ -205,19 +136,7 @@ Primary Insight: "${primaryInsight || card.ai_summary || 'No summary available'}
 KEY INSIGHTS:
 ${card.insight_answers ? Object.entries(card.insight_answers).map(([key, value]) => `• ${value}`).join('\n') : 'No specific insights extracted'}
 
-`;
-
-  if (template) {
-    prompt += `CONTENT REQUIREMENTS:
-- Format: ${template.output_format}
-- Frequency: ${template.frequency}
-- Topics: ${template.topic_filters?.join(', ') || 'No specific topics'}
-- Use ${template.use_global_questions ? 'global questions' : 'custom template'}
-
-`;
-  }
-
-  prompt += `Please generate a complete content piece with:
+Please generate a complete content piece with:
 1. A compelling title that captures the essence
 2. Engaging introduction that hooks the reader
 3. Well-structured body that develops the core ideas
@@ -229,8 +148,56 @@ TITLE: [Your generated title here]
 CONTENT: [Your full content here, using markdown formatting for headings, lists, and emphasis]
 
 Make the content authentic, valuable, and suitable for ${outputFormat} format.`;
+  }
 
   return prompt;
+}
+
+// Helper functions for template structure
+function formatStructureRequirements(structure: any) {
+  const requirements = [];
+  
+  if (structure.hook) requirements.push(`• Hook: ${structure.hook.description || 'Engaging opening'}${structure.hook.max_chars ? ` (max ${structure.hook.max_chars} chars)` : ''}`);
+  if (structure.body) requirements.push(`• Body: ${structure.body.description || 'Main content'}${structure.body.min_words && structure.body.max_words ? ` (${structure.body.min_words}-${structure.body.max_words} words)` : ''}`);
+  if (structure.cta) requirements.push(`• CTA: ${structure.cta.description || 'Call to action'}${structure.cta.required_elements ? ` - Include: ${structure.cta.required_elements.join(', ')}` : ''}`);
+  if (structure.hashtags) requirements.push(`• Hashtags: ${structure.hashtags.count || 3} relevant hashtags`);
+  
+  return requirements.join('\n');
+}
+
+function getFormattingRules(structure: any) {
+  const rules = [];
+  
+  if (structure.hook?.max_chars) rules.push(`• Hook must be under ${structure.hook.max_chars} characters`);
+  if (structure.body?.min_words && structure.body?.max_words) rules.push(`• Body must be ${structure.body.min_words}-${structure.body.max_words} words`);
+  if (structure.body?.formatting === 'bold_key_concepts') rules.push(`• Bold key concepts and data points`);
+  if (structure.body?.sections) rules.push(`• Include these sections: ${structure.body.sections.join(', ')}`);
+  if (structure.hashtags?.count) rules.push(`• Include ${structure.hashtags.count} professional hashtags`);
+  if (structure.title?.max_chars) rules.push(`• Title under ${structure.title.max_chars} characters`);
+  
+  return rules.length > 0 ? rules.join('\n') : '• Use markdown for formatting (headings, lists, emphasis)';
+}
+
+function getSectionRequirements(structure: any) {
+  const sections = [];
+  
+  if (structure.hook) {
+    sections.push(`[Hook: ${structure.hook.description || 'Your engaging hook here'}${structure.hook.max_chars ? ` - max ${structure.hook.max_chars} characters` : ''}]`);
+  }
+  
+  if (structure.body) {
+    sections.push(`[Body: ${structure.body.description || 'Your main content here'}${structure.body.min_words && structure.body.max_words ? ` - ${structure.body.min_words}-${structure.body.max_words} words` : ''}]`);
+  }
+  
+  if (structure.cta) {
+    sections.push(`[CTA: ${structure.cta.description || 'Your call-to-action here'}${structure.cta.required_elements ? ` - include ${structure.cta.required_elements.join(', ')}` : ''}]`);
+  }
+  
+  if (structure.hashtags) {
+    sections.push(`[Hashtags: ${structure.hashtags.count || 3} relevant hashtags]`);
+  }
+  
+  return sections.join('\n');
 }
 
 function parseGeneratedContent(generatedText: string, fallbackTitle: string) {

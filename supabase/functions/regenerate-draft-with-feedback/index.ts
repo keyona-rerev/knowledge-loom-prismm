@@ -16,7 +16,7 @@ serve(async (req) => {
   }
 
   try {
-    const { draftId, feedback } = await req.json();
+    const { draftId, feedback, templateId} = await req.json();
 
     if (!draftId || !feedback) {
       return new Response(
@@ -47,6 +47,19 @@ serve(async (req) => {
       .eq("id", draftId)
       .single();
 
+          let template = null;
+    if (templateId) {
+      const { data: templateData, error: templateError } = await supabaseClient
+        .from("content_templates")
+        .select("*")
+        .eq("id", templateId)
+        .single();
+      
+      if (!templateError) {
+        template = templateData;
+      }
+    }
+
     if (draftError || !draft) {
       console.error("Error fetching draft:", draftError);
       return new Response(
@@ -58,58 +71,25 @@ serve(async (req) => {
       );
     }
 
-    // 2. Prepare the AI prompt with feedback and template
-    let improvementPrompt = "";
-    
-    if (draft.content_templates) {
-      const templateConfig = draft.content_templates.template_structure;
-      improvementPrompt = `STRICTLY FOLLOW THIS CONTENT TEMPLATE WHILE IMPROVING THE DRAFT.
-
-TEMPLATE: ${draft.content_templates.name}
-GOAL: ${templateConfig.goal}
-
-REQUIRED STRUCTURE:
-${formatStructureRequirements(templateConfig.structure)}
-
-VOICE & TONE: ${templateConfig.voice_guidelines}
-
-ORIGINAL DRAFT:
-Title: ${draft.title || "Untitled"}
-Content: ${draft.body}
-
-EDITOR FEEDBACK: ${feedback}
-
-INSTRUCTIONS:
-- Carefully address all points in the editor feedback
-- Maintain the template structure and requirements above
-- Improve clarity, quality, and engagement based on feedback
-- Preserve the strategic angle and core message
-- Return in the same format as the original
-
-RESPONSE FORMAT:
-TITLE: [Improved title]
-CONTENT: [Improved content following template structure]
-`;
-    } else {
-      improvementPrompt = `
+    // 2. Prepare the AI prompt with feedback
+    const improvementPrompt = `
 IMPROVE THIS DRAFT BASED ON EDITOR FEEDBACK:
 
-ORIGINAL DRAFT:
-Title: ${draft.title || "Untitled"}
-Content: ${draft.body}
+        ORIGINAL DRAFT:
+        Title: ${draft.title || "Untitled"}
+        Content: ${draft.body}
 
-EDITOR FEEDBACK: ${feedback}
+        EDITOR FEEDBACK: ${feedback}
 
-INSTRUCTIONS:
-- Carefully address all points in the editor feedback
-- Maintain the core message and intent of the original
-- Improve clarity, structure, and quality based on the feedback
-- Keep similar length and tone
-- Return ONLY the revised content in the same format as the original
+        INSTRUCTIONS:
+        - Carefully address all points in the editor feedback
+        - Maintain the core message and intent of the original
+        - Improve clarity, structure, and quality based on the feedback
+        - Keep similar length and tone
+        - Return ONLY the revised content in the same format as the original
 
-REVISED CONTENT:
+REVISED CONTEST:
 `;
-    }
 
     // 3. Call Lovable AI Gateway to regenerate content
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -154,7 +134,7 @@ REVISED CONTENT:
     const { title: revisedTitle, content: revisedContent } = parseGeneratedContent(generatedText, draft.title);
 
     // 4. Create a new draft with the revised content
-    const { data: newDraft, error: createError } = await supabaseClient
+      const { data: newDraft, error: createError } = await supabaseClient
       .from("drafts")
       .insert({
         user_id: draft.user_id,
@@ -165,7 +145,6 @@ REVISED CONTENT:
         selected_direction: draft.selected_direction,
         content_type: draft.content_type,
         autopilot_template_id: draft.autopilot_template_id,
-        template_id: draft.template_id,
         approval_status: "pending", // New draft needs review again
         revised_from: draft.id, // Track which draft this revised from
         revision_feedback: feedback, // Store the feedback that prompted this revision
@@ -208,7 +187,56 @@ REVISED CONTENT:
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );
+
   }
+  // ADD THESE FUNCTIONS AT THE VERY END OF THE FILE, BEFORE THE LAST CLOSING BRACE:
+
+function createTemplatePrompt(draft: any, template: any, feedback: string) {
+  const structure = template.template_structure;
+  return `🚨 CRITICAL: YOU MUST FOLLOW THIS EXACT TEMPLATE STRUCTURE. DO NOT DEVIATE.
+
+TEMPLATE: ${template.name}
+GOAL: ${structure.goal || 'Create engaging content'}
+
+ORIGINAL DRAFT:
+Title: ${draft.title || "Untitled"}
+Content: ${draft.body}
+
+EDITOR FEEDBACK: ${feedback}
+
+🚨 REQUIRED SECTIONS - INCLUDE ALL:
+${formatStructureRequirements(structure)}
+
+🚨 FORMATTING RULES:
+${getFormattingRules(structure)}
+
+🚨 IMPROVEMENTS NEEDED:
+1. Address the user feedback: "${feedback}"
+2. Maintain core message but improve structure and engagement
+3. Follow the template requirements exactly
+
+RETURN ONLY THE REVISED CONTENT FOLLOWING THE TEMPLATE STRUCTURE:`;
+}
+
+function formatStructureRequirements(structure: any) {
+  const requirements = [];
+  if (structure.hook) requirements.push(`• Hook: ${structure.hook.description || 'Engaging opening'}${structure.hook.max_chars ? ` (max ${structure.hook.max_chars} chars)` : ''}`);
+  if (structure.body) requirements.push(`• Body: ${structure.body.description || 'Main content'}${structure.body.min_words && structure.body.max_words ? ` (${structure.body.min_words}-${structure.body.max_words} words)` : ''}`);
+  if (structure.cta) requirements.push(`• CTA: ${structure.cta.description || 'Call to action'}${structure.cta.required_elements ? ` - Include: ${structure.cta.required_elements.join(', ')}` : ''}`);
+  if (structure.hashtags) requirements.push(`• Hashtags: ${structure.hashtags.count || 3} relevant hashtags`);
+  return requirements.join('\n');
+}
+
+function getFormattingRules(structure: any) {
+  const rules = [];
+  if (structure.hook?.max_chars) rules.push(`• Hook must be under ${structure.hook.max_chars} characters`);
+  if (structure.body?.min_words && structure.body?.max_words) rules.push(`• Body must be ${structure.body.min_words}-${structure.body.max_words} words`);
+  if (structure.body?.formatting === 'bold_key_concepts') rules.push(`• Bold key concepts and data points`);
+  if (structure.body?.sections) rules.push(`• Include these sections: ${structure.body.sections.join(', ')}`);
+  if (structure.hashtags?.count) rules.push(`• Include ${structure.hashtags.count} professional hashtags`);
+  if (structure.title?.max_chars) rules.push(`• Title under ${structure.title.max_chars} characters`);
+  return rules.length > 0 ? rules.join('\n') : '• Use markdown for formatting (headings, lists, emphasis)';
+}
 });
 
 function formatStructureRequirements(structure: any) {

@@ -30,7 +30,6 @@ serve(async (req) => {
     const requestBody = await req.json();
     console.log("📦 Request body:", requestBody);
 
-    // ✅ UPDATED: Include question_set_id
     const { type, url, user_id, question_set_id } = requestBody;
 
     if (!user_id) {
@@ -51,17 +50,27 @@ serve(async (req) => {
 
     console.log("🌐 Fetching content from:", url);
 
-    // Fetch article content
+    // ✅ IMPROVED: Better headers to avoid bot detection
     let articleResponse;
+    let contentBlocked = false;
     try {
       articleResponse = await fetch(url, {
         headers: {
-          "User-Agent": "Mozilla/5.0 (compatible; InsightForge/1.0)",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+          "Accept-Encoding": "gzip, deflate, br",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
         },
       });
       console.log("📄 Response status:", articleResponse.status);
 
-      if (!articleResponse.ok) {
+      // ✅ IMPROVED: Handle common blocking scenarios gracefully
+      if (articleResponse.status === 403 || articleResponse.status === 429) {
+        console.log("⚠️ Site blocked automated access");
+        contentBlocked = true;
+      } else if (!articleResponse.ok) {
         throw new Error(`HTTP ${articleResponse.status}: ${articleResponse.statusText}`);
       }
     } catch (fetchError) {
@@ -72,39 +81,47 @@ serve(async (req) => {
       });
     }
 
-    const articleHtml = await articleResponse.text();
-    console.log("📝 HTML content length:", articleHtml.length);
+    let title = "Untitled Article";
+    let textContent = "";
+    let contentQuality = "good";
+    let contentWarning = null;
 
-    if (!articleHtml || articleHtml.length < 100) {
-      console.error("❌ Insufficient content fetched");
-      return new Response(JSON.stringify({ error: "Could not fetch sufficient content from URL" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    if (contentBlocked) {
+      // ✅ IMPROVED: Graceful handling for blocked sites
+      console.log("🛡️ Creating card with limited content (site blocked)");
+      title = "Site Blocked Access - Manual Review Needed";
+      textContent = "This site blocks automated content access. Please add content manually or try a different source.";
+      contentQuality = "title_only";
+      contentWarning = "Site blocks automated content access - manual review required";
+    } else {
+      // Normal content processing
+      const articleHtml = await articleResponse.text();
+      console.log("📝 HTML content length:", articleHtml.length);
 
-    // Extract title and text
-    const titleMatch = /<title>(.*?)<\/title>/i.exec(articleHtml);
-    const title = titleMatch?.[1]?.trim() || "Untitled Article";
-    console.log("📌 Extracted title:", title);
+      // Extract title
+      const titleMatch = /<title>(.*?)<\/title>/i.exec(articleHtml);
+      title = titleMatch?.[1]?.trim() || "Untitled Article";
+      console.log("📌 Extracted title:", title);
 
-    // Remove HTML tags for content
-    const textContent = articleHtml
-      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .substring(0, 10000);
+      // Remove HTML tags for content
+      textContent = articleHtml
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .substring(0, 10000);
 
-    console.log("📄 Clean content length:", textContent.length);
+      console.log("📄 Clean content length:", textContent.length);
 
-    if (textContent.length < 50) {
-      console.error("❌ Insufficient text content after cleaning");
-      return new Response(JSON.stringify({ error: "Could not extract sufficient text content from URL" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      // ✅ IMPROVED: Better content quality assessment
+      if (textContent.length < 50) {
+        contentQuality = "title_only";
+        contentWarning = "Limited content available - only title accessible";
+      } else if (textContent.length < 500) {
+        contentQuality = "partial";
+        contentWarning = "Partial content - full article may not be accessible";
+      }
     }
 
     // Create source feed entry
@@ -128,25 +145,24 @@ serve(async (req) => {
       console.log("✅ Source feed created:", feedData.id);
     }
 
-    // ✅ UPDATED: Create reference card WITH question_set_id
-    console.log("💾 Creating reference card with question_set_id:", question_set_id);
+    // Create reference card
+    console.log("💾 Creating reference card...");
     const insertData: any = {
       title: title.substring(0, 255),
       original_text: textContent,
       source_url: url,
       source_type: "manual",
       source_feed_id: feedData?.id,
-      status: "processing",
+      status: contentBlocked ? "needs_review" : "processing",
       global_relevance_score: 5,
       user_id: user_id,
+      content_quality: contentQuality,
+      content_warning: contentWarning,
     };
 
-    // Only add question_set_id if it's provided and not empty
     if (question_set_id && question_set_id.trim() !== "") {
       insertData.question_set_id = question_set_id;
       console.log("✅ Adding question_set_id:", question_set_id);
-    } else {
-      console.log("ℹ️ No question_set_id provided, using NULL");
     }
 
     const { data: cardData, error: insertError } = await supabase
@@ -168,21 +184,25 @@ serve(async (req) => {
 
     console.log("✅ Reference card created:", cardData.id);
 
-    // Auto-process the card
-    console.log("🚀 Triggering auto-processing for card:", cardData.id);
-    try {
-      const { error: processError } = await supabase.functions.invoke("process-reference-card", {
-        body: { cardId: cardData.id },
-      });
+    // ✅ IMPROVED: Only auto-process if we have decent content
+    if (!contentBlocked && textContent.length >= 100) {
+      console.log("🚀 Triggering auto-processing for card:", cardData.id);
+      try {
+        const { error: processError } = await supabase.functions.invoke("process-reference-card", {
+          body: { cardId: cardData.id },
+        });
 
-      if (processError) {
-        console.error("⚠️ Auto-processing failed:", processError);
-        await supabase.from("reference_cards").update({ status: "needs_review" }).eq("id", cardData.id);
-      } else {
-        console.log("✅ Auto-processing triggered successfully");
+        if (processError) {
+          console.error("⚠️ Auto-processing failed:", processError);
+          await supabase.from("reference_cards").update({ status: "needs_review" }).eq("id", cardData.id);
+        } else {
+          console.log("✅ Auto-processing triggered successfully");
+        }
+      } catch (processInvokeError) {
+        console.error("⚠️ Failed to invoke auto-processing:", processInvokeError);
       }
-    } catch (processInvokeError) {
-      console.error("⚠️ Failed to invoke auto-processing:", processInvokeError);
+    } else {
+      console.log("⏸️ Skipping auto-processing - insufficient content or blocked site");
     }
 
     console.log("🎉 create-manual-source completed successfully");
@@ -190,7 +210,10 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         cardId: cardData.id,
-        message: "Reference card created successfully",
+        message: contentBlocked 
+          ? "Reference card created (site blocked full access - manual review needed)"
+          : "Reference card created successfully",
+        contentStatus: contentBlocked ? "blocked" : "processed"
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

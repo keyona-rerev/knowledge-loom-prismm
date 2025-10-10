@@ -1,0 +1,19 @@
+supabase/functions
+├── create-manual-source
+│   └── index.ts
+├── execute-autopilot-template
+│   └── index.ts
+├── generate-content-directions
+│   └── index.ts
+├── generate-content-from-card
+│   └── index.ts
+├── generate-final-content
+│   └── index.ts
+├── process-reference-card
+│   └── index.ts
+├── pull-rss-feed
+│   └── index.ts
+└── send-draft-notification
+    └── index.ts
+
+9 directories, 8 files

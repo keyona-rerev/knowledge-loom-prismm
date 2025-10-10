@@ -8,8 +8,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ArrowLeft, Check, X, Clock, Filter, CheckCheck, Ban } from "lucide-react";
+import { ArrowLeft, Check, X, Clock, Filter, CheckCheck, Ban, MessageCircle } from "lucide-react";
 
 interface Draft {
   id: string;
@@ -36,6 +37,12 @@ const Review = () => {
   const [selectedDrafts, setSelectedDrafts] = useState<string[]>([]);
   const [bulkAction, setBulkAction] = useState<string>("");
   const [rejectNote, setRejectNote] = useState("");
+
+  // Smart Rejection Modal State
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [selectedDraft, setSelectedDraft] = useState<Draft | null>(null);
+  const [rejectionFeedback, setRejectionFeedback] = useState("");
+  const [requestRevision, setRequestRevision] = useState(true);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -90,6 +97,82 @@ const Review = () => {
     }
   };
 
+  // NEW: Smart Rejection Handler
+  const handleSmartReject = (draft: Draft) => {
+    setSelectedDraft(draft);
+    setRejectionFeedback("");
+    setRequestRevision(true);
+    setRejectModalOpen(true);
+  };
+
+  // NEW: Submit Smart Rejection
+  const submitSmartRejection = async () => {
+    if (!selectedDraft) return;
+
+    try {
+      if (requestRevision && rejectionFeedback.trim()) {
+        // Status: 'needs_revision' - will trigger regeneration
+        const { error } = await supabase
+          .from("drafts")
+          .update({
+            approval_status: 'needs_revision',
+            review_notes: rejectionFeedback,
+            revision_feedback: rejectionFeedback, // This will be our new column
+            reviewed_at: new Date().toISOString()
+          })
+          .eq('id', selectedDraft.id);
+
+        if (error) {
+          toast.error("Failed to request revision");
+          return;
+        }
+
+        // Trigger AI regeneration with feedback
+        const { error: functionError } = await supabase.functions.invoke('regenerate-draft-with-feedback', {
+          body: { 
+            draftId: selectedDraft.id,
+            feedback: rejectionFeedback
+          }
+        });
+
+        if (functionError) {
+          console.error('Regeneration function error:', functionError);
+          toast.success("Revision requested! The draft will be updated shortly.");
+        } else {
+          toast.success("Revision requested! AI is regenerating with your feedback.");
+        }
+
+      } else {
+        // Status: 'rejected' - final rejection
+        const { error } = await supabase
+          .from("drafts")
+          .update({
+            approval_status: "rejected",
+            review_notes: rejectionFeedback,
+            reviewed_at: new Date().toISOString()
+          })
+          .eq("id", selectedDraft.id);
+
+        if (error) {
+          toast.error("Failed to reject draft");
+        } else {
+          toast.success("Draft rejected.");
+        }
+      }
+
+      setRejectModalOpen(false);
+      setRejectionFeedback("");
+      setRequestRevision(true);
+      loadDrafts();
+      setSelectedDrafts(prev => prev.filter(id => id !== selectedDraft.id));
+
+    } catch (error) {
+      console.error("Error in smart rejection:", error);
+      toast.error("Something went wrong");
+    }
+  };
+
+  // Existing simple reject (keeping for bulk actions)
   const handleReject = async (draftId: string, note?: string) => {
     const { error } = await supabase
       .from("drafts")
@@ -184,6 +267,11 @@ const Review = () => {
           <Ban className="h-3 w-3 mr-1" />
           Rejected
         </Badge>;
+      case "needs_revision":
+        return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+          <MessageCircle className="h-3 w-3 mr-1" />
+          Needs Revision
+        </Badge>;
       default:
         return <Badge variant="outline">Unknown</Badge>;
     }
@@ -197,6 +285,7 @@ const Review = () => {
   const pendingCount = drafts.filter(d => d.approval_status === "pending").length;
   const approvedCount = drafts.filter(d => d.approval_status === "approved").length;
   const rejectedCount = drafts.filter(d => d.approval_status === "rejected").length;
+  const revisionCount = drafts.filter(d => d.approval_status === "needs_revision").length;
 
   if (loading) {
     return (
@@ -248,6 +337,12 @@ const Review = () => {
               <span className="text-green-600 font-medium">{approvedCount} approved</span>
               {" • "}
               <span className="text-red-600 font-medium">{rejectedCount} rejected</span>
+              {revisionCount > 0 && (
+                <>
+                  {" • "}
+                  <span className="text-blue-600 font-medium">{revisionCount} needs revision</span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -320,6 +415,7 @@ const Review = () => {
                   <SelectItem value="pending">Pending Review</SelectItem>
                   <SelectItem value="approved">Approved</SelectItem>
                   <SelectItem value="rejected">Rejected</SelectItem>
+                  <SelectItem value="needs_revision">Needs Revision</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -379,10 +475,7 @@ const Review = () => {
                               size="sm"
                               variant="outline"
                               className="text-red-600 border-red-200 hover:bg-red-50"
-                              onClick={() => {
-                                const note = prompt("Reason for rejection (optional):");
-                                handleReject(draft.id, note || "");
-                              }}
+                              onClick={() => handleSmartReject(draft)}
                             >
                               <X className="h-4 w-4 mr-1" />
                               Reject
@@ -423,6 +516,79 @@ const Review = () => {
             ))}
           </div>
         )}
+
+        {/* Smart Rejection Modal */}
+        <Dialog open={rejectModalOpen} onOpenChange={setRejectModalOpen}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Reject Draft</DialogTitle>
+              <DialogDescription>
+                Provide feedback for {selectedDraft?.title || "this draft"}
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="rejection-feedback">Feedback</Label>
+                <Textarea
+                  id="rejection-feedback"
+                  placeholder="What needs to be improved? Be specific so the AI can revise it effectively..."
+                  value={rejectionFeedback}
+                  onChange={(e) => setRejectionFeedback(e.target.value)}
+                  rows={4}
+                />
+                <p className="text-sm text-muted-foreground">
+                  Clear feedback helps generate better revisions.
+                </p>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="request-revision"
+                  checked={requestRevision}
+                  onCheckedChange={(checked) => setRequestRevision(checked as boolean)}
+                />
+                <Label htmlFor="request-revision" className="text-sm font-medium leading-none">
+                  Request revision with this feedback
+                </Label>
+              </div>
+              
+              {!requestRevision && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+                  <p className="text-sm text-yellow-800">
+                    If unchecked, this draft will be permanently rejected without revision.
+                  </p>
+                </div>
+              )}
+            </div>
+            
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setRejectModalOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={submitSmartRejection}
+                disabled={!rejectionFeedback.trim()}
+                className={requestRevision ? "bg-blue-600 hover:bg-blue-700" : "bg-red-600 hover:bg-red-700"}
+              >
+                {requestRevision ? (
+                  <>
+                    <MessageCircle className="h-4 w-4 mr-2" />
+                    Request Revision
+                  </>
+                ) : (
+                  <>
+                    <Ban className="h-4 w-4 mr-2" />
+                    Reject Permanently
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   );

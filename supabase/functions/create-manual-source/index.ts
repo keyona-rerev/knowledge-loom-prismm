@@ -14,7 +14,6 @@ serve(async (req) => {
   try {
     console.log("🟡 create-manual-source started");
 
-    // Validate environment variables
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
@@ -31,7 +30,7 @@ serve(async (req) => {
     const requestBody = await req.json();
     console.log("📦 Request body:", requestBody);
 
-    // ✅ UPDATED: Include question_set_id in destructuring
+    // ✅ UPDATED: Include question_set_id
     const { type, url, user_id, question_set_id } = requestBody;
 
     if (!user_id) {
@@ -52,7 +51,7 @@ serve(async (req) => {
 
     console.log("🌐 Fetching content from:", url);
 
-    // Fetch article content with better error handling
+    // Fetch article content
     let articleResponse;
     try {
       articleResponse = await fetch(url, {
@@ -96,7 +95,7 @@ serve(async (req) => {
       .replace(/<[^>]+>/g, " ")
       .replace(/\s+/g, " ")
       .trim()
-      .substring(0, 10000); // Limit content length
+      .substring(0, 10000);
 
     console.log("📄 Clean content length:", textContent.length);
 
@@ -108,7 +107,7 @@ serve(async (req) => {
       });
     }
 
-    // Create entry in source_feeds for tracking manual sources
+    // Create source feed entry
     console.log("💾 Creating source feed entry...");
     const { data: feedData, error: feedError } = await supabase
       .from("source_feeds")
@@ -125,26 +124,34 @@ serve(async (req) => {
 
     if (feedError) {
       console.error("❌ Failed to create source feed entry:", feedError);
-      // Continue without feed data - card creation might still work
     } else {
       console.log("✅ Source feed created:", feedData.id);
     }
 
     // ✅ UPDATED: Create reference card WITH question_set_id
-    console.log("💾 Creating reference card...");
+    console.log("💾 Creating reference card with question_set_id:", question_set_id);
+    const insertData: any = {
+      title: title.substring(0, 255),
+      original_text: textContent,
+      source_url: url,
+      source_type: "manual",
+      source_feed_id: feedData?.id,
+      status: "processing",
+      global_relevance_score: 5,
+      user_id: user_id,
+    };
+
+    // Only add question_set_id if it's provided and not empty
+    if (question_set_id && question_set_id.trim() !== "") {
+      insertData.question_set_id = question_set_id;
+      console.log("✅ Adding question_set_id:", question_set_id);
+    } else {
+      console.log("ℹ️ No question_set_id provided, using NULL");
+    }
+
     const { data: cardData, error: insertError } = await supabase
       .from("reference_cards")
-      .insert({
-        title: title.substring(0, 255),
-        original_text: textContent,
-        source_url: url,
-        source_type: "manual",
-        source_feed_id: feedData?.id,
-        status: "processing",
-        global_relevance_score: 5,
-        user_id: user_id,
-        question_set_id: question_set_id || null, // ✅ ADD THIS LINE
-      })
+      .insert(insertData)
       .select()
       .single();
 
@@ -161,7 +168,7 @@ serve(async (req) => {
 
     console.log("✅ Reference card created:", cardData.id);
 
-    // Auto-process the card immediately
+    // Auto-process the card
     console.log("🚀 Triggering auto-processing for card:", cardData.id);
     try {
       const { error: processError } = await supabase.functions.invoke("process-reference-card", {
@@ -170,7 +177,6 @@ serve(async (req) => {
 
       if (processError) {
         console.error("⚠️ Auto-processing failed:", processError);
-        // Update card status to indicate processing failed
         await supabase.from("reference_cards").update({ status: "needs_review" }).eq("id", cardData.id);
       } else {
         console.log("✅ Auto-processing triggered successfully");

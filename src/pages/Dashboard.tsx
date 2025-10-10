@@ -2,8 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { FileText, Sparkles, Rss, Database, FileEdit, Settings, Plus, MessageCircleQuestion, LogOut, CheckCheck, Clock, Ban, Lightbulb } from "lucide-react";
-import { InstructionsToggle } from "@/components/InstructionsToggle";
+import { Calendar, FileText, Sparkles, Rss, Database, FileEdit, Settings, Plus, MessageCircleQuestion, LogOut, CheckCheck, Clock, Ban, Lightbulb } from "lucide-react";import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
@@ -15,7 +14,7 @@ const Dashboard = () => {
     approvedDrafts: 0,
     rejectedDrafts: 0,
     totalInsights: 0,
-    activeTemplates: 0
+    activeTemplates: 0,
     scheduledCount: 0 // ✅ Add this
   });
   const [loading, setLoading] = useState(true);
@@ -72,7 +71,7 @@ const Dashboard = () => {
         approvedDrafts,
         rejectedDrafts,
         totalInsights: insights?.length || 0,
-        activeTemplates: templates?.length || 0
+        activeTemplates: templates?.length || 0,
         scheduledCount: scheduled?.length || 0 // ✅ Add this
       });
     } catch (error) {
@@ -178,7 +177,9 @@ const Dashboard = () => {
       icon: FileEdit,
       path: "/drafts",
       color: "text-yellow-500",
+    
     },
+    
   ];
 
   const automation = [
@@ -194,6 +195,13 @@ const Dashboard = () => {
       description: "Approve or reject automated drafts",
       icon: CheckCheck,
       path: "/review",
+      color: "text-blue-500",
+    },
+    {
+      title: "Content Calendar",
+      description: "Schedule and visualize your content pipeline",
+      icon: Calendar,
+      path: "/calendar",
       color: "text-blue-500",
     },
   ];

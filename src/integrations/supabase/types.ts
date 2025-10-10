@@ -435,6 +435,39 @@ export type Database = {
         }
         Relationships: []
       }
+      question_sets: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean | null
+          is_global: boolean | null
+          name: string
+          questions: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          is_global?: boolean | null
+          name: string
+          questions?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          is_global?: boolean | null
+          name?: string
+          questions?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       reference_card_templates: {
         Row: {
           created_at: string | null
@@ -477,6 +510,7 @@ export type Database = {
           is_used: boolean | null
           modified_by_user: boolean | null
           original_text: string | null
+          question_set_id: string | null
           source_feed_id: string | null
           source_type: string | null
           source_url: string | null
@@ -498,6 +532,7 @@ export type Database = {
           is_used?: boolean | null
           modified_by_user?: boolean | null
           original_text?: string | null
+          question_set_id?: string | null
           source_feed_id?: string | null
           source_type?: string | null
           source_url?: string | null
@@ -519,6 +554,7 @@ export type Database = {
           is_used?: boolean | null
           modified_by_user?: boolean | null
           original_text?: string | null
+          question_set_id?: string | null
           source_feed_id?: string | null
           source_type?: string | null
           source_url?: string | null
@@ -530,6 +566,13 @@ export type Database = {
           version_history?: Json | null
         }
         Relationships: [
+          {
+            foreignKeyName: "reference_cards_question_set_id_fkey"
+            columns: ["question_set_id"]
+            isOneToOne: false
+            referencedRelation: "question_sets"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "reference_cards_source_feed_id_fkey"
             columns: ["source_feed_id"]

@@ -16,6 +16,7 @@ const Dashboard = () => {
     rejectedDrafts: 0,
     totalInsights: 0,
     activeTemplates: 0
+    scheduledCount: 0 // ✅ Add this
   });
   const [loading, setLoading] = useState(true);
 
@@ -24,6 +25,7 @@ const Dashboard = () => {
   }, []);
 
   const loadDashboardStats = async () => {
+    
     setLoading(true);
     const { data: { session } } = await supabase.auth.getSession();
 
@@ -58,18 +60,34 @@ const Dashboard = () => {
 
       if (templatesError) throw templatesError;
 
+         // ✅ GET SCHEDULED CONTENT COUNT - ADD THIS BEFORE setStats
+      const { data: scheduled, error: scheduledError } = await supabase
+        .from("content_calendar")
+        .select("id")
+        .eq("user_id", session?.user?.id)
+        .eq("status", "scheduled");
+
       setStats({
         pendingReviews,
         approvedDrafts,
         rejectedDrafts,
         totalInsights: insights?.length || 0,
         activeTemplates: templates?.length || 0
+        scheduledCount: scheduled?.length || 0 // ✅ Add this
       });
     } catch (error) {
       console.error("Error loading dashboard stats:", error);
     } finally {
       setLoading(false);
     }
+          // Get scheduled content count
+      const { data: scheduled, error: scheduledError } = await supabase
+        .from("content_calendar")
+        .select("id")
+        .eq("user_id", session?.user?.id)
+        .eq("status", "scheduled");
+
+    
   };
 
   const handleLogout = async () => {
@@ -294,6 +312,21 @@ The dashboard shows your content pipeline and quick access to all features.`}
                 <CardContent className="p-4 text-center">
                   <div className="text-2xl font-bold text-green-600">{stats.approvedDrafts}</div>
                   <div className="text-sm text-muted-foreground">Approved Drafts</div>
+                </CardContent>
+              </Card>
+              // In the Quick Stats section, add this card:
+              <Card>
+                <CardContent className="p-4 text-center">
+                  <div className="text-2xl font-bold text-orange-600">{stats.scheduledCount || 0}</div>
+                  <div className="text-sm text-muted-foreground">Scheduled Posts</div>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="mt-2 w-full"
+                    onClick={() => navigate('/calendar')}
+                  >
+                    View Calendar
+                  </Button>
                 </CardContent>
               </Card>
             </div>

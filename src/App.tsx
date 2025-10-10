@@ -19,6 +19,7 @@ import Auth from "./pages/Auth";
 import Insights from "./pages/Insights";
 import InsightDetail from "./pages/InsightDetail";
 import Review from "./pages/Review";
+import ContentCalendar from "./pages/ContentCalendar"; // ✅ Import added
 
 const queryClient = new QueryClient();
 
@@ -48,7 +49,9 @@ const App = () => (
           <Route path="/insights/new" element={<InsightDetail />} />
           <Route path="/insights/:id" element={<InsightDetail />} />
           <Route path="/review" element={<Review />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+          {/* ✅ ADD CONTENT CALENDAR ROUTE HERE */}
+          <Route path="/calendar" element={<ContentCalendar />} />
+          {/* KEEP CATCH-ALL ROUTE AT THE BOTTOM */}
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

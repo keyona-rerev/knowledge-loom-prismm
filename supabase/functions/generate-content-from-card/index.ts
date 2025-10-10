@@ -95,7 +95,7 @@ serve(async (req) => {
     // Parse the response to extract title and content
     const { title, content } = parseGeneratedContent(generatedContent, card.title);
 
-    console.log("✅ Content generated successfully using template:", contentTemplate?.name || 'default');
+    console.log("✅ Content generated successfully using template:", template?.name || 'default');
 
     return new Response(
       JSON.stringify({
@@ -106,7 +106,7 @@ serve(async (req) => {
           title: card.title,
           source: card.source_feeds?.name
         },
-        templateUsed: templateId || "manual"
+        templateUsed: template?.name || "manual"
       }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -126,12 +126,40 @@ serve(async (req) => {
 });
 
 function createContentPrompt(card: any, template: any, outputFormat: string) {
-  let prompt = `Create a ${outputFormat === 'visual' ? 'visually engaging' : 'well-structured'} content piece based on this reference material:
+  const primaryInsight = card.insight_answers ? Object.values(card.insight_answers)[0] : card.ai_summary;
+  
+  if (template) {
+    const templateConfig = template.template_structure;
+    return `STRICTLY FOLLOW THIS CONTENT TEMPLATE.
+
+TEMPLATE: ${template.name}
+GOAL: ${templateConfig.goal || 'Create engaging content'}
+
+STRUCTURE REQUIREMENTS:
+${formatStructureRequirements(templateConfig.structure || {})}
+
+VOICE & TONE: ${templateConfig.voice_guidelines || 'Professional and engaging'}
+
+SOURCE MATERIAL:
+Title: ${card.title}
+Source: ${card.source_feeds?.name || 'Unknown'}
+Primary Insight: "${primaryInsight || 'No specific insight'}"
+
+ADDITIONAL INSIGHTS:
+${card.insight_answers ? Object.entries(card.insight_answers).map(([key, value]) => `• ${value}`).join('\n') : 'No additional insights'}
+
+FORMAT RESPONSE AS:
+TITLE: [Generated title]
+CONTENT: [Full content following the structure above]`;
+  }
+
+  // Fallback to basic prompt
+  return `Create a ${outputFormat === 'visual' ? 'visually engaging' : 'well-structured'} content piece based on this reference material:
 
 REFERENCE CONTENT:
 Title: ${card.title}
 Source: ${card.source_feeds?.name || 'Unknown'}
-Primary Insight: "${primaryInsight || card.ai_summary || 'No summary available'}"
+Primary Insight: "${primaryInsight || 'No summary available'}"
 
 KEY INSIGHTS:
 ${card.insight_answers ? Object.entries(card.insight_answers).map(([key, value]) => `• ${value}`).join('\n') : 'No specific insights extracted'}
@@ -148,9 +176,6 @@ TITLE: [Your generated title here]
 CONTENT: [Your full content here, using markdown formatting for headings, lists, and emphasis]
 
 Make the content authentic, valuable, and suitable for ${outputFormat} format.`;
-  }
-
-  return prompt;
 }
 
 // Helper functions for template structure

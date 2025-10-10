@@ -15,7 +15,7 @@ interface ContentTemplate {
   id: string;
   name: string;
   description: string;
-  output_format: string;
+  content_type: string;
   template_structure: any;
 }
 
@@ -230,7 +230,7 @@ const DraftDetail = () => {
                             <FileText className="h-4 w-4" />
                             {template.name}
                             <span className="text-xs text-muted-foreground ml-1">
-                              ({template.output_format})
+                              ({template.content_type})
                             </span>
                           </div>
                         </SelectItem>

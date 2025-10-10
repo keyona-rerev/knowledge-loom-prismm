@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, X } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -17,8 +17,7 @@ const Settings = () => {
     business_name: "",
     business_description: "",
     target_audience: "",
-    brand_voice: "",
-    global_insight_questions: [] as string[]
+    brand_voice: ""
   });
   const [aiProvider, setAiProvider] = useState("gemini");
 
@@ -37,16 +36,11 @@ const Settings = () => {
         .maybeSingle();
 
       if (data) {
-        const questions = Array.isArray(data.global_insight_questions) 
-          ? data.global_insight_questions.filter((q): q is string => typeof q === 'string')
-          : [];
-        
         setProfile({
           business_name: data.business_name || "",
           business_description: data.business_description || "",
           target_audience: data.target_audience || "",
-          brand_voice: data.brand_voice || "",
-          global_insight_questions: questions
+          brand_voice: data.brand_voice || ""
         });
       } else if (error && error.code !== "PGRST116") {
         toast.error("Failed to load profile");
@@ -95,26 +89,6 @@ const Settings = () => {
     setLoading(false);
   };
 
-  const addQuestion = () => {
-    setProfile(prev => ({
-      ...prev,
-      global_insight_questions: [...prev.global_insight_questions, ""]
-    }));
-  };
-
-  const updateQuestion = (index: number, value: string) => {
-    setProfile(prev => ({
-      ...prev,
-      global_insight_questions: prev.global_insight_questions.map((q, i) => i === index ? value : q)
-    }));
-  };
-
-  const removeQuestion = (index: number) => {
-    setProfile(prev => ({
-      ...prev,
-      global_insight_questions: prev.global_insight_questions.filter((_, i) => i !== index)
-    }));
-  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -178,34 +152,6 @@ const Settings = () => {
           </CardContent>
         </Card>
 
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>Global Insight Questions</CardTitle>
-            <CardDescription>Questions used to extract insights from all content sources</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {profile.global_insight_questions.map((question, index) => (
-              <div key={index} className="flex gap-2">
-                <Input
-                  value={question}
-                  onChange={(e) => updateQuestion(index, e.target.value)}
-                  placeholder={`Question ${index + 1}`}
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => removeQuestion(index)}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-            <Button variant="outline" onClick={addQuestion}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Question
-            </Button>
-          </CardContent>
-        </Card>
 
         <Card className="mb-6">
           <CardHeader>

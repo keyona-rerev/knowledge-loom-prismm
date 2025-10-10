@@ -444,39 +444,33 @@ export type Database = {
       }
       profiles: {
         Row: {
-          active_question_indices: number[] | null
           brand_voice: string | null
           business_description: string | null
           business_name: string | null
           created_at: string | null
           email: string | null
-          global_insight_questions: Json | null
           id: string
           target_audience: string | null
           updated_at: string | null
           user_id: string
         }
         Insert: {
-          active_question_indices?: number[] | null
           brand_voice?: string | null
           business_description?: string | null
           business_name?: string | null
           created_at?: string | null
           email?: string | null
-          global_insight_questions?: Json | null
           id?: string
           target_audience?: string | null
           updated_at?: string | null
           user_id: string
         }
         Update: {
-          active_question_indices?: number[] | null
           brand_voice?: string | null
           business_description?: string | null
           business_name?: string | null
           created_at?: string | null
           email?: string | null
-          global_insight_questions?: Json | null
           id?: string
           target_audience?: string | null
           updated_at?: string | null

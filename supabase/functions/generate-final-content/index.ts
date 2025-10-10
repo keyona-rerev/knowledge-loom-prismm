@@ -59,6 +59,21 @@ serve(async (req) => {
       }
     }
 
+    // Fetch template if provided
+    let template = null;
+    if (templateId) {
+      const { data: templateData, error: templateError } = await supabaseClient
+        .from("content_templates")
+        .select("*")
+        .eq("id", templateId)
+        .single();
+      
+      if (!templateError && templateData) {
+        template = templateData;
+        console.log(`Using template: ${template.name}`);
+      }
+    }
+
     // Prepare the prompt for AI generation
     const prompt = createContentPrompt(direction, seedInsight, seedCategory, insightCardsData);
 

@@ -29,7 +29,7 @@ interface ContentTemplate {
   id: string;
   name: string;
   description: string;
-  output_format: string;
+  content_type: string;
   template_structure: any;
 }
 
@@ -199,7 +199,7 @@ const CreateContent = () => {
           user_id: session?.user?.id,
           seed_category: seedCategory,
           selected_direction: direction,
-          content_type: selectedTemplateData?.output_format || "blog_post",
+          content_type: selectedTemplateData?.content_type || "blog_post",
           template_id: selectedTemplate,
           revision_count: 0,
           approval_status: "pending"
@@ -272,7 +272,7 @@ const CreateContent = () => {
           user_id: session?.user?.id,
           seed_category: seedCategory,
           selected_direction: direction,
-          content_type: selectedTemplateData?.output_format || "blog_post",
+          content_type: selectedTemplateData?.content_type || "blog_post",
           template_id: selectedTemplate,
           revision_count: 0,
           approval_status: "pending"
@@ -398,7 +398,7 @@ const CreateContent = () => {
                             <FileText className="h-4 w-4" />
                             {template.name}
                             <span className="text-xs text-muted-foreground ml-1">
-                              ({template.output_format})
+                              ({template.content_type})
                             </span>
                           </div>
                         </SelectItem>

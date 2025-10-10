@@ -49,28 +49,35 @@ const CardDetail = () => {
   };
 
   const loadQuestions = async (cardData: any) => {
-    // Load questions from template or global settings
+    // Load questions from template or question set
     if (cardData.reference_card_templates?.custom_questions) {
       const templateQuestions = cardData.reference_card_templates.custom_questions;
       if (Array.isArray(templateQuestions)) {
         setQuestions(templateQuestions.filter((q: any) => typeof q === 'string'));
       }
+    } else if (cardData.question_set_id) {
+      // Load from question set
+      const { data: questionSet } = await supabase
+        .from("question_sets")
+        .select("questions")
+        .eq("id", cardData.question_set_id)
+        .single();
+      
+      if (questionSet?.questions && Array.isArray(questionSet.questions)) {
+        setQuestions(questionSet.questions.filter((q: any) => typeof q === 'string'));
+      }
     } else {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("global_insight_questions, active_question_indices")
-        .limit(1)
-        .maybeSingle();
-
-      if (profile?.global_insight_questions && Array.isArray(profile.global_insight_questions)) {
-        if (profile.active_question_indices?.length) {
-          const activeQuestions = profile.active_question_indices
-            .map((idx: number) => profile.global_insight_questions[idx])
-            .filter((q: any) => typeof q === 'string' && q);
-          setQuestions(activeQuestions);
-        } else {
-          setQuestions(profile.global_insight_questions.filter((q: any) => typeof q === 'string'));
-        }
+      // Load default question set for user
+      const { data: { session } } = await supabase.auth.getSession();
+      const { data: defaultSet } = await supabase
+        .from("question_sets")
+        .select("questions")
+        .eq("user_id", session?.user?.id)
+        .eq("name", "Default Questions")
+        .single();
+      
+      if (defaultSet?.questions && Array.isArray(defaultSet.questions)) {
+        setQuestions(defaultSet.questions.filter((q: any) => typeof q === 'string'));
       }
     }
   };

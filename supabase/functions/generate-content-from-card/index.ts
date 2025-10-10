@@ -50,19 +50,30 @@ serve(async (req) => {
       throw new Error("Reference card not found");
     }
 
-    // Get template if provided
-    let template = null;
+    // ✅ UPDATED: Get content template based on output format
+    const { data: contentTemplate } = await supabaseClient
+      .from("content_templates")
+      .select("*")
+      .eq("content_type", outputFormat || 'blog_post')
+      .eq("is_active", true)
+      .or(`user_id.eq.${card.user_id},is_system_template.eq.true`)
+      .order("is_system_template", { ascending: false })
+      .limit(1)
+      .single();
+
+    // Get autopilot template if provided (for backward compatibility)
+    let autopilotTemplate = null;
     if (templateId) {
       const { data: templateData } = await supabaseClient
         .from("autopilot_templates")
         .select("*")
         .eq("id", templateId)
         .single();
-      template = templateData;
+      autopilotTemplate = templateData;
     }
 
-    // Prepare AI prompt
-    const prompt = createContentPrompt(card, template, outputFormat);
+    // ✅ UPDATED: Use template-driven prompt
+    const prompt = await createContentPrompt(card, contentTemplate, autopilotTemplate, outputFormat, supabaseClient);
 
     // Call AI API through Lovable gateway
     const aiResponse = await fetch("https://gateway.lovable.app/v1/proxy", {
@@ -95,7 +106,7 @@ serve(async (req) => {
     // Parse the response to extract title and content
     const { title, content } = parseGeneratedContent(generatedContent, card.title);
 
-    console.log("✅ Content generated successfully");
+    console.log("✅ Content generated successfully using template:", contentTemplate?.name || 'default');
 
     return new Response(
       JSON.stringify({
@@ -106,7 +117,7 @@ serve(async (req) => {
           title: card.title,
           source: card.source_feeds?.name
         },
-        templateUsed: templateId || "manual"
+        templateUsed: contentTemplate?.name || autopilotTemplate?.name || "manual"
       }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -125,16 +136,74 @@ serve(async (req) => {
   }
 });
 
-function createContentPrompt(card: any, template: any, outputFormat: string) {
+// ✅ UPDATED: Template-driven prompt generation
+async function createContentPrompt(card: any, contentTemplate: any, autopilotTemplate: any, outputFormat: string, supabaseClient: any) {
+  const primaryInsight = card.insight_answers ? Object.values(card.insight_answers)[0] : card.ai_summary;
+  
+  // Use content template if available
+  if (contentTemplate) {
+    return buildPromptFromTemplate(card, contentTemplate, primaryInsight);
+  }
+  
+  // Fallback to original logic for backward compatibility
+  return buildBasicPrompt(card, autopilotTemplate, outputFormat, primaryInsight);
+}
+
+function buildPromptFromTemplate(card: any, template: any, primaryInsight: any) {
+  const templateConfig = template.template_structure;
+  
+  return `STRICTLY FOLLOW THIS CONTENT TEMPLATE. DO NOT DEVIATE FROM THE STRUCTURE.
+
+TEMPLATE: ${template.name}
+GOAL: ${templateConfig.goal}
+
+REQUIRED STRUCTURE:
+${formatStructureRequirements(templateConfig.structure)}
+
+VOICE & TONE: ${templateConfig.voice_guidelines}
+
+CONTENT SOURCE:
+Title: ${card.title}
+Source: ${card.source_feeds?.name || 'Unknown'}
+Primary Strategic Insight: "${primaryInsight || 'No specific insight'}"
+
+QUALITY CHECKS:
+${templateConfig.quality_checks?.map((check: string) => `• ${check}`).join('\n') || '• Ensure high-quality, engaging content'}
+
+ADDITIONAL INSIGHTS:
+${card.insight_answers ? Object.entries(card.insight_answers).slice(1).map(([key, value]) => `• ${value}`).join('\n') : 'No additional insights'}
+
+RESPONSE FORMAT - STRICTLY FOLLOW:
+TITLE: [Generated title following template requirements]
+CONTENT: [Full content following the exact structure above]
+
+CRITICAL: Preserve the strategic angle and core insight throughout the content.`;
+}
+
+function formatStructureRequirements(structure: any) {
+  return Object.entries(structure).map(([section, config]: [string, any]) => {
+    let requirements = `${section.toUpperCase()}: ${config.description}`;
+    if (config.approx_words) requirements += ` (~${config.approx_words} words)`;
+    if (config.min_words && config.max_words) requirements += ` (${config.min_words}-${config.max_words} words)`;
+    if (config.max_chars) requirements += ` (max ${config.max_chars} characters)`;
+    if (config.sentences) requirements += ` (${config.sentences} sentences)`;
+    if (config.count) requirements += ` (${config.count} items)`;
+    if (config.required === false) requirements += ` [OPTIONAL]`;
+    if (config.formatting) requirements += ` [Format: ${config.formatting}]`;
+    return requirements;
+  }).join('\n');
+}
+
+function buildBasicPrompt(card: any, template: any, outputFormat: string, primaryInsight: any) {
   let prompt = `Create a ${outputFormat === 'visual' ? 'visually engaging' : 'well-structured'} content piece based on this reference material:
 
 REFERENCE CONTENT:
 Title: ${card.title}
 Source: ${card.source_feeds?.name || 'Unknown'}
-Summary: ${card.ai_summary || 'No summary available'}
+Primary Insight: "${primaryInsight || card.ai_summary || 'No summary available'}"
 
 KEY INSIGHTS:
-${card.insight_answers ? Object.entries(card.insight_answers).map(([key, value]) => `• ${key}: ${value}`).join('\n') : 'No specific insights extracted'}
+${card.insight_answers ? Object.entries(card.insight_answers).map(([key, value]) => `• ${value}`).join('\n') : 'No specific insights extracted'}
 
 `;
 

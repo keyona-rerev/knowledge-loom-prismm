@@ -126,6 +126,45 @@ export type Database = {
           },
         ]
       }
+      content_templates: {
+        Row: {
+          content_type: string
+          created_at: string | null
+          description: string | null
+          id: string
+          is_active: boolean | null
+          is_system_template: boolean | null
+          name: string
+          template_structure: Json
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          content_type: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          is_system_template?: boolean | null
+          name: string
+          template_structure: Json
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          content_type?: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          is_system_template?: boolean | null
+          name?: string
+          template_structure?: Json
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       draft_revisions: {
         Row: {
           body: string | null

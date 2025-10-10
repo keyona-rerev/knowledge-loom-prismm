@@ -31,7 +31,8 @@ serve(async (req) => {
     const requestBody = await req.json();
     console.log("📦 Request body:", requestBody);
 
-    const { type, url, user_id } = requestBody;
+    // ✅ UPDATED: Include question_set_id in destructuring
+    const { type, url, user_id, question_set_id } = requestBody;
 
     if (!user_id) {
       console.error("❌ Missing user_id");
@@ -129,7 +130,7 @@ serve(async (req) => {
       console.log("✅ Source feed created:", feedData.id);
     }
 
-    // Create reference card
+    // ✅ UPDATED: Create reference card WITH question_set_id
     console.log("💾 Creating reference card...");
     const { data: cardData, error: insertError } = await supabase
       .from("reference_cards")
@@ -142,6 +143,7 @@ serve(async (req) => {
         status: "processing",
         global_relevance_score: 5,
         user_id: user_id,
+        question_set_id: question_set_id || null, // ✅ ADD THIS LINE
       })
       .select()
       .single();

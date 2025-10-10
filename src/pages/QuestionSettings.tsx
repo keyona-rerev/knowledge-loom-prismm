@@ -58,13 +58,19 @@ const QuestionSettings = () => {
       toast.error("You must be logged in to create templates");
       return;
     }
-
+     console.log("🔄 Creating question set with:", {  // ✅ ADD THIS LINE
+      name: newTemplateName,
+      user_id: session.user.id
+    });  // ✅ ADD THIS LINE
+    
     const { error } = await supabase
       .from("question_sets")  // ✅ CHANGED TABLE
       .insert([{ 
         name: newTemplateName, 
         questions: [],  // ✅ CHANGED COLUMN NAME        user_id: session.user.id
       }]);
+
+      console.log("❌ Insert error:", error);  // ✅ ADD THIS LINE RIGHT HERE
 
     if (error) {
       toast.error("Failed to create template");

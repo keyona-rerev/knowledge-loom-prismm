@@ -442,7 +442,7 @@ export type Database = {
           is_active: boolean | null
           is_global: boolean | null
           name: string
-          questions: Json
+          questions: string[]
           updated_at: string
           user_id: string
         }
@@ -452,7 +452,7 @@ export type Database = {
           is_active?: boolean | null
           is_global?: boolean | null
           name: string
-          questions?: Json
+          questions: string[]
           updated_at?: string
           user_id: string
         }
@@ -462,7 +462,7 @@ export type Database = {
           is_active?: boolean | null
           is_global?: boolean | null
           name?: string
-          questions?: Json
+          questions?: string[]
           updated_at?: string
           user_id?: string
         }
@@ -566,13 +566,6 @@ export type Database = {
           version_history?: Json | null
         }
         Relationships: [
-          {
-            foreignKeyName: "reference_cards_question_set_id_fkey"
-            columns: ["question_set_id"]
-            isOneToOne: false
-            referencedRelation: "question_sets"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "reference_cards_source_feed_id_fkey"
             columns: ["source_feed_id"]

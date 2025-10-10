@@ -60,7 +60,7 @@ const Feeds = () => {
   const [expandedFeeds, setExpandedFeeds] = useState<Set<string>>(new Set());
   const [refCardsByFeed, setRefCardsByFeed] = useState<Record<string, any[]>>({});
   const [loadingRefs, setLoadingRefs] = useState(false);
-  const [selectedQuestionSet, setSelectedQuestionSet] = useState("default");
+  const [questionSets, setQuestionSets] = useState<any[]>([]);
 
   const loadReferenceCards = async (feedIds: string[]) => {
     if (!feedIds.length) return;
@@ -94,8 +94,26 @@ const Feeds = () => {
     }
   };
 
+  const loadQuestionSets = async () => {
+    const { data, error } = await supabase
+      .from("question_sets")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Failed to load question sets:", error);
+    } else {
+      setQuestionSets(data || []);
+      // Set default to first question set if available
+      if (data && data.length > 0) {
+        setSelectedQuestionSet(data[0].id);
+      }
+    }
+  };
+
   useEffect(() => {
     loadFeeds();
+    loadQuestionSets();
   }, [navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {

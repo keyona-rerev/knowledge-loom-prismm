@@ -48,7 +48,7 @@ serve(async (req) => {
     // Determine questions with proper user context
     let questions: string[] = [];
 
-    // ✅ UPDATED: 1) Check for question_set_id first
+    // ✅ 1) Check for question_set_id first
     if (card.question_set_id) {
       console.log("Using question set:", card.question_set_id);
       const { data: questionSet, error: questionSetError } = await supabase
@@ -65,44 +65,39 @@ serve(async (req) => {
       }
     }
 
-    if (templateQuestions?.length) {
-      questions = templateQuestions;
-    } else {
-      // 2) Fallback to user's global questions
-      if (card.user_id) {
-        const { data: profile, error: profileError } = await supabase
-          .from("profiles")
-          .select("global_insight_questions, active_question_indices")
-          .eq("user_id", card.user_id)
-          .single();
+    // 2) Fallback to user's global questions if no questions loaded yet
+    if (questions.length === 0 && card.user_id) {
+      console.log("Falling back to user profile questions");
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("global_insight_questions, active_question_indices")
+        .eq("user_id", card.user_id)
+        .single();
 
-        if (profileError) {
-          console.error("Profile fetch error:", profileError);
-        }
-
-        if (profile?.global_insight_questions && Array.isArray(profile.global_insight_questions)) {
-          if (profile.active_question_indices && Array.isArray(profile.active_question_indices) && profile.active_question_indices.length) {
-            questions = profile.active_question_indices
-              .map((idx: number) => profile.global_insight_questions[idx])
-              .filter((q: any) => typeof q === "string" && q && q.trim());
-          } else {
-            questions = profile.global_insight_questions.filter((q: any) => typeof q === "string" && q.trim());
-          }
-        }
-      }
-      
-      // 3) Ultimate fallback: default questions
-      if (questions.length === 0) {
-        questions = [
-          "What are the key takeaways?",
-          "How credible is this source?",
-          "What potential biases are present?",
-          "What is the main argument or finding?"
-        ];
+      if (profileError) {
+        console.error("Profile fetch error:", profileError);
       }
 
-
-
+      if (profile?.global_insight_questions && Array.isArray(profile.global_insight_questions)) {
+        if (profile.active_question_indices && Array.isArray(profile.active_question_indices) && profile.active_question_indices.length) {
+          questions = profile.active_question_indices
+            .map((idx: number) => profile.global_insight_questions[idx])
+            .filter((q: any) => typeof q === "string" && q && q.trim());
+        } else {
+          questions = profile.global_insight_questions.filter((q: any) => typeof q === "string" && q.trim());
+        }
+      }
+    }
+    
+    // 3) Ultimate fallback: default questions
+    if (questions.length === 0) {
+      console.log("Using default questions");
+      questions = [
+        "What are the key takeaways?",
+        "How credible is this source?",
+        "What potential biases are present?",
+        "What is the main argument or finding?"
+      ];
     }
 
     console.log("Questions found:", questions.length);

@@ -46,6 +46,58 @@ const Drafts = () => {
     }
   };
 
+  const getApprovalBadgeVariant = (status?: string) => {
+    switch (status) {
+      case "approved": return "default";
+      case "rejected": return "destructive";
+      case "pending":
+      default:
+        return "secondary";
+    }
+  };
+
+  const getApprovalBorderClasses = (status?: string) => {
+    switch (status) {
+      case "approved": return "border-l-4 border-l-green-500";
+      case "rejected": return "border-l-4 border-l-red-500";
+      case "pending":
+      default:
+        return "border-l-4 border-l-yellow-500";
+    }
+  };
+
+  const approvedCount = drafts.filter(d => d.approval_status === "approved").length;
+  const rejectedCount = drafts.filter(d => d.approval_status === "rejected").length;
+  const pendingCount = drafts.filter(d => d.approval_status === "pending" || !d.approval_status).length;
+
+  const handleApprove = async (e: React.MouseEvent, draftId: string) => {
+    e.stopPropagation();
+    const { error } = await supabase
+      .from("drafts")
+      .update({ approval_status: "approved", reviewed_at: new Date().toISOString() })
+      .eq("id", draftId);
+    if (error) {
+      toast.error("Failed to approve draft");
+    } else {
+      toast.success("Draft approved");
+      loadDrafts();
+    }
+  };
+
+  const handleReject = async (e: React.MouseEvent, draftId: string) => {
+    e.stopPropagation();
+    const { error } = await supabase
+      .from("drafts")
+      .update({ approval_status: "rejected", reviewed_at: new Date().toISOString() })
+      .eq("id", draftId);
+    if (error) {
+      toast.error("Failed to reject draft");
+    } else {
+      toast.success("Draft rejected");
+      loadDrafts();
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
@@ -58,13 +110,26 @@ const Drafts = () => {
       </header>
 
       <main className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold mb-8">Drafts</h1>
+        <h1 className="text-3xl font-bold mb-4">Drafts</h1>
+
+        {/* Mini dashboard for approval status */}
+        <div className="mb-8 flex flex-wrap items-center gap-3">
+          <Badge variant={getApprovalBadgeVariant("approved")} className="px-3 py-1">
+            Approved: {approvedCount}
+          </Badge>
+          <Badge variant={getApprovalBadgeVariant("pending")} className="px-3 py-1">
+            Pending: {pendingCount}
+          </Badge>
+          <Badge variant={getApprovalBadgeVariant("rejected")} className="px-3 py-1">
+            Rejected: {rejectedCount}
+          </Badge>
+        </div>
 
         <div className="grid gap-4">
           {drafts.map((draft) => (
             <Card 
               key={draft.id} 
-              className="hover:shadow-md transition-shadow cursor-pointer"
+              className={`hover:shadow-md transition-shadow cursor-pointer ${getApprovalBorderClasses(draft.approval_status)}`}
               onClick={() => navigate(`/drafts/${draft.id}`)}
             >
               <CardHeader>
@@ -79,6 +144,9 @@ const Drafts = () => {
                   <FileText className="h-5 w-5 text-muted-foreground" />
                 </div>
                 <div className="flex flex-wrap gap-2 mt-3">
+                  <Badge variant={getApprovalBadgeVariant(draft.approval_status)}>
+                    {(draft.approval_status || "pending").replace("_", " ")}
+                  </Badge>
                   <Badge variant={getStatusColor(draft.status)}>
                     {draft.status.replace("_", " ")}
                   </Badge>
@@ -90,6 +158,14 @@ const Drafts = () => {
                       v{draft.revision_count + 1}
                     </Badge>
                   )}
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <Button size="sm" variant="outline" onClick={(e) => handleApprove(e, draft.id)}>
+                    Approve
+                  </Button>
+                  <Button size="sm" variant="destructive" onClick={(e) => handleReject(e, draft.id)}>
+                    Reject
+                  </Button>
                 </div>
               </CardHeader>
               <CardContent>

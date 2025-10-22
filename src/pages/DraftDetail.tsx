@@ -30,6 +30,16 @@ const DraftDetail = () => {
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [regenerating, setRegenerating] = useState(false);
 
+  const getApprovalBadgeVariant = (status?: string) => {
+    switch (status) {
+      case "approved": return "default";
+      case "rejected": return "destructive";
+      case "pending":
+      default:
+        return "secondary";
+    }
+  };
+
   const loadDraft = async () => {
     if (!id) return;
 
@@ -141,6 +151,34 @@ const DraftDetail = () => {
     }
   };
 
+  const handleApprove = async () => {
+    if (!draft) return;
+    const { error } = await supabase
+      .from("drafts")
+      .update({ approval_status: "approved", reviewed_at: new Date().toISOString() })
+      .eq("id", draft.id);
+    if (error) {
+      toast.error("Failed to approve draft");
+    } else {
+      toast.success("Draft approved");
+      await loadDraft();
+    }
+  };
+
+  const handleReject = async () => {
+    if (!draft) return;
+    const { error } = await supabase
+      .from("drafts")
+      .update({ approval_status: "rejected", reviewed_at: new Date().toISOString() })
+      .eq("id", draft.id);
+    if (error) {
+      toast.error("Failed to reject draft");
+    } else {
+      toast.success("Draft rejected");
+      await loadDraft();
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -188,6 +226,8 @@ const DraftDetail = () => {
                     {regenerating ? "Regenerating..." : "Regenerate with Template"}
                   </Button>
                 )}
+                <Button variant="outline" onClick={handleApprove}>Approve</Button>
+                <Button variant="destructive" onClick={handleReject}>Reject</Button>
                 <Button onClick={() => setIsEditing(true)}>
                   <Edit className="mr-2 h-4 w-4" />
                   Edit
@@ -247,6 +287,9 @@ const DraftDetail = () => {
             )}
 
             <div className="flex flex-wrap gap-2 mt-3">
+              <Badge variant={getApprovalBadgeVariant(draft.approval_status)}>
+                {(draft.approval_status || "pending").replace("_", " ")}
+              </Badge>
               <Badge variant="default">
                 {draft.status?.replace("_", " ") || "draft"}
               </Badge>

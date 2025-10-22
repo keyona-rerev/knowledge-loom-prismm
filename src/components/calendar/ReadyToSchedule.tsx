@@ -12,6 +12,7 @@ interface Draft {
   body: string;
   content_type: string;
   updated_at: string;
+  approval_status: string;
 }
 
 export const ReadyToSchedule = () => {
@@ -23,7 +24,7 @@ export const ReadyToSchedule = () => {
     
     const { data, error } = await supabase
       .from('drafts')
-      .select('id, title, body, content_type, updated_at')
+      .select('id, title, body, content_type, updated_at, approval_status')
       .eq('user_id', session?.user?.id)
       .eq('approval_status', 'approved')
       .order('updated_at', { ascending: false });
@@ -47,6 +48,15 @@ export const ReadyToSchedule = () => {
       case 'social_post': return <FileText className="h-3 w-3" />;
       case 'video_script': return <FileText className="h-3 w-3" />;
       default: return <FileText className="h-3 w-3" />;
+    }
+  };
+
+  const getStatusBadgeVariant = (status: string) => {
+    switch (status) {
+      case 'approved': return 'default';
+      case 'pending': return 'secondary';
+      case 'rejected': return 'destructive';
+      default: return 'outline';
     }
   };
 
@@ -96,18 +106,21 @@ export const ReadyToSchedule = () => {
                     {draft.title || "Untitled Draft"}
                   </h4>
                   
-                  <div className="flex justify-between items-center text-xs">
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    <Badge variant={getStatusBadgeVariant(draft.approval_status)} className="capitalize text-xs">
+                      {draft.approval_status}
+                    </Badge>
                     <Badge variant="outline" className="capitalize bg-white/50">
                       <span className="flex items-center gap-1">
                         {getContentTypeIcon(draft.content_type)}
                         {draft.content_type?.replace('_', ' ')}
                       </span>
                     </Badge>
-                    
-                    <span className="flex items-center gap-1 text-gray-500">
-                      <Clock className="h-3 w-3" />
-                      {formatDistanceToNow(new Date(draft.updated_at), { addSuffix: true })}
-                    </span>
+                  </div>
+                  
+                  <div className="flex items-center text-xs text-gray-500">
+                    <Clock className="h-3 w-3 mr-1" />
+                    {formatDistanceToNow(new Date(draft.updated_at), { addSuffix: true })}
                   </div>
                 </div>
               )}

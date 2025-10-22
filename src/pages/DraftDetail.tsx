@@ -26,9 +26,11 @@ const DraftDetail = () => {
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [editedBody, setEditedBody] = useState("");
+  const [editedSeedInsight, setEditedSeedInsight] = useState("");
   const [templates, setTemplates] = useState<ContentTemplate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [regenerating, setRegenerating] = useState(false);
+  const [revisions, setRevisions] = useState<any[]>([]);
 
   const getApprovalBadgeVariant = (status?: string) => {
     switch (status) {
@@ -56,9 +58,23 @@ const DraftDetail = () => {
     } else {
       setDraft(data);
       setEditedBody(data.body || "");
-      // ✅ FIXED: Use autopilot_template_id instead of template_id
+      setEditedSeedInsight(data.seed_insight || "");
       setSelectedTemplate(data.autopilot_template_id || "");
       setLoading(false);
+    }
+  };
+
+  const loadRevisions = async () => {
+    if (!id) return;
+    
+    const { data, error } = await supabase
+      .from("draft_revisions")
+      .select("*")
+      .eq("draft_id", id)
+      .order("version", { ascending: false });
+
+    if (!error && data) {
+      setRevisions(data);
     }
   };
 
@@ -89,6 +105,7 @@ const DraftDetail = () => {
   useEffect(() => {
     loadDraft();
     loadTemplates();
+    loadRevisions();
   }, [id]);
 
   const handleSave = async () => {
@@ -98,6 +115,7 @@ const DraftDetail = () => {
       .from("drafts")
       .update({ 
         body: editedBody,
+        seed_insight: editedSeedInsight,
         updated_at: new Date().toISOString()
       })
       .eq("id", draft.id);
@@ -107,7 +125,8 @@ const DraftDetail = () => {
     } else {
       toast.success("Draft saved");
       setIsEditing(false);
-      loadDraft(); // Reload to get updated timestamp
+      loadDraft();
+      loadRevisions();
     }
   };
 
@@ -310,12 +329,22 @@ const DraftDetail = () => {
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
-            {draft.seed_insight && (
+            {(draft.seed_insight || isEditing) && (
               <div>
                 <h3 className="font-semibold mb-2">Seed Insight</h3>
-                <p className="text-sm text-muted-foreground p-3 bg-muted rounded-lg">
-                  {draft.seed_insight}
-                </p>
+                {isEditing ? (
+                  <Textarea
+                    value={editedSeedInsight}
+                    onChange={(e) => setEditedSeedInsight(e.target.value)}
+                    rows={3}
+                    placeholder="Enter the seed insight for this draft..."
+                    className="text-sm"
+                  />
+                ) : (
+                  <p className="text-sm text-muted-foreground p-3 bg-muted rounded-lg">
+                    {draft.seed_insight}
+                  </p>
+                )}
               </div>
             )}
 
@@ -340,15 +369,50 @@ const DraftDetail = () => {
                 <h3 className="font-semibold mb-2">Selected Direction</h3>
                 <Card>
                   <CardContent className="p-4">
-                    <h4 className="font-semibold mb-1">{draft.selected_direction.title}</h4>
+                    <h4 className="font-semibold mb-1">{draft.selected_direction.title || "No title"}</h4>
                     <p className="text-sm text-muted-foreground mb-1">
-                      {draft.selected_direction.description}
+                      {draft.selected_direction.description || "No description"}
                     </p>
-                    <p className="text-xs text-muted-foreground italic">
-                      Angle: {draft.selected_direction.angle}
-                    </p>
+                    {draft.selected_direction.angle && (
+                      <p className="text-xs text-muted-foreground italic">
+                        Angle: {draft.selected_direction.angle}
+                      </p>
+                    )}
                   </CardContent>
                 </Card>
+              </div>
+            )}
+
+            {revisions.length > 0 && (
+              <div>
+                <h3 className="font-semibold mb-2">Version History ({revisions.length + 1} versions)</h3>
+                <div className="space-y-2">
+                  <Card className="border-2 border-primary">
+                    <CardContent className="p-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium">Current Version (v{(draft.revision_count || 0) + 1})</span>
+                        <Badge>Latest</Badge>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  {revisions.map((revision) => (
+                    <Card key={revision.id}>
+                      <CardContent className="p-3">
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-sm font-medium">Version {revision.version}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {formatDistanceToNow(new Date(revision.created_at), { addSuffix: true })}
+                          </span>
+                        </div>
+                        {revision.changes_summary && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {revision.changes_summary}
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
               </div>
             )}
           </CardContent>

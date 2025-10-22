@@ -105,28 +105,47 @@ const InsightDetail = () => {
 
     const { data: { session } } = await supabase.auth.getSession();
 
-    const { data, error } = await supabase
-      .from("reference_cards")
-      .insert({
-        user_id: session?.user?.id,
-        title: formData.title,
-        original_text: formData.content,
-        source_type: "observation",
-        status: "active",
-        question_set_id: questionSetId || null,
-        content_quality: "good"
-      })
-      .select()
-      .single();
+    try {
+      // Create the reference card
+      const { data, error } = await supabase
+        .from("reference_cards")
+        .insert({
+          user_id: session?.user?.id,
+          title: formData.title,
+          original_text: formData.content,
+          source_type: "observation",
+          status: "active",
+          question_set_id: questionSetId && questionSetId !== "none" ? questionSetId : null,
+          content_quality: "good"
+        })
+        .select()
+        .single();
 
-    if (error) {
-      toast.error("Failed to convert insight to reference card");
-      console.error(error);
-    } else {
-      toast.success("Insight converted to reference card");
+      if (error) throw error;
+
+      // Process the card with AI if question set is provided
+      if (questionSetId && questionSetId !== "none") {
+        toast.info("Processing reference card with AI...");
+        const { error: processError } = await supabase.functions.invoke("process-reference-card", {
+          body: { cardId: data.id }
+        });
+
+        if (processError) {
+          console.error("AI processing error:", processError);
+          toast.warning("Reference card created but AI processing failed");
+        } else {
+          toast.success("Insight converted and processed with AI!");
+        }
+      } else {
+        toast.success("Insight converted to reference card");
+      }
+
       setConvertDialogOpen(false);
       setSelectedQuestionSetId("none");
       navigate(`/reference-cards/${data.id}`);
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to convert insight to reference card");
     }
   };
 

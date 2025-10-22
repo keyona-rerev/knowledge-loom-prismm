@@ -9,7 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Save, X } from "lucide-react";
+import { ArrowLeft, Save, X, FileText } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface InsightFormData {
   title: string;
@@ -28,6 +29,9 @@ const InsightDetail = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [tagInput, setTagInput] = useState("");
+  const [questionSets, setQuestionSets] = useState<Array<{ id: string; name: string }>>([]);
+  const [convertDialogOpen, setConvertDialogOpen] = useState(false);
+  const [selectedQuestionSetId, setSelectedQuestionSetId] = useState<string>("");
   
   const [formData, setFormData] = useState<InsightFormData>({
     title: "",
@@ -50,6 +54,7 @@ const InsightDetail = () => {
     if (isEditing) {
       loadInsight();
     }
+    loadQuestionSets();
   }, [navigate, id, isEditing]);
 
   const loadInsight = async () => {
@@ -78,6 +83,51 @@ const InsightDetail = () => {
       });
     }
     setLoading(false);
+  };
+
+  const loadQuestionSets = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    const { data, error } = await supabase
+      .from("question_sets")
+      .select("id, name")
+      .eq("user_id", session?.user?.id)
+      .eq("is_active", true)
+      .order("name");
+
+    if (!error && data) {
+      setQuestionSets(data);
+    }
+  };
+
+  const handleConvertToReferenceCard = async (questionSetId?: string) => {
+    if (!id) return;
+
+    const { data: { session } } = await supabase.auth.getSession();
+
+    const { data, error } = await supabase
+      .from("reference_cards")
+      .insert({
+        user_id: session?.user?.id,
+        title: formData.title,
+        original_text: formData.content,
+        source_type: "insight",
+        status: "active",
+        question_set_id: questionSetId || null,
+        content_quality: "good"
+      })
+      .select()
+      .single();
+
+    if (error) {
+      toast.error("Failed to convert insight to reference card");
+      console.error(error);
+    } else {
+      toast.success("Insight converted to reference card");
+      setConvertDialogOpen(false);
+      setSelectedQuestionSetId("");
+      navigate(`/reference-cards/${data.id}`);
+    }
   };
 
   const handleSave = async () => {
@@ -305,15 +355,69 @@ const InsightDetail = () => {
               )}
             </div>
 
-            {/* Save Button */}
-            <div className="flex justify-end pt-4">
-              <Button onClick={handleSave} disabled={saving}>
-                <Save className="mr-2 h-4 w-4" />
-                {saving ? "Saving..." : (isEditing ? "Update Insight" : "Create Insight")}
-              </Button>
+            {/* Action Buttons */}
+            <div className="flex justify-between pt-4">
+              {isEditing && (
+                <Button 
+                  variant="outline" 
+                  onClick={() => setConvertDialogOpen(true)}
+                  type="button"
+                >
+                  <FileText className="mr-2 h-4 w-4" />
+                  Convert to Reference Card
+                </Button>
+              )}
+              <div className={!isEditing ? "ml-auto" : ""}>
+                <Button onClick={handleSave} disabled={saving}>
+                  <Save className="mr-2 h-4 w-4" />
+                  {saving ? "Saving..." : (isEditing ? "Update Insight" : "Create Insight")}
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
+
+        {/* Convert to Reference Card Dialog */}
+        <Dialog open={convertDialogOpen} onOpenChange={setConvertDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Convert to Reference Card</DialogTitle>
+              <DialogDescription>
+                This will create a reference card from your insight. You can optionally apply a question set for AI processing.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div>
+                <label className="text-sm font-medium mb-2 block">
+                  Question Set (Optional)
+                </label>
+                <Select value={selectedQuestionSetId} onValueChange={setSelectedQuestionSetId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="No question set (convert only)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">No question set</SelectItem>
+                    {questionSets.map((qs) => (
+                      <SelectItem key={qs.id} value={qs.id}>
+                        {qs.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setConvertDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={() => handleConvertToReferenceCard(selectedQuestionSetId || undefined)}
+                >
+                  Convert to Reference Card
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   );

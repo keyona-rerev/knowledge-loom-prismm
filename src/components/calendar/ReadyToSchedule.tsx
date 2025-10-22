@@ -1,6 +1,6 @@
 // src/components/calendar/ReadyToSchedule.tsx
 import { useState, useEffect } from 'react';
-import { Draggable } from '@hello-pangea/dnd';
+import { Draggable, Droppable } from '@hello-pangea/dnd';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
 import { FileText, Clock } from 'lucide-react';
@@ -67,46 +67,55 @@ export const ReadyToSchedule = () => {
   }
 
   return (
-    <div className="p-4 space-y-2">
-      <h3 className="font-semibold text-sm mb-3">Ready to Schedule</h3>
-      {approvedDrafts.map((draft, index) => (
-        <Draggable 
-          key={draft.id} 
-          draggableId={`draft-${draft.id}`} 
-          index={index}
+    <Droppable droppableId="drafts-sidebar" isDropDisabled={true}>
+      {(provided) => (
+        <div 
+          ref={provided.innerRef}
+          {...provided.droppableProps}
+          className="p-4 space-y-2"
         >
-          {(provided, snapshot) => (
-            <div
-              ref={provided.innerRef}
-              {...provided.draggableProps}
-              {...provided.dragHandleProps}
-              className={`
-                p-3 rounded-lg border border-l-4 border-l-green-500 bg-green-50 
-                cursor-grab transition-all duration-200
-                ${snapshot.isDragging ? 'shadow-lg rotate-1 scale-105' : 'shadow-sm hover:shadow-md'}
-              `}
+          <h3 className="font-semibold text-sm mb-3">Ready to Schedule</h3>
+          {approvedDrafts.map((draft, index) => (
+            <Draggable 
+              key={draft.id} 
+              draggableId={`draft-${draft.id}`} 
+              index={index}
             >
-              <h4 className="font-medium text-sm line-clamp-2 mb-2 leading-tight">
-                {draft.title || "Untitled Draft"}
-              </h4>
-              
-              <div className="flex justify-between items-center text-xs">
-                <Badge variant="outline" className="capitalize bg-white/50">
-                  <span className="flex items-center gap-1">
-                    {getContentTypeIcon(draft.content_type)}
-                    {draft.content_type?.replace('_', ' ')}
-                  </span>
-                </Badge>
-                
-                <span className="flex items-center gap-1 text-gray-500">
-                  <Clock className="h-3 w-3" />
-                  {formatDistanceToNow(new Date(draft.updated_at), { addSuffix: true })}
-                </span>
-              </div>
-            </div>
-          )}
-        </Draggable>
-      ))}
-    </div>
+              {(provided, snapshot) => (
+                <div
+                  ref={provided.innerRef}
+                  {...provided.draggableProps}
+                  {...provided.dragHandleProps}
+                  className={`
+                    p-3 rounded-lg border border-l-4 border-l-green-500 bg-green-50 
+                    cursor-grab transition-all duration-200
+                    ${snapshot.isDragging ? 'shadow-lg rotate-1 scale-105' : 'shadow-sm hover:shadow-md'}
+                  `}
+                >
+                  <h4 className="font-medium text-sm line-clamp-2 mb-2 leading-tight">
+                    {draft.title || "Untitled Draft"}
+                  </h4>
+                  
+                  <div className="flex justify-between items-center text-xs">
+                    <Badge variant="outline" className="capitalize bg-white/50">
+                      <span className="flex items-center gap-1">
+                        {getContentTypeIcon(draft.content_type)}
+                        {draft.content_type?.replace('_', ' ')}
+                      </span>
+                    </Badge>
+                    
+                    <span className="flex items-center gap-1 text-gray-500">
+                      <Clock className="h-3 w-3" />
+                      {formatDistanceToNow(new Date(draft.updated_at), { addSuffix: true })}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </Draggable>
+          ))}
+          {provided.placeholder}
+        </div>
+      )}
+    </Droppable>
   );
 };

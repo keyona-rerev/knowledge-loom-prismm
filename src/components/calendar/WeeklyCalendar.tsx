@@ -140,27 +140,27 @@ export const WeeklyCalendar = () => {
   }
 
   return (
-    <div className="h-screen flex bg-gray-50">
-      {/* Ready to Schedule Sidebar */}
-      <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
-        <div className="p-4 border-b">
-          <h2 className="font-semibold text-lg">Ready to Schedule</h2>
-          <p className="text-sm text-gray-600 mt-1">Drag approved drafts to calendar</p>
+    <DragDropContext onDragEnd={handleDragEnd}>
+      <div className="h-screen flex bg-gray-50">
+        {/* Ready to Schedule Sidebar */}
+        <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
+          <div className="p-4 border-b">
+            <h2 className="font-semibold text-lg">Ready to Schedule</h2>
+            <p className="text-sm text-gray-600 mt-1">Drag approved drafts to calendar</p>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            <ReadyToSchedule />
+          </div>
         </div>
-        <div className="flex-1 overflow-y-auto">
-          <ReadyToSchedule />
-        </div>
-      </div>
-      
-      {/* Main Calendar */}
-      <div className="flex-1 flex flex-col">
-        <CalendarHeader 
-          currentWeek={currentWeek}
-          onWeekChange={setCurrentWeek}
-          onRefresh={loadCalendarSlots}
-        />
         
-        <DragDropContext onDragEnd={handleDragEnd}>
+        {/* Main Calendar */}
+        <div className="flex-1 flex flex-col">
+          <CalendarHeader 
+            currentWeek={currentWeek}
+            onWeekChange={setCurrentWeek}
+            onRefresh={loadCalendarSlots}
+          />
+          
           <div className="flex-1 grid grid-cols-7 gap-4 p-6">
             {getWeekDays().map(day => (
               <CalendarDayColumn 
@@ -170,8 +170,8 @@ export const WeeklyCalendar = () => {
               />
             ))}
           </div>
-        </DragDropContext>
+        </div>
       </div>
-    </div>
+    </DragDropContext>
   );
 };

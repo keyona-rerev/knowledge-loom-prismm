@@ -1,0 +1,44 @@
+supabase
+├── config.toml
+├── functions
+│   ├── create-manual-source
+│   │   └── index.ts
+│   ├── execute-autopilot-template
+│   │   └── index.ts
+│   ├── generate-content-directions
+│   │   └── index.ts
+│   ├── generate-content-from-card
+│   │   └── index.ts
+│   ├── generate-final-content
+│   │   └── index.ts
+│   ├── process-reference-card
+│   │   └── index.ts
+│   ├── pull-rss-feed
+│   │   └── index.ts
+│   ├── regenerate-draft-with-feedback
+│   │   └── index.ts
+│   └── send-draft-notification
+│       └── index.ts
+└── migrations
+    ├── 20251007194223_eee2662c-246e-4eca-9290-0cfca7cea0c1.sql
+    ├── 20251007195917_eb714f30-0037-4447-a2be-b9777bd822c9.sql
+    ├── 20251007195954_e03dc784-79b6-4a35-bd1f-d53a0caab86b.sql
+    ├── 20251007200024_d88d9bfe-9dad-405d-a58f-710acf36ea9f.sql
+    ├── 20251007211855_5b23f60b-01b0-4ed8-a07e-0b8163fddbba.sql
+    ├── 20251008005509_e865b2a4-4e0c-4304-a301-2b6efa0f2fba.sql
+    ├── 20251008005900_f65a4242-1954-4f1b-b8f6-017f97a6e460.sql
+    ├── 20251008010357_4a653ab3-c45d-4fdf-8b3a-a48839e5ac42.sql
+    ├── 20251008010607_988216d7-a302-4da9-aa46-39047e789211.sql
+    ├── 20251008010955_8f3dd367-221c-49ea-bc50-076b3edc0d2e.sql
+    ├── 20251008022116_3a5b9798-6337-44f4-9bbd-8ca12a8ea7d5.sql
+    ├── 20251009205230_da035ec7-e76d-4eb9-8782-8d74c45d67af.sql
+    ├── 20251009205309_b9f05759-2ba3-4e23-ace7-7bb3ce6eb643.sql
+    ├── 20251009232321_001afb67-ade0-4120-927b-022e6e15848f.sql
+    ├── 20251010013549_a3f30189-56cd-40f7-8d63-ac3900b93d92.sql
+    ├── 20251010024537_da2de553-b9fa-4636-900f-1338c72d4a7d.sql
+    ├── 20251010025245_fbd34ae6-1978-4d82-8689-1e6c473b000c.sql
+    ├── 20251010161953_ae2e0e8e-00cb-4afb-bd22-93bd84351777.sql
+    ├── 20251010174456_a5262366-a599-447c-a7a3-0e4df5605a12.sql
+    └── 20251010181539_c0aa932a-c90c-4903-bb58-62ef329481c7.sql
+
+12 directories, 30 files

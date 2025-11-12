@@ -187,11 +187,12 @@ const ReferenceCards = () => {
         <InstructionsToggle 
           instructions={`Reference Cards are insights extracted from your sources:
 
+- Cards are created from Google Alerts, manual sources, and observations
 - Each card contains content and answers to your configured questions
 - Use filters to find specific cards by status or source type
 - Click "Process with AI" to analyze content and extract insights
 - Content warnings show when full articles couldn't be accessed
-- Click Edit to modify a card's content or answers`}
+- Click "View Details" to see the full card`}
         />
 
         <div className="flex flex-col md:flex-row gap-4 mb-6">
@@ -221,7 +222,7 @@ const ReferenceCards = () => {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Sources</SelectItem>
-              <SelectItem value="rss">RSS</SelectItem>
+              <SelectItem value="rss">Google Alert</SelectItem>
               <SelectItem value="journal">Journal</SelectItem>
               <SelectItem value="manual">Manual</SelectItem>
               <SelectItem value="perplexity">Perplexity</SelectItem>
@@ -370,7 +371,7 @@ const ReferenceCards = () => {
 
         {filteredCards.length === 0 && (
           <div className="text-center py-12 text-muted-foreground">
-            No reference cards found. Add RSS feeds or create manual entries to get started.
+            No reference cards found. Set up Google Alerts or add manual sources to get started.
           </div>
         )}
       </main>

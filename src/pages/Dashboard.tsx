@@ -134,8 +134,8 @@ const Dashboard = () => {
 
   const gettingStarted = [
     {
-      title: "Feed Manager",
-      description: "Add RSS feeds or manually create sources",
+      title: "Content Sources",
+      description: "Set up Google Alerts or add manual sources",
       icon: Rss,
       path: "/feeds",
       color: "text-orange-500",
@@ -238,7 +238,7 @@ const Dashboard = () => {
 
         <InstructionsToggle 
           instructions={`Getting Started:
-1. Add your first RSS feed or create a manual source
+1. Set up your first Google Alert or add a manual source
 2. Capture insights in your Observation Journal
 3. Configure questions to extract insights from content
 4. Create content using your collected insights

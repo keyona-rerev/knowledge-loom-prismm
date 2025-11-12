@@ -414,13 +414,23 @@ const Feeds = () => {
                   }}
                 >
                   <Plus className="mr-2 h-4 w-4" />
-                  Add RSS Feed
+                  Add Google Alert
                 </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>{editingFeed ? "Edit Feed" : "Add New Feed"}</DialogTitle>
-                  <DialogDescription>Configure your RSS feed source</DialogDescription>
+                  <DialogTitle>{editingFeed ? "Edit Google Alert" : "Add New Google Alert"}</DialogTitle>
+                  <DialogDescription>
+                    Set up a Google Alert to automatically track topics.{" "}
+                    <a 
+                      href="https://support.google.com/websearch/answer/4815696" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      Learn more about Google Alerts
+                    </a>
+                  </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
                   <div>
@@ -485,10 +495,7 @@ const Feeds = () => {
                   </div>
 
                   <Button type="submit" className="w-full">
-                    {editingFeed ? "Update Feed" : "Add Feed"}
-                  </Button>
-                  <Button type="submit" className="w-full">
-                    {editingFeed ? "Update Feed" : "Add Feed"}
+                    {editingFeed ? "Update Alert" : "Add Alert"}
                   </Button>
                 </form>
               </DialogContent>
@@ -498,15 +505,15 @@ const Feeds = () => {
       </header>
 
       <main className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold mb-4">Feed Manager</h1>
+        <h1 className="text-3xl font-bold mb-4">Content Sources</h1>
 
         <InstructionsToggle
-          instructions={`Feed Manager helps you bring content into Insight Forge:
+          instructions={`Content Sources helps you bring content into Insight Forge:
 
-1. RSS Feeds: Add RSS feed URLs to automatically pull articles
+1. Google Alerts: Set up alerts to automatically track topics
 2. Manual Sources: Paste article links or upload PDFs directly
-3. Toggle feeds on/off with the toggle button
-4. Click "Pull Now" to manually create reference cards from a feed
+3. Toggle sources on/off with the toggle button
+4. Click "Pull Now" to manually create reference cards
 5. Configure questions in Question Settings to extract insights
 
 Reference cards are created from your sources and can be used for content generation.`}
@@ -533,7 +540,7 @@ Reference cards are created from your sources and can be used for content genera
 
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "rss" | "manual")}>
           <TabsList className="mb-4">
-            <TabsTrigger value="rss">RSS Feeds</TabsTrigger>
+            <TabsTrigger value="rss">Google Alerts</TabsTrigger>
             <TabsTrigger value="manual">Manual Sources</TabsTrigger>
           </TabsList>
 
@@ -560,6 +567,7 @@ Reference cards are created from your sources and can be used for content genera
                           size="sm"
                           onClick={() => triggerFeedPull(feed.id)}
                           disabled={!feed.is_active}
+                          title="Manually check for new articles from this Google Alert"
                         >
                           <RefreshCw className="h-4 w-4" />
                         </Button>

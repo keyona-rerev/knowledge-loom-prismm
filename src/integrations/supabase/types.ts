@@ -461,6 +461,7 @@ export type Database = {
           target_audience: string | null
           updated_at: string | null
           user_id: string
+          writing_examples: Json | null
         }
         Insert: {
           accent_color?: string | null
@@ -480,6 +481,7 @@ export type Database = {
           target_audience?: string | null
           updated_at?: string | null
           user_id: string
+          writing_examples?: Json | null
         }
         Update: {
           accent_color?: string | null
@@ -499,6 +501,7 @@ export type Database = {
           target_audience?: string | null
           updated_at?: string | null
           user_id?: string
+          writing_examples?: Json | null
         }
         Relationships: []
       }

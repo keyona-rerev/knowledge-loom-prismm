@@ -42,10 +42,10 @@ serve(async (req) => {
       { global: { headers: { Authorization: req.headers.get("Authorization")! } } }
     );
 
-    // Fetch user's AI preferences
+    // Fetch user's AI preferences and writing examples
     const { data: profile, error: profileError } = await supabaseClient
       .from("profiles")
-      .select("ai_provider, ai_model, google_ai_api_key, custom_ai_endpoint, custom_ai_model_name")
+      .select("ai_provider, ai_model, google_ai_api_key, custom_ai_endpoint, custom_ai_model_name, writing_examples, business_name, target_audience")
       .eq("user_id", userId)
       .single();
 
@@ -102,8 +102,8 @@ serve(async (req) => {
       }
     }
 
-    // Prepare the prompt for AI generation
-    const prompt = createContentPrompt(direction, seedInsight, seedCategory, insightCardsData);
+    // Prepare the prompt for AI generation with writing examples
+    const prompt = createContentPrompt(direction, seedInsight, seedCategory, insightCardsData, profile.writing_examples || [], profile.business_name, profile.target_audience);
 
     console.log(`Calling AI with provider: ${profile.ai_provider}, model: ${profile.ai_model}`);
 
@@ -206,8 +206,8 @@ serve(async (req) => {
   }
 });
 
-function createContentPrompt(direction: any, seedInsight: string, seedCategory: string, insightCards: any[]) {
-  let prompt = `Create a well-structured content piece based on the following direction:
+function createContentPrompt(direction: any, seedInsight: string, seedCategory: string, insightCards: any[], writingExamples: any[], businessName: string, targetAudience: string) {
+  let prompt = `Create a well-structured, COMPLETE content piece based on the following direction:
 
 CONTENT DIRECTION:
 Title: ${direction.title}
@@ -226,18 +226,48 @@ SEED INSIGHT (${seedCategory}): ${seedInsight}
     prompt += "\n";
   }
 
-  prompt += `Please generate a complete content piece with:
+  // Add writing examples for voice training
+  if (writingExamples && writingExamples.length > 0) {
+    const validExamples = writingExamples.filter((ex: string) => ex && ex.trim().length > 0);
+    if (validExamples.length > 0) {
+      prompt += `\n==== WRITING VOICE REFERENCE ====
+The following are examples of the author's writing style. Study the TONE, STRUCTURE, and VOICE carefully.
+CRITICAL: Use these examples ONLY to match writing style - DO NOT use the topics, facts, or substance from these examples.
+Your content must be 100% based on the insights above, but written in the style demonstrated below:\n\n`;
+      
+      validExamples.forEach((example: string, index: number) => {
+        prompt += `--- Writing Example ${index + 1} ---\n${example}\n\n`;
+      });
+      
+      prompt += `=================================\n\n`;
+    }
+  }
+
+  if (businessName || targetAudience) {
+    prompt += "CONTEXT:\n";
+    if (businessName) prompt += `Business: ${businessName}\n`;
+    if (targetAudience) prompt += `Target Audience: ${targetAudience}\n`;
+    prompt += "\n";
+  }
+
+  prompt += `Generate a COMPLETE, FULLY-DEVELOPED content piece (not instructions or an outline). Include:
 1. A compelling title (different from the direction title)
 2. Engaging introduction that hooks the reader
-3. Well-structured body that develops the core idea
-4. Clear takeaways or conclusion
-5. Natural incorporation of the seed insight and any additional insights
+3. Well-structured body with multiple sections that fully develops the core idea
+4. Concrete examples, explanations, and details
+5. Clear takeaways or conclusion
+6. Natural incorporation of the seed insight and additional insights
+
+${writingExamples && writingExamples.some((ex: string) => ex && ex.trim()) ? 
+  `VOICE INSTRUCTIONS: Match the writing style, tone, sentence structure, and vocabulary demonstrated in the writing examples above. Write as if you ARE that author, but discussing the topics from the insights provided.` 
+  : 
+  `Write in a clear, engaging style appropriate for the target audience.`}
 
 Format the response as:
 TITLE: [Your generated title here]
-CONTENT: [Your full content here, using markdown formatting for readability]
+CONTENT: [Your COMPLETE, fully-written content here using markdown formatting. This should be ready to publish, not an outline or set of instructions.]
 
-Make the content authentic, valuable, and aligned with the direction's angle.`;
+The output must be a finished piece, not a draft outline or instructions for writing.`;
 
   return prompt;
 }

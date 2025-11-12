@@ -27,7 +27,8 @@ const Settings = () => {
     ai_model: "gemini-2.0-flash-exp",
     google_ai_api_key: "",
     custom_ai_endpoint: "",
-    custom_ai_model_name: ""
+    custom_ai_model_name: "",
+    writing_examples: [] as string[]
   });
 
   useEffect(() => {
@@ -57,7 +58,10 @@ const Settings = () => {
           ai_model: data.ai_model || "gemini-2.0-flash-exp",
           google_ai_api_key: data.google_ai_api_key || "",
           custom_ai_endpoint: data.custom_ai_endpoint || "",
-          custom_ai_model_name: data.custom_ai_model_name || ""
+          custom_ai_model_name: data.custom_ai_model_name || "",
+          writing_examples: Array.isArray(data.writing_examples) 
+            ? (data.writing_examples.filter((ex): ex is string => typeof ex === 'string'))
+            : []
         });
       } else if (error && error.code !== "PGRST116") {
         toast.error("Failed to load profile");
@@ -232,6 +236,67 @@ const Settings = () => {
                 />
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Writing Style & Voice Training</CardTitle>
+            <CardDescription>Provide up to 4 examples of your writing so AI can match your tone and style</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <InstructionsToggle 
+              instructions={`**Training AI to Match Your Voice**
+
+The AI uses these examples to understand your:
+• Writing style and tone (formal, casual, conversational)
+• Sentence structure and flow
+• Vocabulary and word choice
+• How you present ideas and arguments
+
+IMPORTANT: The AI will reference the STRUCTURE, TONE, and VOICE from your examples but will NOT use the actual content/substance. Your examples teach style, not topics.
+
+Best practices:
+• Provide 2-4 diverse examples (different topics but same voice)
+• Use 200-500 words per example
+• Choose your best, most representative writing
+• Examples can be blog posts, articles, emails, or any written content in your natural voice`}
+            />
+            {[0, 1, 2, 3].map((index) => (
+              <div key={index} className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor={`example-${index}`}>Writing Example {index + 1} {index < 2 && "(Recommended)"}</Label>
+                  {profile.writing_examples[index] && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        const newExamples = [...profile.writing_examples];
+                        newExamples[index] = "";
+                        setProfile(prev => ({ ...prev, writing_examples: newExamples }));
+                      }}
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
+                <Textarea
+                  id={`example-${index}`}
+                  value={profile.writing_examples[index] || ""}
+                  onChange={(e) => {
+                    const newExamples = [...profile.writing_examples];
+                    newExamples[index] = e.target.value;
+                    setProfile(prev => ({ ...prev, writing_examples: newExamples }));
+                  }}
+                  placeholder={`Paste a sample of your writing here (200-500 words recommended)...`}
+                  rows={6}
+                  className="font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {profile.writing_examples[index]?.length || 0} characters
+                </p>
+              </div>
+            ))}
           </CardContent>
         </Card>
 

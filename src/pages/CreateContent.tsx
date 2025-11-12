@@ -61,30 +61,34 @@ const CreateContent = () => {
     checkAuth();
   }, [navigate]);
 
-  // NEW EFFECT: Load content templates
+  // NEW EFFECT: Load content templates from user profile
   useEffect(() => {
     const loadTemplates = async () => {
       try {
-        const { data, error } = await supabase
-          .from("content_templates")
-          .select("*")
-          .eq("is_active", true)
-          .order("name");
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        const { data: profile, error } = await supabase
+          .from("profiles")
+          .select("content_type_templates")
+          .eq("user_id", session.user.id)
+          .maybeSingle();
 
         if (error) {
-          console.error("Error loading templates:", error);
-          // If table doesn't exist yet, fail gracefully
-          if (error.code === '42P01') {
-            console.log("Content templates table not created yet");
-            setTemplates([]);
-            return;
-          }
-          toast.error("Failed to load templates");
-        } else {
-          setTemplates(data || []);
+          console.error("Error loading content type templates:", error);
+          toast.error("Failed to load content templates");
+        } else if (profile?.content_type_templates) {
+          const templates = (profile.content_type_templates as any[]).map((t: any) => ({
+            id: t.id,
+            name: t.name,
+            description: t.prompt.substring(0, 100) + "...",
+            content_type: t.id,
+            template_structure: { prompt: t.prompt }
+          }));
+          setTemplates(templates);
           // Auto-select first template if available
-          if (data && data.length > 0) {
-            setSelectedTemplate(data[0].id);
+          if (templates.length > 0) {
+            setSelectedTemplate(templates[0].id);
           }
         }
       } catch (error) {
@@ -166,14 +170,23 @@ const CreateContent = () => {
     const { data: { session } } = await supabase.auth.getSession();
 
     try {
+      // Get template data
+      const selectedTemplateData = templates.find(t => t.id === selectedTemplate);
+      
+      // Add contentType to direction for the edge function
+      const directionWithType = {
+        ...direction,
+        contentType: selectedTemplateData?.content_type || selectedTemplate
+      };
+
       // Use the enhanced function with template support
       const { data, error } = await supabase.functions.invoke("generate-final-content", {
         body: {
-          direction,
+          direction: directionWithType,
           seedInsight,
           seedCategory,
           insightCardIds: selectedInsightCards,
-          templateId: selectedTemplate, // NEW: Pass template ID
+          templateId: selectedTemplate,
           userId: session?.user?.id,
         },
       });
@@ -184,9 +197,6 @@ const CreateContent = () => {
         await handleSelectDirection(direction);
         return;
       }
-
-      // Get template name for the draft
-      const selectedTemplateData = templates.find(t => t.id === selectedTemplate);
       
       // Create draft with enhanced content
       const { data: draftData, error: draftError } = await supabase

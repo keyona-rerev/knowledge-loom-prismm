@@ -450,6 +450,7 @@ export type Database = {
           brand_voice: string | null
           business_description: string | null
           business_name: string | null
+          content_type_templates: Json | null
           created_at: string | null
           custom_ai_endpoint: string | null
           custom_ai_model_name: string | null
@@ -470,6 +471,7 @@ export type Database = {
           brand_voice?: string | null
           business_description?: string | null
           business_name?: string | null
+          content_type_templates?: Json | null
           created_at?: string | null
           custom_ai_endpoint?: string | null
           custom_ai_model_name?: string | null
@@ -490,6 +492,7 @@ export type Database = {
           brand_voice?: string | null
           business_description?: string | null
           business_name?: string | null
+          content_type_templates?: Json | null
           created_at?: string | null
           custom_ai_endpoint?: string | null
           custom_ai_model_name?: string | null

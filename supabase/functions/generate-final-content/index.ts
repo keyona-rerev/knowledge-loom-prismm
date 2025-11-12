@@ -42,10 +42,10 @@ serve(async (req) => {
       { global: { headers: { Authorization: req.headers.get("Authorization")! } } }
     );
 
-    // Fetch user's AI preferences and writing examples
+    // Fetch user's AI preferences, writing examples, and content templates
     const { data: profile, error: profileError } = await supabaseClient
       .from("profiles")
-      .select("ai_provider, ai_model, google_ai_api_key, custom_ai_endpoint, custom_ai_model_name, writing_examples, business_name, target_audience")
+      .select("ai_provider, ai_model, google_ai_api_key, custom_ai_endpoint, custom_ai_model_name, writing_examples, business_name, target_audience, content_type_templates")
       .eq("user_id", userId)
       .single();
 
@@ -102,8 +102,20 @@ serve(async (req) => {
       }
     }
 
-    // Prepare the prompt for AI generation with writing examples
-    const prompt = createContentPrompt(direction, seedInsight, seedCategory, insightCardsData, profile.writing_examples || [], profile.business_name, profile.target_audience);
+    // Prepare the prompt for AI generation with writing examples and content type template
+    const contentTypeTemplate = (profile.content_type_templates as any[])?.find(
+      (t: any) => t.id === direction.contentType || t.name.toLowerCase().replace(/\s+/g, '_') === direction.contentType
+    );
+    const prompt = createContentPrompt(
+      direction, 
+      seedInsight, 
+      seedCategory, 
+      insightCardsData, 
+      profile.writing_examples || [], 
+      profile.business_name, 
+      profile.target_audience,
+      contentTypeTemplate
+    );
 
     console.log(`Calling AI with provider: ${profile.ai_provider}, model: ${profile.ai_model}`);
 
@@ -206,8 +218,17 @@ serve(async (req) => {
   }
 });
 
-function createContentPrompt(direction: any, seedInsight: string, seedCategory: string, insightCards: any[], writingExamples: any[], businessName: string, targetAudience: string) {
-  let prompt = `Create a well-structured, COMPLETE content piece based on the following direction:
+function createContentPrompt(
+  direction: any, 
+  seedInsight: string, 
+  seedCategory: string, 
+  insightCards: any[], 
+  writingExamples: any[], 
+  businessName: string, 
+  targetAudience: string,
+  contentTypeTemplate?: any
+) {
+  let prompt = `Create a COMPLETE, FULLY-DEVELOPED, READY-TO-PUBLISH content piece based on the following direction:
 
 CONTENT DIRECTION:
 Title: ${direction.title}
@@ -224,6 +245,16 @@ SEED INSIGHT (${seedCategory}): ${seedInsight}
       prompt += `${index + 1}. [${insight.insight_type}] ${insight.title}: ${insight.content}\n`;
     });
     prompt += "\n";
+  }
+
+  // Add content type template guidelines
+  if (contentTypeTemplate && contentTypeTemplate.prompt) {
+    prompt += `\n==== CONTENT TYPE REQUIREMENTS ====
+${contentTypeTemplate.name} Guidelines:
+${contentTypeTemplate.prompt}
+
+CRITICAL: Follow these guidelines exactly. This defines what makes a great ${contentTypeTemplate.name}.
+=================================\n\n`;
   }
 
   // Add writing examples for voice training
@@ -250,24 +281,32 @@ Your content must be 100% based on the insights above, but written in the style 
     prompt += "\n";
   }
 
-  prompt += `Generate a COMPLETE, FULLY-DEVELOPED content piece (not instructions or an outline). Include:
-1. A compelling title (different from the direction title)
-2. Engaging introduction that hooks the reader
-3. Well-structured body with multiple sections that fully develops the core idea
-4. Concrete examples, explanations, and details
-5. Clear takeaways or conclusion
-6. Natural incorporation of the seed insight and additional insights
+  prompt += `CRITICAL OUTPUT REQUIREMENTS:
+
+YOU MUST GENERATE A COMPLETE, FINISHED, READY-TO-PUBLISH PIECE. NOT AN OUTLINE. NOT INSTRUCTIONS. NOT A DRAFT.
+
+This means:
+1. Full paragraphs with complete sentences and proper flow
+2. All sections fully written out with actual content
+3. Real examples, explanations, and details (not placeholders like "[Add example here]")
+4. Proper introduction, body, and conclusion - all FULLY WRITTEN
+5. If the content type requires specific elements (metrics, CTAs, etc.), INCLUDE THEM with actual content
+
+${contentTypeTemplate ? 
+  `Follow the ${contentTypeTemplate.name} guidelines above exactly regarding structure, length, tone, and required elements.` 
+  : 
+  `Follow standard best practices for the content format.`}
 
 ${writingExamples && writingExamples.some((ex: string) => ex && ex.trim()) ? 
-  `VOICE INSTRUCTIONS: Match the writing style, tone, sentence structure, and vocabulary demonstrated in the writing examples above. Write as if you ARE that author, but discussing the topics from the insights provided.` 
+  `VOICE: Match the writing style, tone, sentence structure, and vocabulary from the writing examples. Write as that author would write about these insights.` 
   : 
-  `Write in a clear, engaging style appropriate for the target audience.`}
+  `VOICE: Write in a clear, engaging style appropriate for the target audience.`}
 
 Format the response as:
-TITLE: [Your generated title here]
-CONTENT: [Your COMPLETE, fully-written content here using markdown formatting. This should be ready to publish, not an outline or set of instructions.]
+TITLE: [Your compelling, specific title]
+CONTENT: [Your COMPLETE, FULLY-WRITTEN, READY-TO-PUBLISH content using markdown formatting]
 
-The output must be a finished piece, not a draft outline or instructions for writing.`;
+REMEMBER: The output must be a FINISHED PIECE that can be published immediately, not a draft, outline, or set of writing instructions. Every section must be completely written with real content.`;
 
   return prompt;
 }

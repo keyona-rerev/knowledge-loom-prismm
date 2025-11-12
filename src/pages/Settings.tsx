@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { toast } from "sonner";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -28,7 +28,8 @@ const Settings = () => {
     google_ai_api_key: "",
     custom_ai_endpoint: "",
     custom_ai_model_name: "",
-    writing_examples: [] as string[]
+    writing_examples: [] as string[],
+    content_type_templates: [] as Array<{id: string, name: string, prompt: string}>
   });
 
   useEffect(() => {
@@ -61,6 +62,9 @@ const Settings = () => {
           custom_ai_model_name: data.custom_ai_model_name || "",
           writing_examples: Array.isArray(data.writing_examples) 
             ? (data.writing_examples.filter((ex): ex is string => typeof ex === 'string'))
+            : [],
+          content_type_templates: Array.isArray(data.content_type_templates)
+            ? data.content_type_templates as Array<{id: string, name: string, prompt: string}>
             : []
         });
       } else if (error && error.code !== "PGRST116") {
@@ -297,6 +301,112 @@ Best practices:
                 </p>
               </div>
             ))}
+          </CardContent>
+        </Card>
+
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Content Type Templates</CardTitle>
+            <CardDescription>Define what makes great content for each format - structure, tone, and requirements</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <InstructionsToggle 
+              instructions={`**Content Type Templates**
+
+These templates teach the AI what constitutes each content format:
+• STRUCTURE: How should content be organized? (sections, length, flow)
+• TONE: What voice/style should be used? (professional, casual, analytical)
+• REQUIREMENTS: What must be included? (metrics, examples, CTAs)
+
+The AI will use these guidelines when generating content to ensure it matches the expected format.
+
+Examples:
+• LinkedIn: Concise, engaging, 1300-1500 characters with hook and CTA
+• Blog Post: Comprehensive, SEO-optimized, 1200-2000 words with headers
+• Case Study: Detailed, results-focused, 1500-2500 words with metrics
+
+You can edit existing templates or add custom ones for your specific needs.`}
+            />
+
+            {profile.content_type_templates.map((template, index) => (
+              <div key={template.id} className="space-y-3 p-4 border rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 grid grid-cols-2 gap-3">
+                    <div>
+                      <Label htmlFor={`template-name-${index}`}>Template Name</Label>
+                      <Input
+                        id={`template-name-${index}`}
+                        value={template.name}
+                        onChange={(e) => {
+                          const newTemplates = [...profile.content_type_templates];
+                          newTemplates[index].name = e.target.value;
+                          setProfile(prev => ({ ...prev, content_type_templates: newTemplates }));
+                        }}
+                        placeholder="e.g., LinkedIn Post"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor={`template-id-${index}`}>Template ID (lowercase, no spaces)</Label>
+                      <Input
+                        id={`template-id-${index}`}
+                        value={template.id}
+                        onChange={(e) => {
+                          const newTemplates = [...profile.content_type_templates];
+                          newTemplates[index].id = e.target.value.toLowerCase().replace(/\s+/g, '_');
+                          setProfile(prev => ({ ...prev, content_type_templates: newTemplates }));
+                        }}
+                        placeholder="e.g., linkedin_post"
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      const newTemplates = profile.content_type_templates.filter((_, i) => i !== index);
+                      setProfile(prev => ({ ...prev, content_type_templates: newTemplates }));
+                    }}
+                    className="ml-2"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div>
+                  <Label htmlFor={`template-prompt-${index}`}>Content Guidelines & Instructions</Label>
+                  <Textarea
+                    id={`template-prompt-${index}`}
+                    value={template.prompt}
+                    onChange={(e) => {
+                      const newTemplates = [...profile.content_type_templates];
+                      newTemplates[index].prompt = e.target.value;
+                      setProfile(prev => ({ ...prev, content_type_templates: newTemplates }));
+                    }}
+                    placeholder="Describe structure, tone, length, required elements, formatting..."
+                    rows={8}
+                    className="text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Be specific: Include ideal length, tone, structure, what to include/exclude, formatting style
+                  </p>
+                </div>
+              </div>
+            ))}
+
+            <Button
+              variant="outline"
+              onClick={() => {
+                const newTemplates = [...profile.content_type_templates, {
+                  id: `custom_${Date.now()}`,
+                  name: "New Template",
+                  prompt: ""
+                }];
+                setProfile(prev => ({ ...prev, content_type_templates: newTemplates }));
+              }}
+              className="w-full"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Custom Content Type
+            </Button>
           </CardContent>
         </Card>
 

@@ -22,23 +22,51 @@ export const ReadyToSchedule = () => {
   const loadApprovedDrafts = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     
-    const { data, error } = await supabase
+    // Get approved drafts
+    const { data: draftsData, error: draftsError } = await supabase
       .from('drafts')
       .select('id, title, body, content_type, updated_at, approval_status')
       .eq('user_id', session?.user?.id)
       .eq('approval_status', 'approved')
       .order('updated_at', { ascending: false });
 
-    if (error) {
-      console.error('Error loading approved drafts:', error);
-    } else {
-      setApprovedDrafts(data || []);
+    if (draftsError) {
+      console.error('Error loading approved drafts:', draftsError);
+      setLoading(false);
+      return;
     }
+
+    // Get scheduled draft IDs to filter them out
+    const { data: scheduledData, error: scheduledError } = await supabase
+      .from('content_calendar')
+      .select('draft_id')
+      .eq('user_id', session?.user?.id)
+      .not('draft_id', 'is', null);
+
+    if (scheduledError) {
+      console.error('Error loading scheduled drafts:', scheduledError);
+    }
+
+    // Filter out drafts that are already scheduled
+    const scheduledDraftIds = new Set(scheduledData?.map(s => s.draft_id) || []);
+    const unscheduledDrafts = (draftsData || []).filter(
+      draft => !scheduledDraftIds.has(draft.id)
+    );
+
+    setApprovedDrafts(unscheduledDrafts);
     setLoading(false);
   };
 
   useEffect(() => {
     loadApprovedDrafts();
+    
+    // Listen for calendar updates to refresh the list
+    const handleCalendarUpdate = () => {
+      loadApprovedDrafts();
+    };
+    
+    window.addEventListener('calendar-updated', handleCalendarUpdate);
+    return () => window.removeEventListener('calendar-updated', handleCalendarUpdate);
   }, []);
 
   const getContentTypeIcon = (contentType: string) => {

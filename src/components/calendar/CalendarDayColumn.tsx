@@ -7,9 +7,10 @@ import { EmptyDayState } from "./EmptyDayState";
 interface CalendarDayColumnProps {
   date: Date;
   slots: CalendarSlot[];
+  onSlotDeleted?: () => void;
 }
 
-export const CalendarDayColumn = ({ date, slots }: CalendarDayColumnProps) => {
+export const CalendarDayColumn = ({ date, slots, onSlotDeleted }: CalendarDayColumnProps) => {
   const isTodayDate = isToday(date);
   const isWeekend = date.getDay() === 0 || date.getDay() === 6;
 
@@ -51,6 +52,7 @@ export const CalendarDayColumn = ({ date, slots }: CalendarDayColumnProps) => {
                 key={slot.id}
                 slot={slot}
                 index={index}
+                onDelete={onSlotDeleted}
               />
             ))}
             

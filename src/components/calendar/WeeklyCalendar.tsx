@@ -85,7 +85,9 @@ export const WeeklyCalendar = () => {
         if (error) throw error;
 
         toast.success('Content scheduled!');
-        loadCalendarSlots(); // Reload to show the new entry
+        await loadCalendarSlots(); // Reload to show the new entry
+        // Trigger refresh of ReadyToSchedule by dispatching an event
+        window.dispatchEvent(new CustomEvent('calendar-updated'));
       } catch (error) {
         console.error('Error scheduling draft:', error);
         toast.error('Failed to schedule content');
@@ -167,6 +169,10 @@ export const WeeklyCalendar = () => {
                 key={day.toISOString()}
                 date={day}
                 slots={getSlotsForDay(day)}
+                onSlotDeleted={() => {
+                  loadCalendarSlots();
+                  window.dispatchEvent(new CustomEvent('calendar-updated'));
+                }}
               />
             ))}
           </div>

@@ -1,12 +1,16 @@
 import { Draggable } from "@hello-pangea/dnd";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { CalendarSlot } from "./drag-drop-types";
 import { format } from "date-fns";
-import { FileText, Mail, Share, Video } from "lucide-react";
+import { FileText, Mail, Share, Video, Trash2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface CalendarSlotCardProps {
   slot: CalendarSlot;
   index: number;
+  onDelete?: () => void;
 }
 
 const getContentTypeIcon = (contentType: string) => {
@@ -34,7 +38,26 @@ const getCardColors = (contentType: string) => {
   return colors[contentType] || "border-l-gray-500 bg-gray-50 text-gray-900";
 };
 
-export const CalendarSlotCard = ({ slot, index }: CalendarSlotCardProps) => {
+export const CalendarSlotCard = ({ slot, index, onDelete }: CalendarSlotCardProps) => {
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    try {
+      const { error } = await supabase
+        .from('content_calendar')
+        .delete()
+        .eq('id', slot.id);
+
+      if (error) throw error;
+
+      toast.success('Removed from calendar');
+      onDelete?.();
+    } catch (error) {
+      console.error('Error deleting calendar slot:', error);
+      toast.error('Failed to remove from calendar');
+    }
+  };
+
   return (
     <Draggable draggableId={slot.id} index={index}>
       {(provided, snapshot) => (
@@ -44,14 +67,24 @@ export const CalendarSlotCard = ({ slot, index }: CalendarSlotCardProps) => {
           {...provided.dragHandleProps}
           className={`
             p-3 rounded-lg border border-l-4 cursor-grab
-            transition-all duration-200
+            transition-all duration-200 group
             ${getCardColors(slot.content_type)}
             ${snapshot.isDragging ? 'shadow-lg rotate-1 scale-105' : 'shadow-sm hover:shadow-md'}
           `}
         >
-          <h4 className="font-medium text-sm line-clamp-2 mb-2 leading-tight">
-            {slot.draft?.title || "Untitled Draft"}
-          </h4>
+          <div className="flex justify-between items-start gap-2 mb-2">
+            <h4 className="font-medium text-sm line-clamp-2 leading-tight flex-1">
+              {slot.draft?.title || "Untitled Draft"}
+            </h4>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+              onClick={handleDelete}
+            >
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          </div>
           
           <div className="flex justify-between items-center text-xs">
             <Badge 

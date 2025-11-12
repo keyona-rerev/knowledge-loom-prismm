@@ -12,11 +12,11 @@ serve(async (req) => {
   }
 
   try {
-    const { cardId, templateId, outputFormat } = await req.json();
+    const { cardId, templateId, outputFormat, userId } = await req.json();
 
-    if (!cardId) {
+    if (!cardId || !userId) {
       return new Response(
-        JSON.stringify({ error: "cardId is required" }),
+        JSON.stringify({ error: "cardId and userId are required" }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -30,7 +30,35 @@ serve(async (req) => {
       { global: { headers: { Authorization: req.headers.get("Authorization")! } } }
     );
 
-    console.log("🔄 Generating content from card:", cardId, "with template:", templateId);
+    // Fetch user's AI preferences
+    const { data: profile, error: profileError } = await supabaseClient
+      .from("profiles")
+      .select("ai_provider, ai_model, google_ai_api_key, custom_ai_endpoint, custom_ai_model_name")
+      .eq("user_id", userId)
+      .single();
+
+    if (profileError || !profile) {
+      return new Response(
+        JSON.stringify({ error: "User profile not found" }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (profile.ai_provider === "google-ai" && !profile.google_ai_api_key) {
+      return new Response(
+        JSON.stringify({ error: "Google AI API key not configured. Please add it in Settings." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (profile.ai_provider === "custom" && (!profile.custom_ai_endpoint || !profile.google_ai_api_key)) {
+      return new Response(
+        JSON.stringify({ error: "Custom AI provider not fully configured. Please check Settings." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    console.log("🔄 Generating content from card:", cardId, "with template:", templateId, "using", profile.ai_provider);
 
     // Get reference card with insights
     const { data: card, error: cardError } = await supabaseClient
@@ -64,33 +92,61 @@ serve(async (req) => {
     // Prepare AI prompt
     const prompt = createContentPrompt(card, template, outputFormat);
 
-    // Call AI API through Lovable gateway
-    const aiResponse = await fetch("https://gateway.lovable.app/v1/proxy", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${Deno.env.get("LOVABLE_API_KEY")}`,
-      },
-      body: JSON.stringify({
-        model: "gemini-2.0-flash-exp",
-        contents: [
-          {
-            parts: [
-              {
-                text: prompt,
-              },
-            ],
-          },
-        ],
-      }),
-    });
+    // Call AI based on user's provider preference
+    let generatedContent;
+    if (profile.ai_provider === "google-ai") {
+      const aiResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${profile.ai_model}:generateContent?key=${profile.google_ai_api_key}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{ text: prompt }]
+            }],
+            generationConfig: {
+              temperature: 1,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 8192,
+            }
+          }),
+        }
+      );
 
-    if (!aiResponse.ok) {
-      throw new Error(`AI API error: ${aiResponse.statusText}`);
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        console.error("Google AI API error:", aiResponse.status, errorText);
+        throw new Error(`Google AI API error: ${aiResponse.status}`);
+      }
+
+      const aiData = await aiResponse.json();
+      generatedContent = aiData.candidates[0].content.parts[0].text;
+      
+    } else if (profile.ai_provider === "custom") {
+      const aiResponse = await fetch(profile.custom_ai_endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${profile.google_ai_api_key}`,
+        },
+        body: JSON.stringify({
+          model: profile.custom_ai_model_name,
+          messages: [
+            { role: "user", content: prompt }
+          ],
+        }),
+      });
+
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        console.error("Custom AI API error:", aiResponse.status, errorText);
+        throw new Error(`Custom AI API error: ${aiResponse.status}`);
+      }
+
+      const aiData = await aiResponse.json();
+      generatedContent = aiData.choices[0].message.content;
     }
-
-    const aiData = await aiResponse.json();
-    const generatedContent = aiData.candidates[0].content.parts[0].text;
 
     // Parse the response to extract title and content
     const { title, content } = parseGeneratedContent(generatedContent, card.title);

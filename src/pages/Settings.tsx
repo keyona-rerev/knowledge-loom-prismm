@@ -20,9 +20,13 @@ const Settings = () => {
     brand_voice: "",
     primary_color: "#9b87f5",
     secondary_color: "#7E69AB",
-    accent_color: "#6E59A5"
+    accent_color: "#6E59A5",
+    ai_provider: "google-ai",
+    ai_model: "gemini-2.0-flash-exp",
+    google_ai_api_key: "",
+    custom_ai_endpoint: "",
+    custom_ai_model_name: ""
   });
-  const [aiProvider, setAiProvider] = useState("gemini");
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -46,7 +50,12 @@ const Settings = () => {
           brand_voice: data.brand_voice || "",
           primary_color: data.primary_color || "#9b87f5",
           secondary_color: data.secondary_color || "#7E69AB",
-          accent_color: data.accent_color || "#6E59A5"
+          accent_color: data.accent_color || "#6E59A5",
+          ai_provider: data.ai_provider || "google-ai",
+          ai_model: data.ai_model || "gemini-2.0-flash-exp",
+          google_ai_api_key: data.google_ai_api_key || "",
+          custom_ai_endpoint: data.custom_ai_endpoint || "",
+          custom_ai_model_name: data.custom_ai_model_name || ""
         });
       } else if (error && error.code !== "PGRST116") {
         toast.error("Failed to load profile");
@@ -226,26 +235,90 @@ const Settings = () => {
 
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle>AI Provider</CardTitle>
-            <CardDescription>Select which AI model to use for content processing</CardDescription>
+            <CardTitle>AI Provider Configuration</CardTitle>
+            <CardDescription>Configure which AI model to use for content generation</CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              <Label>AI Model</Label>
-              <Select value={aiProvider} onValueChange={setAiProvider}>
+          <CardContent className="space-y-6">
+            <div className="space-y-4">
+              <Label>AI Provider</Label>
+              <Select value={profile.ai_provider} onValueChange={(value) => setProfile(prev => ({ ...prev, ai_provider: value }))}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="gemini">Google Gemini 2.5 Flash (Recommended - Free)</SelectItem>
-                  <SelectItem value="claude">Anthropic Claude (Coming Soon)</SelectItem>
-                  <SelectItem value="openai">OpenAI GPT (Coming Soon)</SelectItem>
+                  <SelectItem value="google-ai">Google AI (Use your own Gemini account)</SelectItem>
+                  <SelectItem value="custom">Custom AI Provider (Advanced)</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-sm text-muted-foreground">
-                Note: Gemini is currently the only supported provider and is free to use.
-              </p>
             </div>
+
+            {profile.ai_provider === "google-ai" && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="ai-model">Model</Label>
+                  <Select value={profile.ai_model} onValueChange={(value) => setProfile(prev => ({ ...prev, ai_model: value }))}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="gemini-2.0-flash-exp">Gemini 2.0 Flash (Experimental - Recommended)</SelectItem>
+                      <SelectItem value="gemini-1.5-flash">Gemini 1.5 Flash (Stable)</SelectItem>
+                      <SelectItem value="gemini-1.5-pro">Gemini 1.5 Pro (Advanced)</SelectItem>
+                      <SelectItem value="gemini-2.0-flash-thinking-exp">Gemini 2.0 Flash Thinking (Experimental)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="google-api-key">Google AI API Key</Label>
+                  <Input
+                    id="google-api-key"
+                    type="password"
+                    value={profile.google_ai_api_key}
+                    onChange={(e) => setProfile(prev => ({ ...prev, google_ai_api_key: e.target.value }))}
+                    placeholder="AIza..."
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Get your API key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-primary underline">Google AI Studio</a>
+                  </p>
+                </div>
+              </>
+            )}
+
+            {profile.ai_provider === "custom" && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="custom-endpoint">API Endpoint</Label>
+                  <Input
+                    id="custom-endpoint"
+                    value={profile.custom_ai_endpoint}
+                    onChange={(e) => setProfile(prev => ({ ...prev, custom_ai_endpoint: e.target.value }))}
+                    placeholder="https://api.example.com/v1/chat/completions"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="custom-model">Model Name</Label>
+                  <Input
+                    id="custom-model"
+                    value={profile.custom_ai_model_name}
+                    onChange={(e) => setProfile(prev => ({ ...prev, custom_ai_model_name: e.target.value }))}
+                    placeholder="gpt-4"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="custom-api-key">API Key</Label>
+                  <Input
+                    id="custom-api-key"
+                    type="password"
+                    value={profile.google_ai_api_key}
+                    onChange={(e) => setProfile(prev => ({ ...prev, google_ai_api_key: e.target.value }))}
+                    placeholder="sk-..."
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Your API key is stored securely and used only for your content generation.
+                  </p>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 

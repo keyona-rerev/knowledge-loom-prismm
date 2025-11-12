@@ -26,6 +26,34 @@ serve(async (req) => {
       );
     }
 
+    // Fetch user's AI preferences
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("ai_provider, ai_model, google_ai_api_key, custom_ai_endpoint, custom_ai_model_name")
+      .eq("user_id", userId)
+      .single();
+
+    if (profileError || !profile) {
+      return new Response(
+        JSON.stringify({ error: "User profile not found" }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (profile.ai_provider === "google-ai" && !profile.google_ai_api_key) {
+      return new Response(
+        JSON.stringify({ error: "Google AI API key not configured. Please add it in Settings." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (profile.ai_provider === "custom" && (!profile.custom_ai_endpoint || !profile.google_ai_api_key)) {
+      return new Response(
+        JSON.stringify({ error: "Custom AI provider not fully configured. Please check Settings." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Get relevant reference cards
     const { data: cards } = await supabase
       .from("reference_cards")
@@ -34,14 +62,6 @@ serve(async (req) => {
       .eq("status", "active")
       .not("ai_summary", "is", null)
       .limit(10);
-
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      return new Response(
-        JSON.stringify({ error: "AI API not configured" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
 
     const contextCards = cards?.map(c => `${c.title}: ${c.ai_summary}`).join('\n\n') || "No reference cards available";
 
@@ -68,28 +88,64 @@ Respond in JSON format:
   ]
 }`;
 
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: "You are a creative content strategist. Always respond with valid JSON." },
-          { role: "user", content: prompt }
-        ],
-        response_format: { type: "json_object" }
-      }),
-    });
+    // Call AI based on user's provider preference
+    let result;
+    if (profile.ai_provider === "google-ai") {
+      const aiResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${profile.ai_model}:generateContent?key=${profile.google_ai_api_key}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{ text: `System: You are a creative content strategist. Always respond with valid JSON.\n\nUser: ${prompt}` }]
+            }],
+            generationConfig: {
+              temperature: 1,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 8192,
+            }
+          }),
+        }
+      );
 
-    if (!aiResponse.ok) {
-      throw new Error(`AI request failed: ${aiResponse.status}`);
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        console.error("Google AI API error:", aiResponse.status, errorText);
+        throw new Error(`Google AI API error: ${aiResponse.status}`);
+      }
+
+      const aiData = await aiResponse.json();
+      const generatedText = aiData.candidates[0].content.parts[0].text;
+      result = JSON.parse(generatedText);
+      
+    } else if (profile.ai_provider === "custom") {
+      const aiResponse = await fetch(profile.custom_ai_endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${profile.google_ai_api_key}`,
+        },
+        body: JSON.stringify({
+          model: profile.custom_ai_model_name,
+          messages: [
+            { role: "system", content: "You are a creative content strategist. Always respond with valid JSON." },
+            { role: "user", content: prompt }
+          ],
+          response_format: { type: "json_object" }
+        }),
+      });
+
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        console.error("Custom AI API error:", aiResponse.status, errorText);
+        throw new Error(`Custom AI API error: ${aiResponse.status}`);
+      }
+
+      const aiData = await aiResponse.json();
+      result = JSON.parse(aiData.choices[0].message.content);
     }
-
-    const aiData = await aiResponse.json();
-    const result = JSON.parse(aiData.choices[0].message.content);
 
     return new Response(
       JSON.stringify(result),

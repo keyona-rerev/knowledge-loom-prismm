@@ -445,11 +445,16 @@ export type Database = {
       profiles: {
         Row: {
           accent_color: string | null
+          ai_model: string | null
+          ai_provider: string | null
           brand_voice: string | null
           business_description: string | null
           business_name: string | null
           created_at: string | null
+          custom_ai_endpoint: string | null
+          custom_ai_model_name: string | null
           email: string | null
+          google_ai_api_key: string | null
           id: string
           primary_color: string | null
           secondary_color: string | null
@@ -459,11 +464,16 @@ export type Database = {
         }
         Insert: {
           accent_color?: string | null
+          ai_model?: string | null
+          ai_provider?: string | null
           brand_voice?: string | null
           business_description?: string | null
           business_name?: string | null
           created_at?: string | null
+          custom_ai_endpoint?: string | null
+          custom_ai_model_name?: string | null
           email?: string | null
+          google_ai_api_key?: string | null
           id?: string
           primary_color?: string | null
           secondary_color?: string | null
@@ -473,11 +483,16 @@ export type Database = {
         }
         Update: {
           accent_color?: string | null
+          ai_model?: string | null
+          ai_provider?: string | null
           brand_voice?: string | null
           business_description?: string | null
           business_name?: string | null
           created_at?: string | null
+          custom_ai_endpoint?: string | null
+          custom_ai_model_name?: string | null
           email?: string | null
+          google_ai_api_key?: string | null
           id?: string
           primary_color?: string | null
           secondary_color?: string | null

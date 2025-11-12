@@ -34,31 +34,12 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
-    // 1. Fetch the original draft with template
+    // 1. Fetch the original draft
     const { data: draft, error: draftError } = await supabaseClient
       .from("drafts")
-      .select(`
-        *,
-        content_templates (
-          name,
-          template_structure
-        )
-      `)
+      .select("*")
       .eq("id", draftId)
       .single();
-
-          let template = null;
-    if (templateId) {
-      const { data: templateData, error: templateError } = await supabaseClient
-        .from("content_templates")
-        .select("*")
-        .eq("id", templateId)
-        .single();
-      
-      if (!templateError) {
-        template = templateData;
-      }
-    }
 
     if (draftError || !draft) {
       console.error("Error fetching draft:", draftError);
@@ -71,25 +52,22 @@ serve(async (req) => {
       );
     }
 
-    // 2. Prepare the AI prompt with feedback
-    const improvementPrompt = `
-IMPROVE THIS DRAFT BASED ON EDITOR FEEDBACK:
+    // 2. Fetch user's content type templates
+    const { data: profile, error: profileError } = await supabaseClient
+      .from("profiles")
+      .select("content_type_templates, writing_examples, business_name, target_audience")
+      .eq("user_id", draft.user_id)
+      .maybeSingle();
 
-        ORIGINAL DRAFT:
-        Title: ${draft.title || "Untitled"}
-        Content: ${draft.body}
+    let contentTypeTemplate = null;
+    if (profile?.content_type_templates && draft.content_type) {
+      contentTypeTemplate = (profile.content_type_templates as any[])?.find(
+        (t: any) => t.id === draft.content_type || t.name.toLowerCase().replace(/\s+/g, '_') === draft.content_type
+      );
+    }
 
-        EDITOR FEEDBACK: ${feedback}
-
-        INSTRUCTIONS:
-        - Carefully address all points in the editor feedback
-        - Maintain the core message and intent of the original
-        - Improve clarity, structure, and quality based on the feedback
-        - Keep similar length and tone
-        - Return ONLY the revised content in the same format as the original
-
-REVISED CONTEST:
-`;
+    // 3. Prepare the AI prompt with feedback and template guidelines
+    const improvementPrompt = createImprovementPrompt(draft, feedback, contentTypeTemplate, profile);
 
     // 3. Call Lovable AI Gateway to regenerate content
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -189,85 +167,64 @@ REVISED CONTEST:
     );
 
   }
-  // ADD THESE FUNCTIONS AT THE VERY END OF THE FILE, BEFORE THE LAST CLOSING BRACE:
+});
 
-function createTemplatePrompt(draft: any, template: any, feedback: string) {
-  const structure = template.template_structure;
-  return `🚨 CRITICAL: YOU MUST FOLLOW THIS EXACT TEMPLATE STRUCTURE. DO NOT DEVIATE.
-
-TEMPLATE: ${template.name}
-GOAL: ${structure.goal || 'Create engaging content'}
+function createImprovementPrompt(draft: any, feedback: string, contentTypeTemplate: any, profile: any) {
+  let prompt = `IMPROVE THIS DRAFT BASED ON EDITOR FEEDBACK:
 
 ORIGINAL DRAFT:
 Title: ${draft.title || "Untitled"}
 Content: ${draft.body}
 
 EDITOR FEEDBACK: ${feedback}
+`;
 
-🚨 REQUIRED SECTIONS - INCLUDE ALL:
-${formatStructureRequirements(structure)}
+  // Add content type template guidelines if available
+  if (contentTypeTemplate && contentTypeTemplate.prompt) {
+    prompt += `\n==== CONTENT TYPE REQUIREMENTS ====
+${contentTypeTemplate.name} Guidelines:
+${contentTypeTemplate.prompt}
 
-🚨 FORMATTING RULES:
-${getFormattingRules(structure)}
+CRITICAL: The revised draft must follow these content type guidelines.
+=================================\n\n`;
+  }
 
-🚨 IMPROVEMENTS NEEDED:
-1. Address the user feedback: "${feedback}"
-2. Maintain core message but improve structure and engagement
-3. Follow the template requirements exactly
+  // Add writing style reference if available
+  if (profile?.writing_examples && Array.isArray(profile.writing_examples)) {
+    const validExamples = profile.writing_examples.filter((ex: string) => ex && ex.trim().length > 0);
+    if (validExamples.length > 0) {
+      prompt += `\n==== WRITING VOICE REFERENCE ====
+Match the tone and style demonstrated in these examples:
+${validExamples.slice(0, 2).map((ex: string, i: number) => `\nExample ${i + 1}:\n${ex.substring(0, 300)}...`).join('\n')}
+=================================\n\n`;
+    }
+  }
 
-RETURN ONLY THE REVISED CONTENT FOLLOWING THE TEMPLATE STRUCTURE:`;
-}
+  prompt += `
+INSTRUCTIONS:
+- Carefully address ALL points in the editor feedback
+- ${contentTypeTemplate ? `Follow the ${contentTypeTemplate.name} content type requirements exactly` : 'Maintain the original content structure'}
+- Improve clarity, structure, and quality based on the feedback
+- ${profile?.writing_examples?.length ? 'Match the writing style from the examples above' : 'Keep consistent tone'}
+- Return ONLY the revised content
 
-function formatStructureRequirements(structure: any) {
-  const requirements = [];
-  if (structure.hook) requirements.push(`• Hook: ${structure.hook.description || 'Engaging opening'}${structure.hook.max_chars ? ` (max ${structure.hook.max_chars} chars)` : ''}`);
-  if (structure.body) requirements.push(`• Body: ${structure.body.description || 'Main content'}${structure.body.min_words && structure.body.max_words ? ` (${structure.body.min_words}-${structure.body.max_words} words)` : ''}`);
-  if (structure.cta) requirements.push(`• CTA: ${structure.cta.description || 'Call to action'}${structure.cta.required_elements ? ` - Include: ${structure.cta.required_elements.join(', ')}` : ''}`);
-  if (structure.hashtags) requirements.push(`• Hashtags: ${structure.hashtags.count || 3} relevant hashtags`);
-  return requirements.join('\n');
-}
+Format as:
+TITLE: [Revised title]
+CONTENT: [Complete revised content]`;
 
-function getFormattingRules(structure: any) {
-  const rules = [];
-  if (structure.hook?.max_chars) rules.push(`• Hook must be under ${structure.hook.max_chars} characters`);
-  if (structure.body?.min_words && structure.body?.max_words) rules.push(`• Body must be ${structure.body.min_words}-${structure.body.max_words} words`);
-  if (structure.body?.formatting === 'bold_key_concepts') rules.push(`• Bold key concepts and data points`);
-  if (structure.body?.sections) rules.push(`• Include these sections: ${structure.body.sections.join(', ')}`);
-  if (structure.hashtags?.count) rules.push(`• Include ${structure.hashtags.count} professional hashtags`);
-  if (structure.title?.max_chars) rules.push(`• Title under ${structure.title.max_chars} characters`);
-  return rules.length > 0 ? rules.join('\n') : '• Use markdown for formatting (headings, lists, emphasis)';
-}
-});
-
-function formatStructureRequirements(structure: any) {
-  return Object.entries(structure).map(([section, config]: [string, any]) => {
-    let requirements = `${section.toUpperCase()}: ${config.description}`;
-    if (config.approx_words) requirements += ` (~${config.approx_words} words)`;
-    if (config.min_words && config.max_words) requirements += ` (${config.min_words}-${config.max_words} words)`;
-    if (config.max_chars) requirements += ` (max ${config.max_chars} characters)`;
-    if (config.sentences) requirements += ` (${config.sentences} sentences)`;
-    if (config.count) requirements += ` (${config.count} items)`;
-    if (config.required === false) requirements += ` [OPTIONAL]`;
-    if (config.formatting) requirements += ` [Format: ${config.formatting}]`;
-    if (config.sections) requirements += ` [Sections: ${config.sections.join(', ')}]`;
-    if (config.required_elements) requirements += ` [Required: ${config.required_elements.join(', ')}]`;
-    return requirements;
-  }).join('\n');
+  return prompt;
 }
 
 function parseGeneratedContent(generatedText: string, fallbackTitle: string) {
   let title = fallbackTitle;
   let content = generatedText;
 
-  // Try to extract title if formatted properly
   const titleMatch = generatedText.match(/TITLE:\s*(.+?)(?:\n|$)/i);
   if (titleMatch) {
     title = titleMatch[1].trim();
     content = generatedText.replace(/TITLE:\s*.+?\n/i, "").trim();
   }
 
-  // Remove CONTENT: prefix if present
   content = content.replace(/^CONTENT:\s*/i, "").trim();
-
   return { title, content };
 }

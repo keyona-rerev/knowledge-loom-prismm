@@ -346,17 +346,17 @@ You can edit existing templates or add custom ones for your specific needs.`}
                       />
                     </div>
                     <div>
-                      <Label htmlFor={`template-id-${index}`}>Template ID (lowercase, no spaces)</Label>
+                      <Label htmlFor={`template-id-${index}`}>Template ID (read-only)</Label>
                       <Input
                         id={`template-id-${index}`}
                         value={template.id}
-                        onChange={(e) => {
-                          const newTemplates = [...profile.content_type_templates];
-                          newTemplates[index].id = e.target.value.toLowerCase().replace(/\s+/g, '_');
-                          setProfile(prev => ({ ...prev, content_type_templates: newTemplates }));
-                        }}
-                        placeholder="e.g., linkedin_post"
+                        readOnly
+                        disabled
+                        className="bg-muted cursor-not-allowed"
                       />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        This ID is used internally and cannot be changed
+                      </p>
                     </div>
                   </div>
                   <Button

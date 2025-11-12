@@ -444,34 +444,43 @@ export type Database = {
       }
       profiles: {
         Row: {
+          accent_color: string | null
           brand_voice: string | null
           business_description: string | null
           business_name: string | null
           created_at: string | null
           email: string | null
           id: string
+          primary_color: string | null
+          secondary_color: string | null
           target_audience: string | null
           updated_at: string | null
           user_id: string
         }
         Insert: {
+          accent_color?: string | null
           brand_voice?: string | null
           business_description?: string | null
           business_name?: string | null
           created_at?: string | null
           email?: string | null
           id?: string
+          primary_color?: string | null
+          secondary_color?: string | null
           target_audience?: string | null
           updated_at?: string | null
           user_id: string
         }
         Update: {
+          accent_color?: string | null
           brand_voice?: string | null
           business_description?: string | null
           business_name?: string | null
           created_at?: string | null
           email?: string | null
           id?: string
+          primary_color?: string | null
+          secondary_color?: string | null
           target_audience?: string | null
           updated_at?: string | null
           user_id?: string

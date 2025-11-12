@@ -17,7 +17,10 @@ const Settings = () => {
     business_name: "",
     business_description: "",
     target_audience: "",
-    brand_voice: ""
+    brand_voice: "",
+    primary_color: "#9b87f5",
+    secondary_color: "#7E69AB",
+    accent_color: "#6E59A5"
   });
   const [aiProvider, setAiProvider] = useState("gemini");
 
@@ -40,7 +43,10 @@ const Settings = () => {
           business_name: data.business_name || "",
           business_description: data.business_description || "",
           target_audience: data.target_audience || "",
-          brand_voice: data.brand_voice || ""
+          brand_voice: data.brand_voice || "",
+          primary_color: data.primary_color || "#9b87f5",
+          secondary_color: data.secondary_color || "#7E69AB",
+          accent_color: data.accent_color || "#6E59A5"
         });
       } else if (error && error.code !== "PGRST116") {
         toast.error("Failed to load profile");
@@ -152,6 +158,71 @@ const Settings = () => {
           </CardContent>
         </Card>
 
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Colors & Branding</CardTitle>
+            <CardDescription>Customize your app's color scheme</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label htmlFor="primary-color">Primary Color</Label>
+              <div className="flex items-center gap-3 mt-2">
+                <Input
+                  id="primary-color"
+                  type="color"
+                  value={profile.primary_color}
+                  onChange={(e) => setProfile(prev => ({ ...prev, primary_color: e.target.value }))}
+                  className="w-20 h-10 cursor-pointer"
+                />
+                <Input
+                  type="text"
+                  value={profile.primary_color}
+                  onChange={(e) => setProfile(prev => ({ ...prev, primary_color: e.target.value }))}
+                  placeholder="#9b87f5"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="secondary-color">Secondary Color</Label>
+              <div className="flex items-center gap-3 mt-2">
+                <Input
+                  id="secondary-color"
+                  type="color"
+                  value={profile.secondary_color}
+                  onChange={(e) => setProfile(prev => ({ ...prev, secondary_color: e.target.value }))}
+                  className="w-20 h-10 cursor-pointer"
+                />
+                <Input
+                  type="text"
+                  value={profile.secondary_color}
+                  onChange={(e) => setProfile(prev => ({ ...prev, secondary_color: e.target.value }))}
+                  placeholder="#7E69AB"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="accent-color">Accent Color</Label>
+              <div className="flex items-center gap-3 mt-2">
+                <Input
+                  id="accent-color"
+                  type="color"
+                  value={profile.accent_color}
+                  onChange={(e) => setProfile(prev => ({ ...prev, accent_color: e.target.value }))}
+                  className="w-20 h-10 cursor-pointer"
+                />
+                <Input
+                  type="text"
+                  value={profile.accent_color}
+                  onChange={(e) => setProfile(prev => ({ ...prev, accent_color: e.target.value }))}
+                  placeholder="#6E59A5"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         <Card className="mb-6">
           <CardHeader>

@@ -26,10 +26,10 @@ serve(async (req) => {
       );
     }
 
-    // Fetch user's AI preferences
+    // Fetch user's AI preferences and business context
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("ai_provider, ai_model, google_ai_api_key, custom_ai_endpoint, custom_ai_model_name")
+      .select("ai_provider, ai_model, google_ai_api_key, custom_ai_endpoint, custom_ai_model_name, business_name, business_description, target_audience")
       .eq("user_id", userId)
       .single();
 
@@ -65,6 +65,15 @@ serve(async (req) => {
 
     const contextCards = cards?.map(c => `${c.title}: ${c.ai_summary}`).join('\n\n') || "No reference cards available";
 
+    let businessContext = "";
+    if (profile.business_name || profile.business_description || profile.target_audience) {
+      businessContext = "\n\nBUSINESS CONTEXT:\n";
+      if (profile.business_name) businessContext += `Business: ${profile.business_name}\n`;
+      if (profile.business_description) businessContext += `About: ${profile.business_description}\n`;
+      if (profile.target_audience) businessContext += `Target Audience: ${profile.target_audience}\n`;
+      businessContext += "\nIMPORTANT: Keep this business and audience sharply in focus. All content directions should be relevant and valuable for this specific audience.\n";
+    }
+
     const prompt = `Based on this seed insight and reference materials, generate 4 distinct content directions.
 
 Seed Insight: ${seedInsight}
@@ -72,11 +81,13 @@ Category: ${seedCategory}
 
 Reference Materials:
 ${contextCards}
+${businessContext}
 
 Generate 4 unique angles/directions for developing this insight into content. Each should:
 - Have a compelling title
 - Include a 2-3 sentence description
 - Suggest a unique angle or approach
+${profile.target_audience ? `- Be specifically relevant and valuable for the target audience described above` : ''}
 
 Respond in JSON format:
 {

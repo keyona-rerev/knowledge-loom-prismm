@@ -30,10 +30,10 @@ serve(async (req) => {
       { global: { headers: { Authorization: req.headers.get("Authorization")! } } }
     );
 
-    // Fetch user's AI preferences and content type templates
+    // Fetch user's AI preferences, content type templates, and business context
     const { data: profile, error: profileError } = await supabaseClient
       .from("profiles")
-      .select("ai_provider, ai_model, google_ai_api_key, custom_ai_endpoint, custom_ai_model_name, content_type_templates, writing_examples")
+      .select("ai_provider, ai_model, google_ai_api_key, custom_ai_endpoint, custom_ai_model_name, content_type_templates, writing_examples, business_name, business_description, target_audience")
       .eq("user_id", userId)
       .single();
 
@@ -86,8 +86,16 @@ serve(async (req) => {
       );
     }
 
-    // Prepare AI prompt with template and writing examples
-    const prompt = createContentPrompt(card, contentTypeTemplate, outputFormat, profile.writing_examples);
+    // Prepare AI prompt with template, writing examples, and business context
+    const prompt = createContentPrompt(
+      card, 
+      contentTypeTemplate, 
+      outputFormat, 
+      profile.writing_examples,
+      profile.business_name,
+      profile.business_description,
+      profile.target_audience
+    );
 
     // Call AI based on user's provider preference
     let generatedContent;
@@ -178,7 +186,15 @@ serve(async (req) => {
   }
 });
 
-function createContentPrompt(card: any, contentTypeTemplate: any, outputFormat: string, writingExamples: any[]) {
+function createContentPrompt(
+  card: any, 
+  contentTypeTemplate: any, 
+  outputFormat: string, 
+  writingExamples: any[],
+  businessName?: string,
+  businessDescription?: string,
+  targetAudience?: string
+) {
   const primaryInsight = card.insight_answers ? Object.values(card.insight_answers)[0] : card.ai_summary;
   
   let prompt = `Create content based on this reference material:
@@ -192,6 +208,15 @@ ADDITIONAL INSIGHTS:
 ${card.insight_answers ? Object.entries(card.insight_answers).map(([key, value]) => `• ${value}`).join('\n') : 'No additional insights'}
 
 `;
+
+  // Add business context
+  if (businessName || businessDescription || targetAudience) {
+    prompt += `\n==== BUSINESS CONTEXT ====\n`;
+    if (businessName) prompt += `Business: ${businessName}\n`;
+    if (businessDescription) prompt += `About: ${businessDescription}\n`;
+    if (targetAudience) prompt += `Target Audience: ${targetAudience}\n`;
+    prompt += `\nIMPORTANT: Write from this business's perspective and keep this audience sharply in focus. The content should be relevant and valuable for them specifically.\n=================================\n\n`;
+  }
 
   // Add content type template guidelines if available
   if (contentTypeTemplate && contentTypeTemplate.prompt) {

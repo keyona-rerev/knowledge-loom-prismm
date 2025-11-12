@@ -252,19 +252,17 @@ Step 1: Get Your Google AI API Key
 • Click "Create API Key"
 • Copy the key (starts with AIza...)
 
-Step 2: Configure Below
-• Select "Google AI" as your provider
-• Choose your preferred Gemini model
-• Paste your API key
-• Click "Save Settings"
+Step 2: Enter API Key Below
+• Paste your API key in the field
+• This ONE key works with ALL Gemini models
 
-Step 3: Test
-• Create new content to verify it's working
-• The app now uses YOUR Gemini quota (not the developer's)
+Step 3: Choose Your Model
+• Select which Gemini model to use for content generation
+• Recommended: Gemini 2.0 Flash (Experimental) for best balance
 
-**Recommended Model:** Gemini 2.0 Flash (Experimental)
-• Best balance of speed, quality, and cost
-• Great for business content generation`
+Step 4: Save Settings
+• Click "Save Settings" to apply
+• Test by creating content - uses YOUR quota!`
                   : `**Custom AI Provider (Advanced)**
 
 Step 1: Prepare Your AI Service
@@ -311,7 +309,21 @@ Step 3: Compatibility
               <Alert>
                 <AlertDescription className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="ai_model" className="text-base font-semibold">Step 2: Choose Your Model</Label>
+                    <Label htmlFor="google_ai_api_key" className="text-base font-semibold">Step 2: Enter Your API Key</Label>
+                    <Input
+                      id="google_ai_api_key"
+                      type="password"
+                      placeholder="AIza..."
+                      value={profile.google_ai_api_key}
+                      onChange={(e) => setProfile(prev => ({ ...prev, google_ai_api_key: e.target.value }))}
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      One API key works with all Gemini models. Get yours at: <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">https://aistudio.google.com/app/apikey</a>
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="ai_model" className="text-base font-semibold">Step 3: Choose Your Preferred Model</Label>
                     <Select
                       value={profile.ai_model}
                       onValueChange={(value) => setProfile(prev => ({ ...prev, ai_model: value }))}
@@ -326,19 +338,8 @@ Step 3: Compatibility
                         <SelectItem value="gemini-2.0-flash-thinking-exp-1219">Gemini 2.0 Flash Thinking (Experimental)</SelectItem>
                       </SelectContent>
                     </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="google_ai_api_key" className="text-base font-semibold">Step 3: Enter Your API Key</Label>
-                    <Input
-                      id="google_ai_api_key"
-                      type="password"
-                      placeholder="AIza..."
-                      value={profile.google_ai_api_key}
-                      onChange={(e) => setProfile(prev => ({ ...prev, google_ai_api_key: e.target.value }))}
-                    />
                     <p className="text-sm text-muted-foreground">
-                      Get your free API key at: <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">https://aistudio.google.com/app/apikey</a>
+                      Your API key works with all models above. Choose which to use for content generation.
                     </p>
                   </div>
                 </AlertDescription>

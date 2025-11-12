@@ -7,6 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { toast } from "sonner";
 import { ArrowLeft } from "lucide-react";
 
@@ -236,14 +238,67 @@ const Settings = () => {
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>AI Provider Configuration</CardTitle>
-            <CardDescription>Configure which AI model to use for content generation</CardDescription>
+            <CardDescription>Configure which AI model powers your content generation</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="space-y-4">
-              <Label>AI Provider</Label>
-              <Select value={profile.ai_provider} onValueChange={(value) => setProfile(prev => ({ ...prev, ai_provider: value }))}>
-                <SelectTrigger>
-                  <SelectValue />
+            <InstructionsToggle 
+              instructions={
+                profile.ai_provider === 'google-ai' 
+                  ? `**Using Google AI (Recommended)**
+
+Step 1: Get Your Google AI API Key
+• Go to https://aistudio.google.com/app/apikey
+• Sign in with your Google account
+• Click "Create API Key"
+• Copy the key (starts with AIza...)
+
+Step 2: Configure Below
+• Select "Google AI" as your provider
+• Choose your preferred Gemini model
+• Paste your API key
+• Click "Save Settings"
+
+Step 3: Test
+• Create new content to verify it's working
+• The app now uses YOUR Gemini quota (not the developer's)
+
+**Recommended Model:** Gemini 2.0 Flash (Experimental)
+• Best balance of speed, quality, and cost
+• Great for business content generation`
+                  : `**Custom AI Provider (Advanced)**
+
+Step 1: Prepare Your AI Service
+• Have your AI API endpoint ready (e.g., OpenAI, Anthropic, Hugging Face)
+• Ensure you have a valid API key
+• Know your model name (e.g., gpt-4, claude-3-5-sonnet)
+
+Step 2: Configure Below
+• Select "Custom AI Provider"
+• Enter your API endpoint URL
+• Enter the exact model name
+• Paste your API key
+• Click "Save Settings"
+
+Step 3: Compatibility
+• Endpoint should be OpenAI-compatible format
+• Must support /chat/completions or similar
+• Contact the developer if you need help with integration
+
+**Note:** This is an advanced option for users who want to use AI providers other than Google Gemini.`
+              }
+              autoShowDuration={15000}
+            />
+
+            <div className="space-y-2">
+              <Label htmlFor="ai_provider" className="text-base font-semibold">Step 1: Choose Your AI Provider</Label>
+              <Select
+                value={profile.ai_provider}
+                onValueChange={(value) => 
+                  setProfile(prev => ({ ...prev, ai_provider: value }))
+                }
+              >
+                <SelectTrigger id="ai_provider">
+                  <SelectValue placeholder="Select AI provider" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="google-ai">Google AI (Use your own Gemini account)</SelectItem>
@@ -252,72 +307,90 @@ const Settings = () => {
               </Select>
             </div>
 
-            {profile.ai_provider === "google-ai" && (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="ai-model">Model</Label>
-                  <Select value={profile.ai_model} onValueChange={(value) => setProfile(prev => ({ ...prev, ai_model: value }))}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="gemini-2.0-flash-exp">Gemini 2.0 Flash (Experimental - Recommended)</SelectItem>
-                      <SelectItem value="gemini-1.5-flash">Gemini 1.5 Flash (Stable)</SelectItem>
-                      <SelectItem value="gemini-1.5-pro">Gemini 1.5 Pro (Advanced)</SelectItem>
-                      <SelectItem value="gemini-2.0-flash-thinking-exp">Gemini 2.0 Flash Thinking (Experimental)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="google-api-key">Google AI API Key</Label>
-                  <Input
-                    id="google-api-key"
-                    type="password"
-                    value={profile.google_ai_api_key}
-                    onChange={(e) => setProfile(prev => ({ ...prev, google_ai_api_key: e.target.value }))}
-                    placeholder="AIza..."
-                  />
-                  <p className="text-sm text-muted-foreground">
-                    Get your API key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-primary underline">Google AI Studio</a>
-                  </p>
-                </div>
-              </>
+            {profile.ai_provider === 'google-ai' && (
+              <Alert>
+                <AlertDescription className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="ai_model" className="text-base font-semibold">Step 2: Choose Your Model</Label>
+                    <Select
+                      value={profile.ai_model}
+                      onValueChange={(value) => setProfile(prev => ({ ...prev, ai_model: value }))}
+                    >
+                      <SelectTrigger id="ai_model">
+                        <SelectValue placeholder="Select model" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="gemini-2.0-flash-exp">Gemini 2.0 Flash (Experimental) - Recommended</SelectItem>
+                        <SelectItem value="gemini-1.5-flash">Gemini 1.5 Flash</SelectItem>
+                        <SelectItem value="gemini-1.5-pro">Gemini 1.5 Pro</SelectItem>
+                        <SelectItem value="gemini-2.0-flash-thinking-exp-1219">Gemini 2.0 Flash Thinking (Experimental)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="google_ai_api_key" className="text-base font-semibold">Step 3: Enter Your API Key</Label>
+                    <Input
+                      id="google_ai_api_key"
+                      type="password"
+                      placeholder="AIza..."
+                      value={profile.google_ai_api_key}
+                      onChange={(e) => setProfile(prev => ({ ...prev, google_ai_api_key: e.target.value }))}
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      Get your free API key at: <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">https://aistudio.google.com/app/apikey</a>
+                    </p>
+                  </div>
+                </AlertDescription>
+              </Alert>
             )}
 
-            {profile.ai_provider === "custom" && (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="custom-endpoint">API Endpoint</Label>
-                  <Input
-                    id="custom-endpoint"
-                    value={profile.custom_ai_endpoint}
-                    onChange={(e) => setProfile(prev => ({ ...prev, custom_ai_endpoint: e.target.value }))}
-                    placeholder="https://api.example.com/v1/chat/completions"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="custom-model">Model Name</Label>
-                  <Input
-                    id="custom-model"
-                    value={profile.custom_ai_model_name}
-                    onChange={(e) => setProfile(prev => ({ ...prev, custom_ai_model_name: e.target.value }))}
-                    placeholder="gpt-4"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="custom-api-key">API Key</Label>
-                  <Input
-                    id="custom-api-key"
-                    type="password"
-                    value={profile.google_ai_api_key}
-                    onChange={(e) => setProfile(prev => ({ ...prev, google_ai_api_key: e.target.value }))}
-                    placeholder="sk-..."
-                  />
-                  <p className="text-sm text-muted-foreground">
-                    Your API key is stored securely and used only for your content generation.
-                  </p>
-                </div>
-              </>
+            {profile.ai_provider === 'custom' && (
+              <Alert>
+                <AlertDescription className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="custom_ai_endpoint" className="text-base font-semibold">Step 2: API Endpoint</Label>
+                    <Input
+                      id="custom_ai_endpoint"
+                      type="text"
+                      placeholder="https://api.example.com/v1/chat/completions"
+                      value={profile.custom_ai_endpoint || ''}
+                      onChange={(e) => setProfile(prev => ({ ...prev, custom_ai_endpoint: e.target.value }))}
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      Enter the full URL to your AI provider's chat completions endpoint
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="custom_ai_model_name" className="text-base font-semibold">Step 3: Model Name</Label>
+                    <Input
+                      id="custom_ai_model_name"
+                      type="text"
+                      placeholder="gpt-4, claude-3-5-sonnet, etc."
+                      value={profile.custom_ai_model_name || ''}
+                      onChange={(e) => setProfile(prev => ({ ...prev, custom_ai_model_name: e.target.value }))}
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      The exact model identifier from your provider's documentation
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="custom_ai_api_key" className="text-base font-semibold">Step 4: API Key</Label>
+                    <Input
+                      id="custom_ai_api_key"
+                      type="password"
+                      placeholder="Your custom provider API key"
+                      value={profile.google_ai_api_key || ''}
+                      onChange={(e) => setProfile(prev => ({ ...prev, google_ai_api_key: e.target.value }))}
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      Your API key is encrypted and stored securely
+                    </p>
+                  </div>
+                </AlertDescription>
+              </Alert>
             )}
           </CardContent>
         </Card>

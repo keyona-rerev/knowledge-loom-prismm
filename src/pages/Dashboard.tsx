@@ -322,7 +322,6 @@ The dashboard shows your content pipeline and quick access to all features.`}
                   <div className="text-sm text-muted-foreground">Approved Drafts</div>
                 </CardContent>
               </Card>
-              // In the Quick Stats section, add this card:
               <Card>
                 <CardContent className="p-4 text-center">
                   <div className="text-2xl font-bold text-orange-600">{stats.scheduledCount || 0}</div>

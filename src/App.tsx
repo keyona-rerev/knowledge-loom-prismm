@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ColorProvider } from "./components/ColorProvider";
+import ProtectedRoute from "./components/ProtectedRoute";
 import NotFound from "./pages/NotFound";
 import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
@@ -35,31 +36,29 @@ const App = () => (
         <BrowserRouter>
           <Routes>
           <Route path="/auth" element={<Auth />} />
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/feeds" element={<Feeds />} />
-          <Route path="/cards" element={<ReferenceCards />} />
-          <Route path="/cards/:id" element={<CardDetail />} />
-          <Route path="/cards/:id/edit" element={<CardDetail />} />
-          <Route path="/create" element={<CreateContent />} />
-          <Route path="/drafts" element={<Drafts />} />
-          <Route path="/drafts/:id" element={<DraftDetail />} />
-          <Route path="/autopilot" element={<AutopilotTemplates />} />
-          <Route path="/autopilot/new" element={<AutopilotTemplateEditor />} />
-          <Route path="/autopilot/:id/edit" element={<AutopilotTemplateEditor />} />
-          <Route path="/questions" element={<QuestionSettings />} />
-          <Route path="/insights" element={<Insights />} />
-          <Route path="/insights/new" element={<InsightDetail />} />
-          <Route path="/insights/:id" element={<InsightDetail />} />
-          <Route path="/review" element={<Review />} />
-          {/* ✅ ADD CONTENT CALENDAR ROUTE HERE */}
-          <Route path="/calendar" element={<ContentCalendar />} />
-          {/* KEEP CATCH-ALL ROUTE AT THE BOTTOM */}
+          <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+          <Route path="/feeds" element={<ProtectedRoute><Feeds /></ProtectedRoute>} />
+          <Route path="/cards" element={<ProtectedRoute><ReferenceCards /></ProtectedRoute>} />
+          <Route path="/cards/:id" element={<ProtectedRoute><CardDetail /></ProtectedRoute>} />
+          <Route path="/cards/:id/edit" element={<ProtectedRoute><CardDetail /></ProtectedRoute>} />
+          <Route path="/create" element={<ProtectedRoute><CreateContent /></ProtectedRoute>} />
+          <Route path="/drafts" element={<ProtectedRoute><Drafts /></ProtectedRoute>} />
+          <Route path="/drafts/:id" element={<ProtectedRoute><DraftDetail /></ProtectedRoute>} />
+          <Route path="/autopilot" element={<ProtectedRoute><AutopilotTemplates /></ProtectedRoute>} />
+          <Route path="/autopilot/new" element={<ProtectedRoute><AutopilotTemplateEditor /></ProtectedRoute>} />
+          <Route path="/autopilot/:id/edit" element={<ProtectedRoute><AutopilotTemplateEditor /></ProtectedRoute>} />
+          <Route path="/questions" element={<ProtectedRoute><QuestionSettings /></ProtectedRoute>} />
+          <Route path="/insights" element={<ProtectedRoute><Insights /></ProtectedRoute>} />
+          <Route path="/insights/new" element={<ProtectedRoute><InsightDetail /></ProtectedRoute>} />
+          <Route path="/insights/:id" element={<ProtectedRoute><InsightDetail /></ProtectedRoute>} />
+          <Route path="/review" element={<ProtectedRoute><Review /></ProtectedRoute>} />
+          <Route path="/calendar" element={<ProtectedRoute><ContentCalendar /></ProtectedRoute>} />
+          <Route path="/questions" element={<ProtectedRoute><QuestionSets /></ProtectedRoute>} />
+          <Route path="/questions/new" element={<ProtectedRoute><QuestionSetEditor /></ProtectedRoute>} />
+          <Route path="/questions/:id/edit" element={<ProtectedRoute><QuestionSetEditor /></ProtectedRoute>} />
           <Route path="*" element={<NotFound />} />
-          <Route path="/questions" element={<QuestionSets />} />
-          <Route path="/questions/new" element={<QuestionSetEditor />} />
-          <Route path="/questions/:id/edit" element={<QuestionSetEditor />} />
         </Routes>
       </BrowserRouter>
       </ColorProvider>

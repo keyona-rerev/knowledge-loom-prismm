@@ -24,9 +24,13 @@ const Dashboard = () => {
   }, []);
 
   const loadDashboardStats = async () => {
-    
     setLoading(true);
     const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session) {
+      setLoading(false);
+      return;
+    }
 
     try {
       // Get draft counts by approval status

@@ -36,6 +36,8 @@ import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+import { parsePDF } from "@/lib/pdf-parser";
+
 const Feeds = () => {
   const navigate = useNavigate();
   const [feeds, setFeeds] = useState<any[]>([]);
@@ -252,7 +254,11 @@ const Feeds = () => {
 
     setCreatingManualSource(true);
     console.log("🟡 Starting manual source creation...");
-    const toastId = toast.loading("Creating reference card from source...");
+    const toastId = toast.loading(
+      manualSourceType === "pdf" 
+        ? "Parsing PDF and creating reference card..." 
+        : "Creating reference card from source..."
+    );
 
     try {
       // 🎯 Get user session first
@@ -263,19 +269,49 @@ const Feeds = () => {
         return;
       }
 
+      let pdfText = "";
+      let pdfTitle = "";
+
+      // Handle PDF parsing
+      if (manualSourceType === "pdf" && manualPdfFile) {
+        console.log("📄 Parsing PDF...");
+        toast.loading("Extracting text from PDF...", { id: toastId });
+        
+        try {
+          const parseResult = await parsePDF(manualPdfFile);
+          pdfText = parseResult.text;
+          pdfTitle = parseResult.title;
+          
+          if (!pdfText || pdfText.length < 50) {
+            toast.error("Could not extract sufficient text from PDF. The file may be image-based or protected.", { id: toastId });
+            return;
+          }
+          
+          console.log(`✅ PDF parsed: ${parseResult.pageCount} pages, ${pdfText.length} characters`);
+          toast.loading("Creating reference card...", { id: toastId });
+        } catch (parseError) {
+          console.error("❌ PDF parse error:", parseError);
+          toast.error(parseError instanceof Error ? parseError.message : "Failed to parse PDF file", { id: toastId });
+          return;
+        }
+      }
+
       console.log("📤 Calling edge function with:", {
         type: manualSourceType,
         url: manualUrl,
         user_id: session.user.id,
-        question_set_id: selectedQuestionSet, // ✅ ADD THIS
+        question_set_id: selectedQuestionSet,
+        has_pdf_content: !!pdfText
       });
 
       const { data, error } = await supabase.functions.invoke("create-manual-source", {
         body: {
           type: manualSourceType,
           url: manualSourceType === "url" ? manualUrl : undefined,
+          pdf_text: manualSourceType === "pdf" ? pdfText : undefined,
+          pdf_title: manualSourceType === "pdf" ? pdfTitle : undefined,
           user_id: session.user.id,
-          question_set_id: selectedQuestionSet, // ✅ ADD THIS
+          question_set_id: selectedQuestionSet,
         },
       });
 
@@ -376,21 +412,22 @@ const Feeds = () => {
                     </div>
                   {manualSourceType === "pdf" && (
                     <div className="space-y-2">
-                      <Label>Upload PDF (Coming Soon)</Label>
+                      <Label>Upload PDF</Label>
                       <Input
                         type="file"
                         accept=".pdf"
                         onChange={(e) => setManualPdfFile(e.target.files?.[0] || null)}
-                        disabled
                       />
-                      <p className="text-sm text-muted-foreground">PDF upload support coming soon!</p>
+                      <p className="text-sm text-muted-foreground">
+                        Upload a PDF document to extract content and create a reference card
+                      </p>
                     </div>
                   )}
 
                   <Button
                     onClick={createManualSource}
                     className="w-full"
-                    disabled={manualSourceType === "pdf" || creatingManualSource}
+                    disabled={creatingManualSource}
                   >
                     {creatingManualSource ? (
                       <>

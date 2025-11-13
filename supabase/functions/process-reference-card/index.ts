@@ -17,7 +17,7 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
-    const { cardId } = await req.json();
+    const { cardId, customQuestion } = await req.json();
 
     if (!cardId) {
       return new Response(
@@ -26,7 +26,7 @@ serve(async (req) => {
       );
     }
 
-    console.log("Processing card:", cardId);
+    console.log("Processing card:", cardId, "Custom question:", customQuestion ? "Yes" : "No");
 
     // Get card with template questions
     const { data: card, error: cardError } = await supabase
@@ -45,10 +45,16 @@ serve(async (req) => {
 
     console.log("Card found:", card.title);
 
-    // Get questions from question_set_id
+    // Get questions from question_set_id or use custom question
     let questions: string[] = [];
+    let isCustomQuestion = false;
 
-    if (card.question_set_id) {
+    if (customQuestion && customQuestion.trim()) {
+      // Use the custom question
+      questions = [customQuestion.trim()];
+      isCustomQuestion = true;
+      console.log("Using custom question:", customQuestion);
+    } else if (card.question_set_id) {
       console.log("Using question set:", card.question_set_id);
       const { data: questionSet, error: questionSetError } = await supabase
         .from("question_sets")
@@ -171,16 +177,44 @@ Your JSON response schema:
 
       console.log("Updating card with results...");
 
+      // For custom questions, merge with existing answers instead of replacing
+      let finalAnswers = result.answers || {};
+      if (isCustomQuestion && card.insight_answers) {
+        // Generate a unique key for this custom question using timestamp
+        const customKey = `custom_${Date.now()}`;
+        const existingAnswers = typeof card.insight_answers === 'object' ? card.insight_answers : {};
+        
+        // Store the custom question and answer
+        finalAnswers = {
+          ...existingAnswers,
+          [customKey]: {
+            question: customQuestion.trim(),
+            answer: result.answers?.["0"] || result.summary,
+            timestamp: new Date().toISOString()
+          }
+        };
+        console.log("Merged custom question answer with existing answers");
+      }
+
       // Update card with results
+      const updateData: any = {
+        status: "active"
+      };
+
+      // Only update summary if not a custom question
+      if (!isCustomQuestion) {
+        updateData.ai_summary = result.summary;
+        updateData.insight_answers = finalAnswers;
+        updateData.content_quality = contentQuality;
+        updateData.content_warning = contentWarning;
+      } else {
+        // For custom questions, only update the answers
+        updateData.insight_answers = finalAnswers;
+      }
+
       const { error: updateError } = await supabase
         .from("reference_cards")
-        .update({
-          ai_summary: result.summary,
-          insight_answers: result.answers || {},
-          content_quality: contentQuality,
-          content_warning: contentWarning,
-          status: "active"
-        })
+        .update(updateData)
         .eq("id", cardId);
 
       if (updateError) {

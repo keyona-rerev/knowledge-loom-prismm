@@ -190,7 +190,7 @@ const CardDetail = () => {
       console.error("Custom question data error:", data.error);
       toast.error("AI processing failed: " + data.error);
     } else {
-      toast.success("Answer received!");
+      toast.success("Custom question answered and saved to card!");
       setCustomQuestion("");
       loadCard();
     }
@@ -339,20 +339,46 @@ const CardDetail = () => {
                 <h3 className="text-lg font-semibold mb-4">Processed Insights</h3>
                 <div className="space-y-4">
                   {Object.entries(card.insight_answers).map(([key, value]) => {
-                    const questionIndex = parseInt(key);
-                    const question = questions[questionIndex];
-                    return (
-                      <Card key={key}>
-                        <CardHeader>
-                          <CardTitle className="text-base">
-                            Q{questionIndex + 1}: {question || "Question not found"}
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <p className="text-sm text-muted-foreground">{value as string}</p>
-                        </CardContent>
-                      </Card>
-                    );
+                    // Check if this is a custom question (has question property)
+                    const isCustom = typeof value === 'object' && value !== null && 'question' in value;
+                    
+                    if (isCustom) {
+                      const customData = value as { question: string; answer: string; timestamp: string };
+                      return (
+                        <Card key={key} className="border-l-4 border-l-blue-500">
+                          <CardHeader>
+                            <div className="flex items-start justify-between">
+                              <CardTitle className="text-base flex items-center gap-2">
+                                <MessageSquare className="h-4 w-4 text-blue-500" />
+                                Custom: {customData.question}
+                              </CardTitle>
+                              <Badge variant="secondary" className="text-xs">
+                                {new Date(customData.timestamp).toLocaleDateString()}
+                              </Badge>
+                            </div>
+                          </CardHeader>
+                          <CardContent>
+                            <p className="text-sm text-muted-foreground">{customData.answer}</p>
+                          </CardContent>
+                        </Card>
+                      );
+                    } else {
+                      // Standard question from question set
+                      const questionIndex = parseInt(key);
+                      const question = questions[questionIndex];
+                      return (
+                        <Card key={key}>
+                          <CardHeader>
+                            <CardTitle className="text-base">
+                              Q{questionIndex + 1}: {question || "Question not found"}
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <p className="text-sm text-muted-foreground">{value as string}</p>
+                          </CardContent>
+                        </Card>
+                      );
+                    }
                   })}
                 </div>
               </div>

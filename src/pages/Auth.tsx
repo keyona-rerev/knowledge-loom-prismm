@@ -14,6 +14,7 @@ const passwordSchema = z.string().min(8, "Password must be at least 8 characters
 const Auth = () => {
   const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(true);
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -27,6 +28,37 @@ const Auth = () => {
     };
     checkSession();
   }, [navigate]);
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    const emailValidation = emailSchema.safeParse(email);
+    
+    if (!emailValidation.success) {
+      toast.error(emailValidation.error.errors[0].message);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth`,
+      });
+
+      if (error) {
+        toast.error(error.message);
+      } else {
+        toast.success("Password reset link sent to your email!");
+        setIsForgotPassword(false);
+        setIsLogin(true);
+      }
+    } catch (error: any) {
+      toast.error("An unexpected error occurred");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,15 +127,19 @@ const Auth = () => {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>{isLogin ? "Login" : "Create Account"}</CardTitle>
+          <CardTitle>
+            {isForgotPassword ? "Reset Password" : isLogin ? "Login" : "Create Account"}
+          </CardTitle>
           <CardDescription>
-            {isLogin
+            {isForgotPassword
+              ? "Enter your email to receive a password reset link"
+              : isLogin
               ? "Enter your credentials to access your account"
               : "Sign up to start creating content"}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={isForgotPassword ? handleForgotPassword : handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -116,34 +152,50 @@ const Auth = () => {
                 autoComplete="email"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete={isLogin ? "current-password" : "new-password"}
-              />
-              {!isLogin && (
-                <p className="text-xs text-muted-foreground">
-                  Must be at least 8 characters
-                </p>
-              )}
-            </div>
+            {!isForgotPassword && (
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  autoComplete={isLogin ? "current-password" : "new-password"}
+                />
+                {!isLogin && (
+                  <p className="text-xs text-muted-foreground">
+                    Must be at least 8 characters
+                  </p>
+                )}
+              </div>
+            )}
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Processing..." : isLogin ? "Login" : "Sign Up"}
+              {loading ? "Processing..." : isForgotPassword ? "Send Reset Link" : isLogin ? "Login" : "Sign Up"}
             </Button>
           </form>
-          <div className="mt-4 text-center">
+          <div className="mt-4 text-center text-sm space-y-2">
+            {!isForgotPassword && isLogin && (
+              <button
+                type="button"
+                onClick={() => setIsForgotPassword(true)}
+                className="text-muted-foreground hover:text-primary hover:underline block w-full"
+              >
+                Forgot password?
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => setIsLogin(!isLogin)}
-              className="text-sm text-primary hover:underline"
+              onClick={() => {
+                setIsForgotPassword(false);
+                setIsLogin(!isLogin);
+              }}
+              className="text-primary hover:underline block w-full"
             >
-              {isLogin
+              {isForgotPassword
+                ? "Back to login"
+                : isLogin
                 ? "Don't have an account? Sign up"
                 : "Already have an account? Login"}
             </button>

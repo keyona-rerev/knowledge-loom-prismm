@@ -30,7 +30,7 @@ serve(async (req) => {
     const requestBody = await req.json();
     console.log("📦 Request body:", requestBody);
 
-    const { type, url, user_id, question_set_id } = requestBody;
+    const { type, url, pdf_text, pdf_title, user_id, question_set_id } = requestBody;
 
     if (!user_id) {
       console.error("❌ Missing user_id");
@@ -40,42 +40,9 @@ serve(async (req) => {
       });
     }
 
-    if (type !== "url" || !url) {
-      console.log("❌ Invalid parameters:", { type, url });
-      return new Response(JSON.stringify({ error: "Only URL type is supported currently" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    console.log("🌐 Fetching content from:", url);
-
-    // ✅ IMPROVED: Better headers to avoid bot detection
-    let articleResponse;
-    let contentBlocked = false;
-    try {
-      articleResponse = await fetch(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.9",
-          "Accept-Encoding": "gzip, deflate, br",
-          "Cache-Control": "no-cache",
-          "Connection": "keep-alive",
-        },
-      });
-      console.log("📄 Response status:", articleResponse.status);
-
-      // ✅ IMPROVED: Handle common blocking scenarios gracefully
-      if (articleResponse.status === 403 || articleResponse.status === 429) {
-        console.log("⚠️ Site blocked automated access");
-        contentBlocked = true;
-      } else if (!articleResponse.ok) {
-        throw new Error(`HTTP ${articleResponse.status}: ${articleResponse.statusText}`);
-      }
-    } catch (fetchError) {
-      console.error("❌ Fetch failed:", fetchError);
-      return new Response(JSON.stringify({ error: `Failed to fetch URL: ${fetchError instanceof Error ? fetchError.message : 'Unknown error'}` }), {
+    if (!type || (type === "url" && !url) || (type === "pdf" && !pdf_text)) {
+      console.log("❌ Invalid parameters:", { type, url, has_pdf_text: !!pdf_text });
+      return new Response(JSON.stringify({ error: "Invalid source type or missing required fields" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -85,18 +52,65 @@ serve(async (req) => {
     let textContent = "";
     let contentQuality = "good";
     let contentWarning = null;
+    let sourceUrl = url || "";
+    let contentBlocked = false;
 
-    if (contentBlocked) {
-      // ✅ IMPROVED: Graceful handling for blocked sites
-      console.log("🛡️ Creating card with limited content (site blocked)");
-      title = "Site Blocked Access - Manual Review Needed";
-      textContent = "This site blocks automated content access. Please add content manually or try a different source.";
-      contentQuality = "title_only";
-      contentWarning = "Site blocks automated content access - manual review required";
+    // Handle PDF type
+    if (type === "pdf") {
+      console.log("📄 Processing PDF source");
+      title = pdf_title || "PDF Document";
+      textContent = pdf_text;
+      sourceUrl = ""; // PDFs don't have URLs
+      
+      if (textContent.length < 100) {
+        contentQuality = "partial";
+        contentWarning = "PDF content appears incomplete";
+      }
     } else {
-      // Normal content processing
-      const articleHtml = await articleResponse.text();
-      console.log("📝 HTML content length:", articleHtml.length);
+      // Handle URL type
+      console.log("🌐 Fetching content from:", url);
+
+      // ✅ IMPROVED: Better headers to avoid bot detection
+      let articleResponse;
+      try {
+        articleResponse = await fetch(url, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+          },
+        });
+        console.log("📄 Response status:", articleResponse.status);
+
+        // ✅ IMPROVED: Handle common blocking scenarios gracefully
+        if (articleResponse.status === 403 || articleResponse.status === 429) {
+          console.log("⚠️ Site blocked automated access");
+          contentBlocked = true;
+        } else if (!articleResponse.ok) {
+          throw new Error(`HTTP ${articleResponse.status}: ${articleResponse.statusText}`);
+        }
+      } catch (fetchError) {
+        console.error("❌ Fetch failed:", fetchError);
+        return new Response(JSON.stringify({ error: `Failed to fetch URL: ${fetchError instanceof Error ? fetchError.message : 'Unknown error'}` }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (contentBlocked) {
+        // ✅ IMPROVED: Graceful handling for blocked sites
+        console.log("🛡️ Creating card with limited content (site blocked)");
+        title = "Site Blocked Access - Manual Review Needed";
+        textContent = "This site blocks automated content access. Please add content manually or try a different source.";
+        contentQuality = "title_only";
+        contentWarning = "Site blocks automated content access - manual review required";
+      } else {
+        // Normal content processing
+        const articleHtml = await articleResponse.text();
+        console.log("📝 HTML content length:", articleHtml.length);
 
       // Extract title
       const titleMatch = /<title>(.*?)<\/title>/i.exec(articleHtml);
@@ -114,13 +128,14 @@ serve(async (req) => {
 
       console.log("📄 Clean content length:", textContent.length);
 
-      // ✅ IMPROVED: Better content quality assessment
-      if (textContent.length < 50) {
-        contentQuality = "title_only";
-        contentWarning = "Limited content available - only title accessible";
-      } else if (textContent.length < 500) {
-        contentQuality = "partial";
-        contentWarning = "Partial content - full article may not be accessible";
+        // ✅ IMPROVED: Better content quality assessment
+        if (textContent.length < 50) {
+          contentQuality = "title_only";
+          contentWarning = "Limited content available - only title accessible";
+        } else if (textContent.length < 500) {
+          contentQuality = "partial";
+          contentWarning = "Partial content - full article may not be accessible";
+        }
       }
     }
 
@@ -130,7 +145,7 @@ serve(async (req) => {
       .from("source_feeds")
       .insert({
         name: title.substring(0, 255),
-        url: url,
+        url: sourceUrl,
         feed_type: "manual",
         is_active: true,
         credibility_score: 5,
@@ -150,10 +165,10 @@ serve(async (req) => {
     const insertData: any = {
       title: title.substring(0, 255),
       original_text: textContent,
-      source_url: url,
-      source_type: "manual",
+      source_url: sourceUrl,
+      source_type: type === "pdf" ? "pdf" : "manual",
       source_feed_id: feedData?.id,
-      status: contentBlocked ? "needs_review" : "processing",
+      status: (type === "url" && contentBlocked) ? "needs_review" : "processing",
       global_relevance_score: 5,
       user_id: user_id,
       content_quality: contentQuality,

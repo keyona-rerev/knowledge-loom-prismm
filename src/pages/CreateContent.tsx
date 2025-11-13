@@ -199,6 +199,8 @@ const CreateContent = () => {
       }
       
       // Create draft with enhanced content
+      // Note: template_id should only be set if it's a real UUID from content_templates table
+      // content_type_templates from profile use string IDs, not UUIDs
       const { data: draftData, error: draftError } = await supabase
         .from("drafts")
         .insert({
@@ -210,7 +212,7 @@ const CreateContent = () => {
           seed_category: seedCategory,
           selected_direction: direction,
           content_type: selectedTemplateData?.content_type || "blog_post",
-          template_id: selectedTemplate,
+          template_id: null, // Set to null since we're using content_type_templates from profile
           revision_count: 0,
           approval_status: "pending"
         } as any)
@@ -218,40 +220,17 @@ const CreateContent = () => {
         .single();
 
       if (draftError) {
-        // Try without content_type if that fails
-        const { data: draftData2, error: error2 } = await supabase
-          .from("drafts")
-          .insert({
-            title: data.title || direction.title,
-            seed_insight: data.title || direction.title,
-            body: data.content,
-            status: "draft",
-            user_id: session?.user?.id,
-            seed_category: seedCategory,
-            selected_direction: direction,
-            template_id: selectedTemplate,
-            revision_count: 0,
-            approval_status: "pending"
-          } as any)
-          .select()
-          .single();
-
-        if (error2) {
-          throw error2;
-        }
-
-        // Send notification for the created draft
-        sendDraftNotification(draftData2.id);
-        
-        toast.success("Enhanced draft created with your insights!");
-        navigate("/drafts");
-      } else {
-        // Send notification for the created draft
-        sendDraftNotification(draftData.id);
-        
-        toast.success("Enhanced draft created with your insights!");
-        navigate("/drafts");
+        console.error("Failed to create draft:", draftError);
+        toast.error("Failed to create draft: " + draftError.message);
+        setLoading(false);
+        return;
       }
+
+      // Send notification for the created draft
+      sendDraftNotification(draftData.id);
+      
+      toast.success("Enhanced draft created with your insights!");
+      navigate("/drafts");
     } catch (error) {
       console.error("Failed to create enhanced draft:", error);
       toast.error("Failed to create draft: " + (error as any)?.message);

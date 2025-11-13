@@ -7,13 +7,16 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Moon, Sun } from "lucide-react";
+import { useTheme } from "next-themes";
 
 const Settings = () => {
   const navigate = useNavigate();
+  const { theme, setTheme } = useTheme();
   const [loading, setLoading] = useState(false);
   const [profile, setProfile] = useState({
     business_name: "",
@@ -173,6 +176,35 @@ const Settings = () => {
                 placeholder="Professional, casual, authoritative, etc."
                 rows={2}
               />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Appearance</CardTitle>
+            <CardDescription>Customize how the app looks</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="dark-mode" className="text-base">Dark Mode</Label>
+                <p className="text-sm text-muted-foreground">
+                  Toggle between light and dark theme
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {theme === "dark" ? (
+                  <Moon className="h-4 w-4 text-muted-foreground" />
+                ) : (
+                  <Sun className="h-4 w-4 text-muted-foreground" />
+                )}
+                <Switch
+                  id="dark-mode"
+                  checked={theme === "dark"}
+                  onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
+                />
+              </div>
             </div>
           </CardContent>
         </Card>

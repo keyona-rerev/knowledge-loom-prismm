@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.regenerate-draft-with-feedback]
 verify_jwt = false
+
+[functions.process-newsletter-email]
+verify_jwt = false

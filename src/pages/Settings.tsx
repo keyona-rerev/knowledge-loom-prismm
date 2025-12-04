@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2, Moon, Sun } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Moon, Sun, AlertTriangle, Mail } from "lucide-react";
 import { useTheme } from "next-themes";
 
 const Settings = () => {
@@ -32,7 +32,8 @@ const Settings = () => {
     custom_ai_endpoint: "",
     custom_ai_model_name: "",
     writing_examples: [] as string[],
-    content_type_templates: [] as Array<{id: string, name: string, prompt: string}>
+    content_type_templates: [] as Array<{id: string, name: string, prompt: string}>,
+    newsletter_domain: ""
   });
 
   useEffect(() => {
@@ -68,7 +69,8 @@ const Settings = () => {
             : [],
           content_type_templates: Array.isArray(data.content_type_templates)
             ? data.content_type_templates as Array<{id: string, name: string, prompt: string}>
-            : []
+            : [],
+          newsletter_domain: data.newsletter_domain || ""
         });
       } else if (error && error.code !== "PGRST116") {
         toast.error("Failed to load profile");
@@ -603,6 +605,67 @@ Step 3: Compatibility
                       Your API key is encrypted and stored securely
                     </p>
                   </div>
+                </AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Mail className="h-5 w-5" />
+              Newsletter Email Configuration
+            </CardTitle>
+            <CardDescription>Configure your newsletter inbox domain for automatic content capture</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <InstructionsToggle 
+              instructions={`**Newsletter Inbox Setup**
+
+This feature creates a unique email address for each user that can be used to subscribe to any newsletter. Newsletters received will automatically become reference cards.
+
+**Setup Steps:**
+
+1. **Get a Domain** - You need a domain you control (e.g., newsletters.yourbusiness.com)
+
+2. **Create Mailgun Account** - Go to https://www.mailgun.com and create an account
+
+3. **Add Your Domain to Mailgun:**
+   • Navigate to Sending → Domains
+   • Click "Add New Domain"
+   • Follow DNS verification steps
+
+4. **Configure Catch-All Route:**
+   • Go to Receiving → Routes
+   • Create new route with:
+     - Expression: catch_all()
+     - Action: forward("https://xtaslgxrgzksojtoekmz.supabase.co/functions/v1/process-newsletter-email")
+   
+5. **Enter Your Domain Below** - Once Mailgun is configured, enter the domain here
+
+6. **Test It** - Go to Content Sources, copy your unique email, and subscribe to a test newsletter`}
+            />
+            
+            <div className="space-y-2">
+              <Label htmlFor="newsletter-domain">Newsletter Domain</Label>
+              <Input
+                id="newsletter-domain"
+                value={profile.newsletter_domain}
+                onChange={(e) => setProfile(prev => ({ ...prev, newsletter_domain: e.target.value }))}
+                placeholder="e.g., newsletters.yourbusiness.com"
+              />
+              <p className="text-sm text-muted-foreground">
+                The domain you've configured in Mailgun for receiving newsletters. 
+                User emails will be: user-xyz@{profile.newsletter_domain || 'yourdomain.com'}
+              </p>
+            </div>
+            
+            {!profile.newsletter_domain && (
+              <Alert>
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  Newsletter inbox is disabled until you configure a domain and set up Mailgun.
                 </AlertDescription>
               </Alert>
             )}

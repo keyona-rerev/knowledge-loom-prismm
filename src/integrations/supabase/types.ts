@@ -442,6 +442,44 @@ export type Database = {
           },
         ]
       }
+      newsletter_emails: {
+        Row: {
+          from_address: string | null
+          id: string
+          processing_status: string | null
+          received_at: string | null
+          reference_card_id: string | null
+          subject: string | null
+          user_id: string
+        }
+        Insert: {
+          from_address?: string | null
+          id?: string
+          processing_status?: string | null
+          received_at?: string | null
+          reference_card_id?: string | null
+          subject?: string | null
+          user_id: string
+        }
+        Update: {
+          from_address?: string | null
+          id?: string
+          processing_status?: string | null
+          received_at?: string | null
+          reference_card_id?: string | null
+          subject?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "newsletter_emails_reference_card_id_fkey"
+            columns: ["reference_card_id"]
+            isOneToOne: false
+            referencedRelation: "reference_cards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           accent_color: string | null
@@ -457,6 +495,7 @@ export type Database = {
           email: string | null
           google_ai_api_key: string | null
           id: string
+          newsletter_domain: string | null
           primary_color: string | null
           secondary_color: string | null
           target_audience: string | null
@@ -478,6 +517,7 @@ export type Database = {
           email?: string | null
           google_ai_api_key?: string | null
           id?: string
+          newsletter_domain?: string | null
           primary_color?: string | null
           secondary_color?: string | null
           target_audience?: string | null
@@ -499,6 +539,7 @@ export type Database = {
           email?: string | null
           google_ai_api_key?: string | null
           id?: string
+          newsletter_domain?: string | null
           primary_color?: string | null
           secondary_color?: string | null
           target_audience?: string | null
@@ -713,6 +754,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      user_newsletter_emails: {
+        Row: {
+          created_at: string | null
+          email_address: string
+          email_prefix: string
+          id: string
+          is_active: boolean | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          email_address: string
+          email_prefix: string
+          id?: string
+          is_active?: boolean | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          email_address?: string
+          email_prefix?: string
+          id?: string
+          is_active?: boolean | null
+          user_id?: string
+        }
+        Relationships: []
       }
     }
     Views: {

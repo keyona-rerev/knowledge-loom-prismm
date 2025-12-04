@@ -19,16 +19,42 @@ serve(async (req) => {
 
   try {
     console.log("📧 Received newsletter email webhook");
-
-    // Parse Mailgun webhook data
-    const formData = await req.formData();
     
-    const recipient = formData.get("recipient")?.toString() || "";
-    const sender = formData.get("sender")?.toString() || "";
-    const from = formData.get("from")?.toString() || sender;
-    const subject = formData.get("subject")?.toString() || "Newsletter";
-    const bodyHtml = formData.get("body-html")?.toString() || "";
-    const bodyPlain = formData.get("body-plain")?.toString() || "";
+    const contentType = req.headers.get("content-type") || "";
+    console.log("📋 Content-Type:", contentType);
+
+    let recipient = "";
+    let sender = "";
+    let from = "";
+    let subject = "Newsletter";
+    let bodyHtml = "";
+    let bodyPlain = "";
+
+    // Mailgun sends as multipart/form-data
+    if (contentType.includes("multipart/form-data") || contentType.includes("application/x-www-form-urlencoded")) {
+      const formData = await req.formData();
+      recipient = formData.get("recipient")?.toString() || "";
+      sender = formData.get("sender")?.toString() || "";
+      from = formData.get("from")?.toString() || sender;
+      subject = formData.get("subject")?.toString() || "Newsletter";
+      bodyHtml = formData.get("body-html")?.toString() || "";
+      bodyPlain = formData.get("body-plain")?.toString() || "";
+    } else if (contentType.includes("application/json")) {
+      // Support JSON for testing
+      const json = await req.json();
+      recipient = json.recipient || "";
+      sender = json.sender || "";
+      from = json.from || sender;
+      subject = json.subject || "Newsletter";
+      bodyHtml = json["body-html"] || json.bodyHtml || "";
+      bodyPlain = json["body-plain"] || json.bodyPlain || "";
+    } else {
+      console.error("❌ Unsupported content type:", contentType);
+      return new Response(
+        JSON.stringify({ error: "Unsupported content type. Expected multipart/form-data or application/json" }),
+        { status: 415, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
     
     console.log("📬 Email details:", { recipient, from, subject: subject.substring(0, 50) });
 

@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { ArrowLeft, Search, Edit2, ExternalLink, Trash2, ChevronDown, Sparkles, AlertCircle } from "lucide-react";
+import { ArrowLeft, Search, Edit2, ExternalLink, Trash2, ChevronDown, Sparkles, AlertCircle, Plus } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 
 const ReferenceCards = () => {
@@ -182,7 +182,13 @@ const ReferenceCards = () => {
       </header>
 
       <main className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold mb-4">Reference Cards</h1>
+        <div className="flex justify-between items-center mb-4">
+          <h1 className="text-3xl font-bold">Reference Cards</h1>
+          <Button onClick={() => navigate("/feeds")}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add New Source
+          </Button>
+        </div>
 
         <InstructionsToggle 
           instructions={`Reference Cards are insights extracted from your sources:

@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ColorProvider } from "./components/ColorProvider";
+import { AuthProvider } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import NotFound from "./pages/NotFound";
 import Dashboard from "./pages/Dashboard";
@@ -31,36 +32,38 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <ColorProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-          <Route path="/auth" element={<Auth />} />
-          <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-          <Route path="/feeds" element={<ProtectedRoute><Feeds /></ProtectedRoute>} />
-          <Route path="/cards" element={<ProtectedRoute><ReferenceCards /></ProtectedRoute>} />
-          <Route path="/cards/:id" element={<ProtectedRoute><CardDetail /></ProtectedRoute>} />
-          <Route path="/cards/:id/edit" element={<ProtectedRoute><CardDetail /></ProtectedRoute>} />
-          <Route path="/create" element={<ProtectedRoute><CreateContent /></ProtectedRoute>} />
-          <Route path="/drafts" element={<ProtectedRoute><Drafts /></ProtectedRoute>} />
-          <Route path="/drafts/:id" element={<ProtectedRoute><DraftDetail /></ProtectedRoute>} />
-          <Route path="/autopilot" element={<ProtectedRoute><AutopilotTemplates /></ProtectedRoute>} />
-          <Route path="/autopilot/new" element={<ProtectedRoute><AutopilotTemplateEditor /></ProtectedRoute>} />
-          <Route path="/autopilot/:id/edit" element={<ProtectedRoute><AutopilotTemplateEditor /></ProtectedRoute>} />
-          <Route path="/questions" element={<ProtectedRoute><QuestionSettings /></ProtectedRoute>} />
-          <Route path="/insights" element={<ProtectedRoute><Insights /></ProtectedRoute>} />
-          <Route path="/insights/new" element={<ProtectedRoute><InsightDetail /></ProtectedRoute>} />
-          <Route path="/insights/:id" element={<ProtectedRoute><InsightDetail /></ProtectedRoute>} />
-          <Route path="/review" element={<ProtectedRoute><Review /></ProtectedRoute>} />
-          <Route path="/calendar" element={<ProtectedRoute><ContentCalendar /></ProtectedRoute>} />
-          <Route path="/questions" element={<ProtectedRoute><QuestionSets /></ProtectedRoute>} />
-          <Route path="/questions/new" element={<ProtectedRoute><QuestionSetEditor /></ProtectedRoute>} />
-          <Route path="/questions/:id/edit" element={<ProtectedRoute><QuestionSetEditor /></ProtectedRoute>} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
+        <AuthProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route path="/auth" element={<Auth />} />
+              <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+              <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+              <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+              <Route path="/feeds" element={<ProtectedRoute><Feeds /></ProtectedRoute>} />
+              <Route path="/cards" element={<ProtectedRoute><ReferenceCards /></ProtectedRoute>} />
+              <Route path="/cards/:id" element={<ProtectedRoute><CardDetail /></ProtectedRoute>} />
+              <Route path="/cards/:id/edit" element={<ProtectedRoute><CardDetail /></ProtectedRoute>} />
+              <Route path="/create" element={<ProtectedRoute><CreateContent /></ProtectedRoute>} />
+              <Route path="/drafts" element={<ProtectedRoute><Drafts /></ProtectedRoute>} />
+              <Route path="/drafts/:id" element={<ProtectedRoute><DraftDetail /></ProtectedRoute>} />
+              <Route path="/autopilot" element={<ProtectedRoute><AutopilotTemplates /></ProtectedRoute>} />
+              <Route path="/autopilot/new" element={<ProtectedRoute><AutopilotTemplateEditor /></ProtectedRoute>} />
+              <Route path="/autopilot/:id/edit" element={<ProtectedRoute><AutopilotTemplateEditor /></ProtectedRoute>} />
+              <Route path="/questions" element={<ProtectedRoute><QuestionSettings /></ProtectedRoute>} />
+              <Route path="/insights" element={<ProtectedRoute><Insights /></ProtectedRoute>} />
+              <Route path="/insights/new" element={<ProtectedRoute><InsightDetail /></ProtectedRoute>} />
+              <Route path="/insights/:id" element={<ProtectedRoute><InsightDetail /></ProtectedRoute>} />
+              <Route path="/review" element={<ProtectedRoute><Review /></ProtectedRoute>} />
+              <Route path="/calendar" element={<ProtectedRoute><ContentCalendar /></ProtectedRoute>} />
+              <Route path="/question-sets" element={<ProtectedRoute><QuestionSets /></ProtectedRoute>} />
+              <Route path="/question-sets/new" element={<ProtectedRoute><QuestionSetEditor /></ProtectedRoute>} />
+              <Route path="/question-sets/:id/edit" element={<ProtectedRoute><QuestionSetEditor /></ProtectedRoute>} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </AuthProvider>
       </ColorProvider>
     </TooltipProvider>
   </QueryClientProvider>

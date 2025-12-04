@@ -52,12 +52,27 @@ serve(async (req) => {
       );
     }
 
-    // 2. Fetch user's content type templates
+    // 2. Fetch user's AI preferences and content type templates
     const { data: profile, error: profileError } = await supabaseClient
       .from("profiles")
-      .select("content_type_templates, writing_examples, business_name, target_audience")
+      .select("ai_provider, ai_model, google_ai_api_key, custom_ai_endpoint, custom_ai_model_name, content_type_templates, writing_examples, business_name, target_audience")
       .eq("user_id", draft.user_id)
       .maybeSingle();
+
+    // Validate AI configuration based on provider
+    if (profile?.ai_provider === "google-ai" && !profile.google_ai_api_key) {
+      return new Response(
+        JSON.stringify({ error: "Google AI API key not configured. Please add it in Settings." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (profile?.ai_provider === "custom" && (!profile.custom_ai_endpoint || !profile.google_ai_api_key)) {
+      return new Response(
+        JSON.stringify({ error: "Custom AI provider not fully configured. Please check Settings." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     let contentTypeTemplate = null;
     if (profile?.content_type_templates && draft.content_type) {
@@ -69,49 +84,112 @@ serve(async (req) => {
     // 3. Prepare the AI prompt with feedback and template guidelines
     const improvementPrompt = createImprovementPrompt(draft, feedback, contentTypeTemplate, profile);
 
-    // 3. Call Lovable AI Gateway to regenerate content
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
-    }
+    console.log("Calling AI with provider:", profile?.ai_provider || "lovable-ai");
 
-    const aiResponse = await fetch(
-      "https://ai.gateway.lovable.dev/v1/chat/completions",
-      {
+    // 4. Call AI based on user's provider preference
+    let generatedText;
+    if (profile?.ai_provider === "google-ai" && profile.google_ai_api_key) {
+      const aiResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${profile.ai_model || 'gemini-2.0-flash-exp'}:generateContent?key=${profile.google_ai_api_key}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{ text: `System: You are an expert content editor that improves drafts based on feedback.\n\nUser: ${improvementPrompt}` }]
+            }],
+            generationConfig: {
+              temperature: 1,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 8192,
+            }
+          }),
+        }
+      );
+
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        console.error("Google AI API error:", aiResponse.status, errorText);
+        throw new Error(`Google AI API error: ${aiResponse.status}`);
+      }
+
+      const aiData = await aiResponse.json();
+      generatedText = aiData.candidates[0].content.parts[0].text;
+
+    } else if (profile?.ai_provider === "custom" && profile.custom_ai_endpoint && profile.google_ai_api_key) {
+      const aiResponse = await fetch(profile.custom_ai_endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Authorization": `Bearer ${profile.google_ai_api_key}`,
         },
         body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
+          model: profile.custom_ai_model_name,
           messages: [
-            {
-              role: "system",
-              content: "You are an expert content editor that improves drafts based on feedback."
-            },
-            {
-              role: "user",
-              content: improvementPrompt
-            }
+            { role: "system", content: "You are an expert content editor that improves drafts based on feedback." },
+            { role: "user", content: improvementPrompt }
           ],
         }),
+      });
+
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        console.error("Custom AI API error:", aiResponse.status, errorText);
+        throw new Error(`Custom AI API error: ${aiResponse.status}`);
       }
-    );
 
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error("AI API error:", errorText);
-      throw new Error(`AI API error: ${aiResponse.status}`);
+      const aiData = await aiResponse.json();
+      generatedText = aiData.choices[0].message.content;
+
+    } else {
+      // Use Lovable AI (default/fallback for "lovable-ai" or undefined)
+      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+      if (!LOVABLE_API_KEY) {
+        return new Response(
+          JSON.stringify({ error: "AI API not configured. Please configure an AI provider in Settings." }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const aiResponse = await fetch(
+        "https://ai.gateway.lovable.dev/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash",
+            messages: [
+              {
+                role: "system",
+                content: "You are an expert content editor that improves drafts based on feedback."
+              },
+              {
+                role: "user",
+                content: improvementPrompt
+              }
+            ],
+          }),
+        }
+      );
+
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        console.error("Lovable AI API error:", errorText);
+        throw new Error(`AI API error: ${aiResponse.status}`);
+      }
+
+      const aiData = await aiResponse.json();
+      generatedText = aiData.choices?.[0]?.message?.content || "Failed to generate revised content";
     }
-
-    const aiData = await aiResponse.json();
-    const generatedText = aiData.choices?.[0]?.message?.content || "Failed to generate revised content";
     
     // Parse the response
     const { title: revisedTitle, content: revisedContent } = parseGeneratedContent(generatedText, draft.title);
 
-    // 4. Create a new draft with the revised content
+    // 5. Create a new draft with the revised content
       const { data: newDraft, error: createError } = await supabaseClient
       .from("drafts")
       .insert({
@@ -135,7 +213,7 @@ serve(async (req) => {
       throw new Error("Failed to create revised draft");
     }
 
-    // 5. Update original draft to show it was revised
+    // 6. Update original draft to show it was revised
     await supabaseClient
       .from("drafts")
       .update({

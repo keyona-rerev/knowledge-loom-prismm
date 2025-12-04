@@ -506,10 +506,16 @@ Step 3: Compatibility
                   <SelectValue placeholder="Select AI provider" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="lovable-ai">Lovable AI (Development/Testing)</SelectItem>
                   <SelectItem value="google-ai">Google AI (Use your own Gemini account)</SelectItem>
                   <SelectItem value="custom">Custom AI Provider (Advanced)</SelectItem>
                 </SelectContent>
               </Select>
+              {profile.ai_provider === 'lovable-ai' && (
+                <p className="text-sm text-muted-foreground">
+                  Lovable AI is available for development and testing. Before handoff, configure your own AI provider (Google AI or Custom).
+                </p>
+              )}
             </div>
 
             {profile.ai_provider === 'google-ai' && (

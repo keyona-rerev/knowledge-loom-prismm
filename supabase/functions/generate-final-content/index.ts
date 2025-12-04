@@ -56,6 +56,7 @@ serve(async (req) => {
       );
     }
 
+    // Validate AI configuration based on provider
     if (profile.ai_provider === "google-ai" && !profile.google_ai_api_key) {
       return new Response(
         JSON.stringify({ error: "Google AI API key not configured. Please add it in Settings." }),
@@ -182,6 +183,48 @@ serve(async (req) => {
 
       const aiData = await aiResponse.json();
       generatedContent = aiData.choices[0].message.content;
+
+    } else {
+      // Use Lovable AI (default/fallback for "lovable-ai" or undefined)
+      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+      if (!LOVABLE_API_KEY) {
+        return new Response(
+          JSON.stringify({ error: "AI API not configured. Please configure an AI provider in Settings." }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            { role: "system", content: "You are an expert content creator that crafts compelling, well-structured content pieces." },
+            { role: "user", content: prompt }
+          ],
+        }),
+      });
+
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        console.error("Lovable AI API error:", aiResponse.status, errorText);
+
+        if (aiResponse.status === 429) {
+          return new Response(
+            JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        throw new Error(`AI processing failed: ${aiResponse.status}`);
+      }
+
+      const aiData = await aiResponse.json();
+      generatedContent = aiData.choices?.[0]?.message?.content ?? "";
     }
 
     if (!generatedContent) {

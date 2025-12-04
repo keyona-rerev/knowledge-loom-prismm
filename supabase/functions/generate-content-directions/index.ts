@@ -40,6 +40,7 @@ serve(async (req) => {
       );
     }
 
+    // Validate AI configuration based on provider
     if (profile.ai_provider === "google-ai" && !profile.google_ai_api_key) {
       return new Response(
         JSON.stringify({ error: "Google AI API key not configured. Please add it in Settings." }),
@@ -99,6 +100,8 @@ Respond in JSON format:
   ]
 }`;
 
+    console.log("Calling AI with provider:", profile.ai_provider);
+
     // Call AI based on user's provider preference
     let result;
     if (profile.ai_provider === "google-ai") {
@@ -156,6 +159,48 @@ Respond in JSON format:
 
       const aiData = await aiResponse.json();
       result = JSON.parse(aiData.choices[0].message.content);
+
+    } else {
+      // Use Lovable AI (default/fallback for "lovable-ai" or undefined)
+      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+      if (!LOVABLE_API_KEY) {
+        return new Response(
+          JSON.stringify({ error: "AI API not configured. Please configure an AI provider in Settings." }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            { role: "system", content: "You are a creative content strategist. Always respond with valid JSON." },
+            { role: "user", content: prompt }
+          ],
+        }),
+      });
+
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        console.error("Lovable AI API error:", aiResponse.status, errorText);
+        throw new Error(`AI processing failed: ${aiResponse.status}`);
+      }
+
+      const aiData = await aiResponse.json();
+      const generatedText = aiData.choices?.[0]?.message?.content ?? "";
+      
+      // Parse JSON, handling potential code fences
+      let content = generatedText;
+      const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+      if (fenceMatch) {
+        content = fenceMatch[1].trim();
+      }
+      result = JSON.parse(content);
     }
 
     return new Response(

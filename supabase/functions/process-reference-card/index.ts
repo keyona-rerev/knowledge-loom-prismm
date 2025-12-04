@@ -45,6 +45,17 @@ serve(async (req) => {
 
     console.log("Card found:", card.title);
 
+    // Fetch user's AI preferences
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("ai_provider, ai_model, google_ai_api_key, custom_ai_endpoint, custom_ai_model_name")
+      .eq("user_id", card.user_id)
+      .single();
+
+    if (profileError) {
+      console.error("Profile fetch error:", profileError);
+    }
+
     // Get questions from question_set_id or use custom question
     let questions: string[] = [];
     let isCustomQuestion = false;
@@ -71,14 +82,6 @@ serve(async (req) => {
     }
 
     console.log("Questions found:", questions.length);
-
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      return new Response(
-        JSON.stringify({ error: "AI API not configured" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
 
     // Check for content quality issues
     let contentWarning = null;
@@ -122,35 +125,106 @@ Your JSON response schema:
 }`;
     }
 
-    console.log("Calling AI API...");
+    console.log("Calling AI API with provider:", profile?.ai_provider || "lovable-ai");
 
     try {
-      const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [
-            { role: "system", content: "You are a content analyst. Always respond with valid JSON." },
-            { role: "user", content: prompt }
-          ],
-        }),
-      });
+      let aiResponseData;
 
-      if (!aiResponse.ok) {
-        const errorText = await aiResponse.text();
-        console.error("AI API error:", aiResponse.status, errorText);
-        throw new Error(`AI processing failed: ${aiResponse.status} - ${errorText}`);
+      // Determine which AI provider to use
+      if (profile?.ai_provider === "google-ai" && profile.google_ai_api_key) {
+        // Use Google AI
+        const aiResponse = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${profile.ai_model || 'gemini-2.0-flash-exp'}:generateContent?key=${profile.google_ai_api_key}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{
+                parts: [{ text: `System: You are a content analyst. Always respond with valid JSON.\n\nUser: ${prompt}` }]
+              }],
+              generationConfig: {
+                temperature: 1,
+                topK: 40,
+                topP: 0.95,
+                maxOutputTokens: 8192,
+              }
+            }),
+          }
+        );
+
+        if (!aiResponse.ok) {
+          const errorText = await aiResponse.text();
+          console.error("Google AI API error:", aiResponse.status, errorText);
+          throw new Error(`Google AI API error: ${aiResponse.status}`);
+        }
+
+        const aiData = await aiResponse.json();
+        aiResponseData = aiData.candidates[0].content.parts[0].text;
+
+      } else if (profile?.ai_provider === "custom" && profile.custom_ai_endpoint && profile.google_ai_api_key) {
+        // Use Custom AI
+        const aiResponse = await fetch(profile.custom_ai_endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${profile.google_ai_api_key}`,
+          },
+          body: JSON.stringify({
+            model: profile.custom_ai_model_name,
+            messages: [
+              { role: "system", content: "You are a content analyst. Always respond with valid JSON." },
+              { role: "user", content: prompt }
+            ],
+          }),
+        });
+
+        if (!aiResponse.ok) {
+          const errorText = await aiResponse.text();
+          console.error("Custom AI API error:", aiResponse.status, errorText);
+          throw new Error(`Custom AI API error: ${aiResponse.status}`);
+        }
+
+        const aiData = await aiResponse.json();
+        aiResponseData = aiData.choices[0].message.content;
+
+      } else {
+        // Use Lovable AI (default/fallback)
+        const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+        if (!LOVABLE_API_KEY) {
+          return new Response(
+            JSON.stringify({ error: "AI API not configured. Please configure an AI provider in Settings." }),
+            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash",
+            messages: [
+              { role: "system", content: "You are a content analyst. Always respond with valid JSON." },
+              { role: "user", content: prompt }
+            ],
+          }),
+        });
+
+        if (!aiResponse.ok) {
+          const errorText = await aiResponse.text();
+          console.error("Lovable AI API error:", aiResponse.status, errorText);
+          throw new Error(`AI processing failed: ${aiResponse.status} - ${errorText}`);
+        }
+
+        const aiData = await aiResponse.json();
+        aiResponseData = aiData.choices?.[0]?.message?.content ?? "";
       }
 
-      const aiData = await aiResponse.json();
       console.log("AI response received");
 
-      const raw = aiData.choices?.[0]?.message?.content ?? "";
-      let content = raw;
+      let content = aiResponseData;
       // Strip code fences if present
       const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
       if (fenceMatch) {
@@ -168,10 +242,10 @@ Your JSON response schema:
           try {
             result = JSON.parse(jsonMatch[0]);
           } catch {
-            result = { summary: raw, answers: {} };
+            result = { summary: aiResponseData, answers: {} };
           }
         } else {
-          result = { summary: raw, answers: {} };
+          result = { summary: aiResponseData, answers: {} };
         }
       }
 

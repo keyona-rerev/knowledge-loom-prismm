@@ -25,20 +25,41 @@ serve(async (req) => {
       });
     }
 
+    // Create client with user's auth token to verify identity
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      console.error("❌ Missing authorization header");
+      return new Response(JSON.stringify({ error: "Authentication required" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Use auth client to get user from JWT
+    const supabaseAuth = createClient(supabaseUrl, serviceRoleKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
+    
+    if (authError || !user) {
+      console.error("❌ Authentication failed:", authError);
+      return new Response(JSON.stringify({ error: "Invalid or expired authentication token" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const user_id = user.id;
+    console.log("✅ Authenticated user:", user_id);
+
+    // Use service role client for database operations
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
     const requestBody = await req.json();
     console.log("📦 Request body:", requestBody);
 
-    const { type, url, pdf_text, pdf_title, user_id, question_set_id } = requestBody;
-
-    if (!user_id) {
-      console.error("❌ Missing user_id");
-      return new Response(JSON.stringify({ error: "Authentication required - user_id missing" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const { type, url, pdf_text, pdf_title, question_set_id } = requestBody;
 
     if (!type || (type === "url" && !url) || (type === "pdf" && !pdf_text)) {
       console.log("❌ Invalid parameters:", { type, url, has_pdf_text: !!pdf_text });

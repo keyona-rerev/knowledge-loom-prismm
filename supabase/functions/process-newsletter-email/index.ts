@@ -30,29 +30,45 @@ serve(async (req) => {
     let bodyHtml = "";
     let bodyPlain = "";
 
-    // Mailgun sends as multipart/form-data
-    if (contentType.includes("multipart/form-data") || contentType.includes("application/x-www-form-urlencoded")) {
-      const formData = await req.formData();
-      recipient = formData.get("recipient")?.toString() || "";
-      sender = formData.get("sender")?.toString() || "";
-      from = formData.get("from")?.toString() || sender;
-      subject = formData.get("subject")?.toString() || "Newsletter";
-      bodyHtml = formData.get("body-html")?.toString() || "";
-      bodyPlain = formData.get("body-plain")?.toString() || "";
-    } else if (contentType.includes("application/json")) {
-      // Support JSON for testing
-      const json = await req.json();
-      recipient = json.recipient || "";
-      sender = json.sender || "";
-      from = json.from || sender;
-      subject = json.subject || "Newsletter";
-      bodyHtml = json["body-html"] || json.bodyHtml || "";
-      bodyPlain = json["body-plain"] || json.bodyPlain || "";
-    } else {
+    // Determine content type - Accept form data, JSON, or empty (some webhooks send empty content-type)
+    const isFormData = contentType.includes("multipart/form-data") || 
+                       contentType.includes("application/x-www-form-urlencoded");
+    const isJson = contentType.includes("application/json");
+
+    // Only reject truly unsupported content types (not empty ones)
+    if (!isFormData && !isJson && contentType !== "") {
       console.error("❌ Unsupported content type:", contentType);
       return new Response(
         JSON.stringify({ error: "Unsupported content type. Expected multipart/form-data or application/json" }),
-        { status: 415, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    try {
+      if (isJson) {
+        // Parse as JSON (for testing)
+        const json = await req.json();
+        recipient = json.recipient || "";
+        sender = json.sender || "";
+        from = json.from || sender;
+        subject = json.subject || "Newsletter";
+        bodyHtml = json["body-html"] || json.bodyHtml || "";
+        bodyPlain = json["body-plain"] || json.bodyPlain || "";
+      } else {
+        // Parse as form-data (Mailgun default, also try for empty content-type)
+        const formData = await req.formData();
+        recipient = formData.get("recipient")?.toString() || "";
+        sender = formData.get("sender")?.toString() || "";
+        from = formData.get("from")?.toString() || sender;
+        subject = formData.get("subject")?.toString() || "Newsletter";
+        bodyHtml = formData.get("body-html")?.toString() || "";
+        bodyPlain = formData.get("body-plain")?.toString() || "";
+      }
+    } catch (parseError) {
+      console.error("❌ Failed to parse request body:", parseError);
+      return new Response(
+        JSON.stringify({ error: "Failed to parse request body" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
     

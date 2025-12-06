@@ -56,6 +56,28 @@ serve(async (req) => {
     // Use service role client for database operations
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
+    // Rate limiting: 50 manual sources per hour per user
+    const windowStart = new Date();
+    windowStart.setMinutes(windowStart.getMinutes() - 60);
+    
+    const { count: rateCount, error: rateError } = await supabase
+      .from('rate_limit_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user_id)
+      .eq('action', 'manual_source')
+      .gte('created_at', windowStart.toISOString());
+    
+    if (!rateError && (rateCount || 0) >= 50) {
+      console.log('❌ Rate limit exceeded for user:', user_id);
+      return new Response(
+        JSON.stringify({ error: 'Rate limit exceeded. Maximum 50 manual sources per hour.' }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    
+    // Log this rate limit action
+    await supabase.from('rate_limit_logs').insert({ user_id, action: 'manual_source' });
+
     const requestBody = await req.json();
     console.log("📦 Request body:", requestBody);
 

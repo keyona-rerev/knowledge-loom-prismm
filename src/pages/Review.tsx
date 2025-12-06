@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import DOMPurify from "dompurify";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -492,7 +493,15 @@ const Review = () => {
                       </div>
                       
                       <div className="prose prose-sm max-w-none mb-4">
-                        <div dangerouslySetInnerHTML={{ __html: draft.body.replace(/\n/g, '<br/>') }} />
+                        <div dangerouslySetInnerHTML={{ 
+                          __html: DOMPurify.sanitize((draft.body || '').replace(/\n/g, '<br/>'), {
+                            ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'b', 'i', 'u', 
+                                           'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                                           'a', 'blockquote', 'code', 'pre', 'span', 'div'],
+                            ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'id'],
+                            FORBID_ATTR: ['style', 'onclick', 'onload', 'onerror', 'onmouseover']
+                          })
+                        }} />
                       </div>
 
                       {draft.selected_direction && (

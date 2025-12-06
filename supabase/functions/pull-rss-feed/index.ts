@@ -6,6 +6,78 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+/**
+ * SSRF Protection: Validates that a URL is safe to fetch
+ * Blocks internal/private IP ranges and dangerous protocols
+ */
+function isAllowedUrl(urlString: string): boolean {
+  try {
+    const url = new URL(urlString);
+    
+    // Block dangerous protocols
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      console.log('❌ SSRF blocked: dangerous protocol:', url.protocol);
+      return false;
+    }
+    
+    const hostname = url.hostname.toLowerCase();
+    
+    // Block localhost and internal hosts
+    if (hostname === 'localhost' || 
+        hostname === '127.0.0.1' ||
+        hostname === '0.0.0.0' ||
+        hostname === '::1' ||
+        hostname.endsWith('.local') ||
+        hostname.endsWith('.internal') ||
+        hostname.endsWith('.localhost')) {
+      console.log('❌ SSRF blocked: internal host:', hostname);
+      return false;
+    }
+    
+    // Block private IP ranges
+    const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (ipv4Match) {
+      const [, a, b] = ipv4Match.map(Number);
+      
+      // 10.0.0.0/8 - Private
+      if (a === 10) {
+        console.log('❌ SSRF blocked: private IP range 10.x.x.x');
+        return false;
+      }
+      // 172.16.0.0/12 - Private
+      if (a === 172 && b >= 16 && b <= 31) {
+        console.log('❌ SSRF blocked: private IP range 172.16-31.x.x');
+        return false;
+      }
+      // 192.168.0.0/16 - Private
+      if (a === 192 && b === 168) {
+        console.log('❌ SSRF blocked: private IP range 192.168.x.x');
+        return false;
+      }
+      // 169.254.0.0/16 - Link-local
+      if (a === 169 && b === 254) {
+        console.log('❌ SSRF blocked: link-local IP');
+        return false;
+      }
+      // 127.0.0.0/8 - Loopback
+      if (a === 127) {
+        console.log('❌ SSRF blocked: loopback IP');
+        return false;
+      }
+      // 0.0.0.0/8 - Current network
+      if (a === 0) {
+        console.log('❌ SSRF blocked: zero IP');
+        return false;
+      }
+    }
+    
+    return true;
+  } catch {
+    console.log('❌ SSRF blocked: invalid URL');
+    return false;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -46,6 +118,15 @@ serve(async (req) => {
 
     console.log("✅ Feed found:", feed.name, "User ID:", feed.user_id);
 
+    // SSRF Protection: Validate feed URL before fetching
+    if (!isAllowedUrl(feed.url)) {
+      console.error("❌ SSRF blocked: Feed URL is not allowed:", feed.url);
+      return new Response(
+        JSON.stringify({ error: "Invalid feed URL - internal or private addresses are not allowed" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Fetch RSS feed
     const rssResponse = await fetch(feed.url);
     const rssText = await rssResponse.text();
@@ -58,8 +139,8 @@ serve(async (req) => {
     for (const item of items.slice(0, 5)) {
       let fullContent = item.description;
       
-      // Fetch full article content if link exists
-      if (item.link) {
+      // Fetch full article content if link exists AND is allowed (SSRF protection)
+      if (item.link && isAllowedUrl(item.link)) {
         try {
           const articleResponse = await fetch(item.link);
           const articleHtml = await articleResponse.text();
@@ -74,6 +155,8 @@ serve(async (req) => {
         } catch (error) {
           console.error("Failed to fetch full article:", error);
         }
+      } else if (item.link && !isAllowedUrl(item.link)) {
+        console.log("⚠️ Skipping article fetch due to SSRF protection:", item.link);
       }
 
       const { data: cardData, error: insertError } = await supabase

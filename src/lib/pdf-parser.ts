@@ -12,8 +12,37 @@ export interface PDFParseResult {
   pageCount: number;
 }
 
+// PDF magic bytes (%PDF)
+const PDF_MAGIC_BYTES = [0x25, 0x50, 0x44, 0x46];
+
+/**
+ * Validates that a file is a legitimate PDF by checking:
+ * 1. MIME type is application/pdf
+ * 2. File starts with PDF magic bytes (%PDF)
+ */
+async function validatePDFFile(file: File): Promise<boolean> {
+  // Check MIME type
+  if (file.type !== 'application/pdf') {
+    throw new Error('Invalid file type. Only PDF files are allowed.');
+  }
+  
+  // Check PDF magic bytes (%PDF header)
+  const buffer = await file.slice(0, 4).arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  
+  const isValidMagicBytes = PDF_MAGIC_BYTES.every((byte, i) => bytes[i] === byte);
+  if (!isValidMagicBytes) {
+    throw new Error('Invalid PDF file. File does not have a valid PDF header.');
+  }
+  
+  return true;
+}
+
 export async function parsePDF(file: File): Promise<PDFParseResult> {
   try {
+    // Validate PDF before processing (security check)
+    await validatePDFFile(file);
+    
     // Read file as array buffer
     const arrayBuffer = await file.arrayBuffer();
     

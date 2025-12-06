@@ -71,7 +71,6 @@ const Auth = () => {
     setLoading(true);
 
     const emailValidation = emailSchema.safeParse(email);
-    const passwordValidation = passwordSchema.safeParse(password);
 
     if (!emailValidation.success) {
       toast.error(emailValidation.error.errors[0].message);
@@ -79,10 +78,14 @@ const Auth = () => {
       return;
     }
 
-    if (!passwordValidation.success) {
-      toast.error(passwordValidation.error.errors[0].message);
-      setLoading(false);
-      return;
+    // Only validate password strength on signup, not login
+    if (!isLogin) {
+      const passwordValidation = passwordSchema.safeParse(password);
+      if (!passwordValidation.success) {
+        toast.error(passwordValidation.error.errors[0].message);
+        setLoading(false);
+        return;
+      }
     }
 
     try {

@@ -28,7 +28,7 @@ serve(async (req) => {
 
     console.log("Processing card:", cardId, "Custom question:", customQuestion ? "Yes" : "No");
 
-    // Get card with template questions
+    // Get card first to get user_id for rate limiting
     const { data: card, error: cardError } = await supabase
       .from("reference_cards")
       .select("*, reference_card_templates(custom_questions)")
@@ -41,6 +41,30 @@ serve(async (req) => {
         JSON.stringify({ error: "Card not found: " + (cardError?.message || "Unknown") }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    // Rate limiting: 100 card processings per hour per user
+    if (card.user_id) {
+      const windowStart = new Date();
+      windowStart.setMinutes(windowStart.getMinutes() - 60);
+      
+      const { count: rateCount, error: rateError } = await supabase
+        .from('rate_limit_logs')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', card.user_id)
+        .eq('action', 'process_card')
+        .gte('created_at', windowStart.toISOString());
+      
+      if (!rateError && (rateCount || 0) >= 100) {
+        console.log('❌ Rate limit exceeded for user:', card.user_id);
+        return new Response(
+          JSON.stringify({ error: 'Rate limit exceeded. Maximum 100 card processings per hour.' }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      
+      // Log this rate limit action
+      await supabase.from('rate_limit_logs').insert({ user_id: card.user_id, action: 'process_card' });
     }
 
     console.log("Card found:", card.title);

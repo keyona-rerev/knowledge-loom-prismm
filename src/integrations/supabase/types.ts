@@ -582,6 +582,27 @@ export type Database = {
         }
         Relationships: []
       }
+      rate_limit_logs: {
+        Row: {
+          action: string
+          created_at: string | null
+          id: string
+          user_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string | null
+          id?: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string | null
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       reference_card_templates: {
         Row: {
           created_at: string | null
@@ -787,7 +808,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      cleanup_rate_limit_logs: { Args: never; Returns: undefined }
     }
     Enums: {
       [_ in never]: never

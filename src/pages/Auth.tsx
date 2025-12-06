@@ -9,7 +9,13 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 const emailSchema = z.string().email("Invalid email address");
-const passwordSchema = z.string().min(8, "Password must be at least 8 characters");
+const passwordSchema = z.string()
+  .min(8, "Password must be at least 8 characters")
+  .max(128, "Password is too long")
+  .regex(/[A-Z]/, "Must contain at least one uppercase letter")
+  .regex(/[a-z]/, "Must contain at least one lowercase letter")
+  .regex(/[0-9]/, "Must contain at least one number")
+  .regex(/[^A-Za-z0-9]/, "Must contain at least one special character");
 
 const Auth = () => {
   const navigate = useNavigate();
@@ -166,7 +172,7 @@ const Auth = () => {
                 />
                 {!isLogin && (
                   <p className="text-xs text-muted-foreground">
-                    Must be at least 8 characters
+                    Must be 8+ characters with uppercase, lowercase, number, and special character
                   </p>
                 )}
               </div>

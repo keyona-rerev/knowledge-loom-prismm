@@ -42,6 +42,28 @@ serve(async (req) => {
       { global: { headers: { Authorization: req.headers.get("Authorization")! } } }
     );
 
+    // Rate limiting: 100 final content generations per hour per user
+    const windowStart = new Date();
+    windowStart.setMinutes(windowStart.getMinutes() - 60);
+    
+    const { count: rateCount, error: rateError } = await supabaseClient
+      .from('rate_limit_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('action', 'generate_final')
+      .gte('created_at', windowStart.toISOString());
+    
+    if (!rateError && (rateCount || 0) >= 100) {
+      console.log('❌ Rate limit exceeded for user:', userId);
+      return new Response(
+        JSON.stringify({ error: 'Rate limit exceeded. Maximum 100 content generations per hour.' }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    
+    // Log this rate limit action
+    await supabaseClient.from('rate_limit_logs').insert({ user_id: userId, action: 'generate_final' });
+
     // Fetch user's AI preferences, writing examples, and content templates
     const { data: profile, error: profileError } = await supabaseClient
       .from("profiles")

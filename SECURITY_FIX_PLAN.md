@@ -90,42 +90,51 @@ import DOMPurify from 'dompurify';
 
 ---
 
-## 🟡 PENDING - Requires Mailgun Configuration
-
-### 7. Mailgun Webhook Signature Verification
+### 7. Mailgun Webhook Signature Verification ✅ DONE
 **File:** `supabase/functions/process-newsletter-email/index.ts`
 
-**Status:** Waiting for Mailgun to be configured
+**Status:** Implemented - Code deployed, awaiting production secret configuration
 
 **Required Secret:** `MAILGUN_SIGNING_KEY` (from Mailgun dashboard → Webhooks → Signing Key)
 
-**Implementation Ready:**
+**Implementation:**
+- Added `verifyMailgunSignature()` function using HMAC-SHA256
+- Extracts `timestamp`, `token`, `signature` from Mailgun webhook payload
+- If `MAILGUN_SIGNING_KEY` is configured → enforces signature verification
+- If `MAILGUN_SIGNING_KEY` is NOT configured → logs warning, allows processing (dev mode)
+- Rejects requests with invalid/missing signatures when key is configured (401 response)
+
+**Production Setup Required:**
+1. Get signing key from Mailgun Dashboard → Webhooks → Webhook Signing Key
+2. Add `MAILGUN_SIGNING_KEY` secret in production Supabase Edge Functions
+
+---
+
+### 8. Email Prefix Uniqueness Constraint ✅ DONE
+**Database:** `user_newsletter_emails` table
+
+**Fix Applied:** Added UNIQUE constraint to `email_prefix` column to prevent duplicate email assignments.
+
+```sql
+ALTER TABLE user_newsletter_emails 
+ADD CONSTRAINT email_prefix_unique UNIQUE (email_prefix);
+```
+
+---
+
+### 9. Crypto-Secure Email Generation ✅ DONE
+**File:** `src/pages/Feeds.tsx`
+
+**Fix Applied:** Changed from weak `Math.random()` to cryptographically secure `crypto.randomUUID()`:
+
 ```typescript
-async function verifyMailgunSignature(
-  timestamp: string, 
-  token: string, 
-  signature: string, 
-  signingKey: string
-): Promise<boolean> {
-  const crypto = globalThis.crypto;
-  const encoder = new TextEncoder();
-  const data = encoder.encode(timestamp + token);
-  
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(signingKey),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  
-  const sig = await crypto.subtle.sign('HMAC', key, data);
-  const hexSig = Array.from(new Uint8Array(sig))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-    
-  return hexSig === signature;
-}
+// BEFORE (weak):
+const shortId = session.user.id.substring(0, 8);
+const random = Math.random().toString(36).substring(2, 8);
+const prefix = `user-${shortId}-${random}`;
+
+// AFTER (secure):
+const prefix = `user-${crypto.randomUUID().slice(0, 12)}`;
 ```
 
 ---
@@ -140,10 +149,14 @@ async function verifyMailgunSignature(
 - [x] SSRF protection for URL fetching
 - [x] Rate limiting for edge functions
 - [x] Rate limit database table with RLS
+- [x] Mailgun webhook signature verification (code deployed)
+- [x] Email prefix UNIQUE constraint
+- [x] Crypto-secure email prefix generation
 
-### ⏳ Pending (Requires Mailgun):
-- [ ] Mailgun webhook signature verification
-- [ ] Add MAILGUN_SIGNING_KEY secret
+### ⏳ Pending (Production Setup):
+- [ ] Add `MAILGUN_SIGNING_KEY` secret in production Supabase
+- [ ] Run database migrations in production Supabase
+- [ ] Update Mailgun webhook URL to production endpoint
 
 ---
 
@@ -151,10 +164,12 @@ async function verifyMailgunSignature(
 
 - [x] Password with weak policy is rejected during signup
 - [x] Rate limits trigger 429 response after threshold
-- [ ] Mailgun webhook rejects requests with invalid/missing signatures
+- [x] Mailgun webhook signature verification code implemented
+- [ ] Mailgun webhook rejects requests with invalid/missing signatures (requires production secret)
 - [x] Non-PDF file with .pdf extension is rejected
 - [x] RSS feed with internal IP is rejected
 - [x] Security headers present in browser dev tools
+- [x] Email prefix uses crypto-secure random generation
 
 ---
 
@@ -162,5 +177,20 @@ async function verifyMailgunSignature(
 
 1. **Dependency Added:** `dompurify` and `@types/dompurify`
 2. **Database Table Added:** `rate_limit_logs` with automatic cleanup function
-3. **All edge functions now have rate limiting**
-4. **Security headers configured for both development and Render deployment**
+3. **Database Constraint Added:** `email_prefix_unique` on `user_newsletter_emails`
+4. **All edge functions now have rate limiting**
+5. **Security headers configured for both development and Render deployment**
+6. **Mailgun signature verification ready** - will auto-enable when `MAILGUN_SIGNING_KEY` is configured
+
+---
+
+## Production Migration Checklist
+
+Before handoff to client, complete these steps in production Supabase (`xxbgfpavdfybuqdiutiz`):
+
+1. [ ] Run UNIQUE constraint migration in SQL Editor
+2. [ ] Deploy edge functions via Supabase CLI
+3. [ ] Add `MAILGUN_SIGNING_KEY` secret
+4. [ ] Update Mailgun webhook URL to production endpoint
+5. [ ] Update frontend environment variables for Render
+6. [ ] Test newsletter flow end-to-end

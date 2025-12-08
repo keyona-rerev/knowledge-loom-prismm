@@ -141,10 +141,8 @@ const Feeds = () => {
     if (existingEmail) {
       setUserNewsletterEmail(existingEmail.email_address);
     } else {
-      // Generate a new email
-      const shortId = session.user.id.substring(0, 8);
-      const random = Math.random().toString(36).substring(2, 8);
-      const prefix = `user-${shortId}-${random}`;
+      // Generate a new email with crypto-secure random prefix
+      const prefix = `user-${crypto.randomUUID().slice(0, 12)}`;
       const email = `${prefix}@${domain}`;
 
       // Save to database

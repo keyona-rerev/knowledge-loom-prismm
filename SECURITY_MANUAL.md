@@ -94,6 +94,34 @@ updates:
     target-branch: "main"
 ```
 
+### Known Development Dependencies (Dec 2024)
+
+**Current Status:**
+- 2 moderate vulnerabilities in `esbuild` and `vite`
+- Both affect development server only
+- Production build is **NOT vulnerable**
+- Vulnerabilities: Development server request forwarding (not exploitable in production)
+
+**Risk Assessment:**
+
+| Environment | Risk Level | Reason |
+|-------------|------------|--------|
+| Production | None | Static build has no dev server |
+| Development | Low | Local dev environment only |
+
+**Recommendation:**
+- ✅ Safe to deploy production as-is
+- Consider updating to Vite 7 in future development cycle
+- Running `npm audit fix --force` will upgrade Vite (breaking change - test thoroughly)
+
+**To fix (future maintenance):**
+
+```bash
+npm audit fix --force
+npm run build
+# Test thoroughly before deploying
+```
+
 ---
 
 ## 3. Data Retention Cron Job

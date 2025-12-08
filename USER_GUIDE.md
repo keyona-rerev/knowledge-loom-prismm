@@ -4,12 +4,6 @@
 
 ---
 
-## 📺 Video Walkthrough
-
-[LOOM VIDEO PLACEHOLDER - Complete App Overview]
-
----
-
 ## Table of Contents
 
 1. [What Insight Forge Does](#what-insight-forge-does)
@@ -54,8 +48,6 @@ Content Sources → AI Analysis → Reference Cards → Content Creation → Dra
 
 ## Dashboard Navigation
 
-[LOOM VIDEO PLACEHOLDER - Dashboard Tour]
-
 ### Hub-Based Navigation
 
 Insight Forge uses a **hub-based dashboard** (not a persistent sidebar). Click cards to navigate to different sections.
@@ -63,7 +55,7 @@ Insight Forge uses a **hub-based dashboard** (not a persistent sidebar). Click c
 ### Dashboard Sections
 
 **Getting Started:**
-- Add Content Source → `/sources`
+- Add Content Source → `/feeds`
 - Configure Questions → `/questions`
 
 **Your Content:**
@@ -93,23 +85,19 @@ The dashboard shows real-time counts:
 
 ## Setting Up Content Sources
 
-[LOOM VIDEO PLACEHOLDER - Adding Content Sources]
-
 Navigate to **Sources** from the dashboard.
 
-### Newsletter Inbox Tab
+### Newsletter Inbox
 
-**Prerequisites:** Your IT team must configure Mailgun first (see Technical Handoff). Then set your newsletter domain in Settings.
+Your unique newsletter email is generated and displayed in **Settings**.
 
 **Setup Steps:**
 
 1. Go to **Settings** → scroll to **Newsletter Email Configuration**
 2. Enter your newsletter domain (e.g., `newsletters.yourbusiness.com`)
 3. Save settings
-4. Go to **Sources** → **Newsletter Inbox** tab
-5. Your unique email appears automatically (e.g., `user-abc123-xyz@newsletters.yourbusiness.com`)
-6. Click **Copy** to copy your email
-7. Use this email when subscribing to newsletters
+4. Your unique email appears with a **Copy** button
+5. Use this email when subscribing to newsletters
 
 **How It Works:**
 - When a newsletter arrives, it's automatically converted to a Reference Card
@@ -117,6 +105,11 @@ Navigate to **Sources** from the dashboard.
 - Cards appear in your Reference Cards section
 
 **Rate Limit:** 50 emails per hour (spam protection)
+
+**Viewing Recent Emails:**
+- Go to **Sources** → see the **Recent Emails** table
+- Shows subject, sender, received date, and processing status
+- Click to view the created reference card
 
 ### Manual Sources Tab
 
@@ -139,8 +132,6 @@ Navigate to **Sources** from the dashboard.
 ---
 
 ## Question Settings
-
-[LOOM VIDEO PLACEHOLDER - Configuring Questions]
 
 Navigate to **Configure Questions** from the dashboard or go to `/questions`.
 
@@ -174,8 +165,6 @@ Question Sets define what insights the AI extracts from your content. When conte
 ---
 
 ## Observation Journal
-
-[LOOM VIDEO PLACEHOLDER - Capturing Observations]
 
 Navigate to **Observation Journal** from the dashboard or go to `/insights`.
 
@@ -212,8 +201,6 @@ Want to use an observation in content creation?
 ---
 
 ## Reference Cards
-
-[LOOM VIDEO PLACEHOLDER - Managing Reference Cards]
 
 Navigate to **Reference Cards** from the dashboard or go to `/cards`.
 
@@ -271,8 +258,6 @@ On any card, you can ask additional questions:
 
 ## Creating Content
 
-[LOOM VIDEO PLACEHOLDER - Creating Blog Posts]
-
 Navigate to **Create Content** from the dashboard or go to `/create`.
 
 ### The Content Creation Flow
@@ -322,8 +307,6 @@ Click **Create Draft** to generate your content. The AI uses:
 ---
 
 ## Managing Drafts
-
-[LOOM VIDEO PLACEHOLDER - Draft Management]
 
 Navigate to **Your Drafts** from the dashboard or go to `/drafts`.
 
@@ -380,8 +363,6 @@ When you reject with feedback:
 
 ## Automation with Autopilot
 
-[LOOM VIDEO PLACEHOLDER - Setting Up Autopilot]
-
 Navigate to **Autopilot Templates** from the dashboard or go to `/autopilot`.
 
 ### What Is Autopilot?
@@ -428,8 +409,6 @@ Toggle templates on/off without deleting them.
 
 ## Review Queue
 
-[LOOM VIDEO PLACEHOLDER - Batch Reviewing Content]
-
 Navigate to **Review Queue** from the dashboard or go to `/review`.
 
 ### What Is the Review Queue?
@@ -462,8 +441,6 @@ Filter by approval status:
 ---
 
 ## Content Calendar
-
-[LOOM VIDEO PLACEHOLDER - Scheduling Content]
 
 Navigate to **Content Calendar** from the dashboard or go to `/calendar`.
 
@@ -506,8 +483,6 @@ On the right, see all **Approved** drafts ready for scheduling:
 ---
 
 ## Settings Configuration
-
-[LOOM VIDEO PLACEHOLDER - Configuring Settings]
 
 Navigate to **Settings** from the dashboard or go to `/settings`.
 
@@ -563,11 +538,15 @@ Choose your AI backend:
 
 ### Newsletter Email Configuration
 
-**Prerequisites:** Mailgun must be configured by IT team first.
+Your unique newsletter email is generated here after configuring your domain.
 
+**Setup:**
 1. Enter your newsletter domain (e.g., `newsletters.yourbusiness.com`)
-2. Save
-3. Go to Sources → Newsletter Inbox to see your unique email
+2. Save settings
+3. Your unique email appears with a **Copy** button (e.g., `user-abc123-xyz@newsletters.yourbusiness.com`)
+4. Use this email to subscribe to newsletters
+
+**Note:** Your IT team must configure Mailgun first for newsletters to work.
 
 ### Appearance
 
@@ -581,16 +560,15 @@ Customize the look:
 
 ## Troubleshooting
 
-[LOOM VIDEO PLACEHOLDER - Common Issues]
-
 ### Newsletter Not Appearing
 
 **Check these in order:**
 
 1. **Domain configured?** Settings → Newsletter Email Configuration
-2. **Mailgun working?** Ask IT to verify webhook is receiving
-3. **Rate limited?** Max 50 emails/hour
-4. **Check Sources page** → Newsletter Inbox tab for errors
+2. **Email copied correctly?** Make sure you're using your unique email address
+3. **Mailgun working?** Ask IT to verify webhook is receiving
+4. **Rate limited?** Max 50 emails/hour
+5. **Check Sources page** for "Recent Emails" table
 
 ### AI Processing Fails
 
@@ -612,9 +590,19 @@ Customize the look:
 2. **Reset password** - use "Forgot Password"
 3. **Clear browser cache** and try again
 
+### Password Requirements
+
+If you receive a password error during signup, ensure your password meets these requirements:
+- Minimum 8 characters
+- At least one uppercase letter (A-Z)
+- At least one lowercase letter (a-z)
+- At least one number (0-9)
+- At least one special character (!@#$%^&* etc.)
+
 ### Need More Help?
 
-Contact: [SUPPORT EMAIL]
+Contact your administrator or support team.
+
 Include:
 - What you were trying to do
 - What happened instead
@@ -624,20 +612,12 @@ Include:
 
 ## Quick Reference
 
-### Your Information
-
-| Item | Value |
-|------|-------|
-| App URL | [YOUR APP URL] |
-| Newsletter Email | `[auto-generated]@[your-domain]` |
-| Login Email | [YOUR LOGIN EMAIL] |
-
 ### Key URLs
 
 | Page | Path |
 |------|------|
 | Dashboard | `/dashboard` |
-| Sources | `/sources` |
+| Sources | `/feeds` |
 | Reference Cards | `/cards` |
 | Create Content | `/create` |
 | Drafts | `/drafts` |
@@ -671,4 +651,4 @@ Currently none - all actions are click-based.
 
 ---
 
-**Questions?** Reach out to [SUPPORT EMAIL]. We're here to help you create great content!
+**Questions?** Contact your administrator for assistance.

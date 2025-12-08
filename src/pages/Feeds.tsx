@@ -133,13 +133,30 @@ const Feeds = () => {
     // Check if user already has a newsletter email
     const { data: existingEmail } = await supabase
       .from("user_newsletter_emails")
-      .select("email_address")
+      .select("email_address, email_prefix")
       .eq("user_id", session.user.id)
       .eq("is_active", true)
       .single();
 
     if (existingEmail) {
-      setUserNewsletterEmail(existingEmail.email_address);
+      // Check if domain has changed - update email if so
+      const expectedEmail = `${existingEmail.email_prefix}@${domain}`;
+      
+      if (existingEmail.email_address !== expectedEmail) {
+        // Domain changed - update the email address
+        const { error: updateError } = await supabase
+          .from("user_newsletter_emails")
+          .update({ email_address: expectedEmail })
+          .eq("user_id", session.user.id)
+          .eq("is_active", true);
+        
+        if (updateError) {
+          console.error("Failed to update newsletter email domain:", updateError);
+        }
+        setUserNewsletterEmail(expectedEmail);
+      } else {
+        setUserNewsletterEmail(existingEmail.email_address);
+      }
     } else {
       // Generate a new email with crypto-secure random prefix
       const prefix = `user-${crypto.randomUUID().slice(0, 12)}`;

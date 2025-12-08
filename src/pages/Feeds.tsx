@@ -29,7 +29,10 @@ import {
   Copy,
   CheckCircle,
   Settings,
+  ExternalLink,
 } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -58,6 +61,9 @@ const Feeds = () => {
   const [userNewsletterEmail, setUserNewsletterEmail] = useState<string | null>(null);
   const [loadingNewsletter, setLoadingNewsletter] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [recentEmails, setRecentEmails] = useState<any[]>([]);
+  const [loadingEmails, setLoadingEmails] = useState(false);
+  const [emailDetailsOpen, setEmailDetailsOpen] = useState(false);
 
   const loadReferenceCards = async (feedIds: string[]) => {
     if (!feedIds.length) return;
@@ -183,10 +189,27 @@ const Feeds = () => {
     setLoadingNewsletter(false);
   };
 
+  const loadRecentEmails = async () => {
+    setLoadingEmails(true);
+    const { data, error } = await supabase
+      .from("newsletter_emails")
+      .select("id, subject, from_address, received_at, processing_status, reference_card_id")
+      .order("received_at", { ascending: false })
+      .limit(10);
+
+    if (error) {
+      console.error("Failed to load recent emails:", error);
+    } else {
+      setRecentEmails(data || []);
+    }
+    setLoadingEmails(false);
+  };
+
   useEffect(() => {
     loadFeeds();
     loadQuestionSets();
     loadNewsletterConfig();
+    loadRecentEmails();
   }, [navigate]);
 
   const deleteFeed = async (id: string, name: string) => {
@@ -424,7 +447,7 @@ const Feeds = () => {
       </header>
 
       <main className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold mb-4">🚀 Content Sources</h1>
+        <h1 className="text-3xl font-bold mb-4">Content Sources</h1>
 
         <InstructionsToggle
           instructions={`Content Sources helps you bring content into Insight Forge:
@@ -469,58 +492,123 @@ Reference cards are created from your sources and can be used for content genera
               </Card>
             ) : (
               <div className="space-y-4">
+                {/* Compact Email Display */}
+                <Collapsible open={emailDetailsOpen} onOpenChange={setEmailDetailsOpen}>
+                  <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+                    <Mail className="h-4 w-4 text-muted-foreground" />
+                    <code className="flex-1 text-sm font-mono break-all">{userNewsletterEmail}</code>
+                    <Button onClick={copyEmailToClipboard} variant="ghost" size="sm">
+                      {copied ? (
+                        <CheckCircle className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                    </Button>
+                    <CollapsibleTrigger asChild>
+                      <Button variant="ghost" size="sm">
+                        <ChevronDown className={`h-4 w-4 transition-transform ${emailDetailsOpen ? "rotate-180" : ""}`} />
+                      </Button>
+                    </CollapsibleTrigger>
+                  </div>
+                  <CollapsibleContent className="mt-2">
+                    <Card>
+                      <CardContent className="pt-4 space-y-3">
+                        <div className="grid gap-2 text-sm">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                            <span>Works with any newsletter (NY Times, Substack, Morning Brew, etc.)</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                            <span>Articles appear automatically as reference cards</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                            <span>AI analyzes content and extracts insights</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                            <span>Rate limited to 50 emails/hour for protection</span>
+                          </div>
+                        </div>
+                        <Alert>
+                          <AlertTriangle className="h-4 w-4" />
+                          <AlertDescription>
+                            <strong>Privacy Note:</strong> This email is unique to your account. 
+                            Only use it for newsletters you trust.
+                          </AlertDescription>
+                        </Alert>
+                      </CardContent>
+                    </Card>
+                  </CollapsibleContent>
+                </Collapsible>
+
+                {/* Recent Emails Section */}
                 <Card>
                   <CardHeader>
-                    <CardTitle>Your Personal Newsletter Inbox</CardTitle>
+                    <CardTitle className="text-lg">Recent Incoming Emails</CardTitle>
                     <CardDescription>
-                      Subscribe to <strong>any newsletter</strong> using the email below. 
-                      Articles will automatically become reference cards.
+                      Emails received and processed into reference cards
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex items-center gap-2 p-4 bg-muted rounded-lg">
-                      <code className="flex-1 text-lg font-mono break-all">{userNewsletterEmail}</code>
-                      <Button onClick={copyEmailToClipboard} variant="outline" size="sm">
-                        {copied ? (
-                          <>
-                            <CheckCircle className="h-4 w-4 mr-2 text-green-500" />
-                            Copied
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="h-4 w-4 mr-2" />
-                            Copy
-                          </>
-                        )}
-                      </Button>
-                    </div>
-
-                    <div className="grid gap-2 text-sm">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-green-500" />
-                        <span>Works with any newsletter (NY Times, Substack, Morning Brew, etc.)</span>
+                  <CardContent>
+                    {loadingEmails ? (
+                      <div className="flex items-center justify-center py-4">
+                        <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
                       </div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-green-500" />
-                        <span>Articles appear automatically as reference cards</span>
+                    ) : recentEmails.length === 0 ? (
+                      <div className="text-center py-6 text-muted-foreground">
+                        <Mail className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">No emails received yet.</p>
+                        <p className="text-xs mt-1">Subscribe to a newsletter using your email above to see content here.</p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-green-500" />
-                        <span>AI analyzes content and extracts insights</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-green-500" />
-                        <span>Rate limited to 50 emails/hour for protection</span>
-                      </div>
-                    </div>
-
-                    <Alert>
-                      <AlertTriangle className="h-4 w-4" />
-                      <AlertDescription>
-                        <strong>Privacy Note:</strong> This email is unique to your account. 
-                        Only use it for newsletters you trust. Content is processed and stored in your account.
-                      </AlertDescription>
-                    </Alert>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Subject</TableHead>
+                            <TableHead>From</TableHead>
+                            <TableHead>Received</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead></TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {recentEmails.map((email) => (
+                            <TableRow key={email.id}>
+                              <TableCell className="font-medium max-w-[200px] truncate">
+                                {email.subject || "No subject"}
+                              </TableCell>
+                              <TableCell className="text-muted-foreground max-w-[150px] truncate">
+                                {email.from_address || "Unknown"}
+                              </TableCell>
+                              <TableCell className="text-muted-foreground text-sm">
+                                {email.received_at ? new Date(email.received_at).toLocaleDateString() : "-"}
+                              </TableCell>
+                              <TableCell>
+                                <Badge 
+                                  variant={email.processing_status === "success" ? "default" : "secondary"}
+                                  className={email.processing_status === "success" ? "bg-green-500/10 text-green-600 border-green-500/20" : ""}
+                                >
+                                  {email.processing_status || "pending"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                {email.reference_card_id && (
+                                  <Button 
+                                    variant="ghost" 
+                                    size="sm"
+                                    onClick={() => navigate(`/cards/${email.reference_card_id}`)}
+                                  >
+                                    <ExternalLink className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
                   </CardContent>
                 </Card>
               </div>

@@ -11,13 +11,16 @@ import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2, Moon, Sun, AlertTriangle, Mail } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Moon, Sun, AlertTriangle, Mail, Copy, CheckCircle, RefreshCw } from "lucide-react";
 import { useTheme } from "next-themes";
 
 const Settings = () => {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const [loading, setLoading] = useState(false);
+  const [userNewsletterEmail, setUserNewsletterEmail] = useState<string | null>(null);
+  const [emailCopied, setEmailCopied] = useState(false);
+  const [loadingEmail, setLoadingEmail] = useState(false);
   const [profile, setProfile] = useState({
     business_name: "",
     business_description: "",
@@ -72,12 +75,80 @@ const Settings = () => {
             : [],
           newsletter_domain: data.newsletter_domain || ""
         });
+        
+        // Load newsletter email if domain is set
+        if (data.newsletter_domain) {
+          loadNewsletterEmail(session.user.id, data.newsletter_domain);
+        }
       } else if (error && error.code !== "PGRST116") {
         toast.error("Failed to load profile");
       }
     };
     loadProfile();
   }, []);
+
+  const loadNewsletterEmail = async (userId: string, domain: string) => {
+    setLoadingEmail(true);
+    const { data: existingEmail } = await supabase
+      .from("user_newsletter_emails")
+      .select("email_address, email_prefix")
+      .eq("user_id", userId)
+      .eq("is_active", true)
+      .single();
+
+    if (existingEmail) {
+      const expectedEmail = `${existingEmail.email_prefix}@${domain}`;
+      if (existingEmail.email_address !== expectedEmail) {
+        await supabase
+          .from("user_newsletter_emails")
+          .update({ email_address: expectedEmail })
+          .eq("user_id", userId)
+          .eq("is_active", true);
+        setUserNewsletterEmail(expectedEmail);
+      } else {
+        setUserNewsletterEmail(existingEmail.email_address);
+      }
+    }
+    setLoadingEmail(false);
+  };
+
+  const generateNewsletterEmail = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || !profile.newsletter_domain) return;
+
+    setLoadingEmail(true);
+    const prefix = `user-${crypto.randomUUID().slice(0, 12)}`;
+    const email = `${prefix}@${profile.newsletter_domain}`;
+
+    const { error } = await supabase
+      .from("user_newsletter_emails")
+      .insert({
+        user_id: session.user.id,
+        email_address: email,
+        email_prefix: prefix,
+        is_active: true,
+      });
+
+    if (error) {
+      toast.error("Failed to generate newsletter email");
+    } else {
+      setUserNewsletterEmail(email);
+      toast.success("Newsletter email generated!");
+    }
+    setLoadingEmail(false);
+  };
+
+  const copyEmailToClipboard = async () => {
+    if (!userNewsletterEmail) return;
+    try {
+      await navigator.clipboard.writeText(userNewsletterEmail);
+      setEmailCopied(true);
+      toast.success("Email copied to clipboard!");
+      setTimeout(() => setEmailCopied(false), 2000);
+    } catch (err) {
+      toast.error("Failed to copy email");
+    }
+  };
 
   const handleSave = async () => {
     setLoading(true);
@@ -115,6 +186,28 @@ const Settings = () => {
       toast.error("Failed to save settings");
     } else {
       toast.success("Settings saved successfully");
+      
+      // Sync newsletter email if domain is set
+      if (profile.newsletter_domain && session) {
+        const { data: existingEmail } = await supabase
+          .from("user_newsletter_emails")
+          .select("email_address, email_prefix")
+          .eq("user_id", session.user.id)
+          .eq("is_active", true)
+          .single();
+
+        if (existingEmail) {
+          const expectedEmail = `${existingEmail.email_prefix}@${profile.newsletter_domain}`;
+          if (existingEmail.email_address !== expectedEmail) {
+            await supabase
+              .from("user_newsletter_emails")
+              .update({ email_address: expectedEmail })
+              .eq("user_id", session.user.id)
+              .eq("is_active", true);
+            setUserNewsletterEmail(expectedEmail);
+          }
+        }
+      }
     }
     setLoading(false);
   };
@@ -656,10 +749,56 @@ This feature creates a unique email address for each user that can be used to su
                 placeholder="e.g., newsletters.yourbusiness.com"
               />
               <p className="text-sm text-muted-foreground">
-                The domain you've configured in Mailgun for receiving newsletters. 
-                User emails will be: user-xyz@{profile.newsletter_domain || 'yourdomain.com'}
+                The domain you've configured in Mailgun for receiving newsletters.
               </p>
             </div>
+            
+            {profile.newsletter_domain && (
+              <div className="space-y-3 pt-2 border-t">
+                <Label className="text-base font-semibold">Your Newsletter Email</Label>
+                {loadingEmail ? (
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    <span className="text-sm">Loading...</span>
+                  </div>
+                ) : userNewsletterEmail ? (
+                  <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+                    <code className="flex-1 text-sm font-mono break-all">{userNewsletterEmail}</code>
+                    <Button onClick={copyEmailToClipboard} variant="outline" size="sm">
+                      {emailCopied ? (
+                        <>
+                          <CheckCircle className="h-4 w-4 mr-1 text-green-500" />
+                          Copied
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-4 w-4 mr-1" />
+                          Copy
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-sm text-muted-foreground">
+                      Save settings to generate your unique newsletter email address.
+                    </p>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={generateNewsletterEmail}
+                      disabled={loadingEmail}
+                    >
+                      <Mail className="h-4 w-4 mr-2" />
+                      Generate Email Now
+                    </Button>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Use this email to subscribe to newsletters. Content will automatically become reference cards.
+                </p>
+              </div>
+            )}
             
             {!profile.newsletter_domain && (
               <Alert>

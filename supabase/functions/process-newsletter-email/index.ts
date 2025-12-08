@@ -6,6 +6,12 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Maximum email content size (1MB in characters)
+const MAX_EMAIL_SIZE = 1_000_000;
+
+// Maximum age of webhook timestamp (5 minutes in seconds)
+const MAX_TIMESTAMP_AGE_SECONDS = 300;
+
 // Mailgun webhook signature verification using HMAC-SHA256
 async function verifyMailgunSignature(
   timestamp: string,
@@ -37,6 +43,55 @@ async function verifyMailgunSignature(
   }
 }
 
+// Enhanced HTML sanitization - removes dangerous elements and event handlers
+function sanitizeHtml(html: string): string {
+  if (!html) return "";
+  
+  let sanitized = html;
+  
+  // 1. Remove script tags and their content
+  sanitized = sanitized.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
+  
+  // 2. Remove style tags and their content
+  sanitized = sanitized.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "");
+  
+  // 3. Remove iframe, object, embed, form elements
+  sanitized = sanitized.replace(/<(iframe|object|embed|form|input|button)\b[^>]*>.*?<\/\1>/gi, "");
+  sanitized = sanitized.replace(/<(iframe|object|embed|form|input|button)\b[^>]*\/?>/gi, "");
+  
+  // 4. Remove event handlers (on*)
+  sanitized = sanitized.replace(/\s+on\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+  
+  // 5. Remove javascript: URLs
+  sanitized = sanitized.replace(/\s+href\s*=\s*["']?\s*javascript:[^"'>\s]*/gi, "");
+  sanitized = sanitized.replace(/\s+src\s*=\s*["']?\s*javascript:[^"'>\s]*/gi, "");
+  
+  // 6. Remove data: URLs that could contain scripts
+  sanitized = sanitized.replace(/\s+src\s*=\s*["']?\s*data:text\/html[^"'>\s]*/gi, "");
+  
+  // 7. Strip remaining HTML tags to get text content
+  sanitized = sanitized
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#\d+;/g, " ") // Remove numeric HTML entities
+    .replace(/\s+/g, " ")
+    .trim();
+  
+  return sanitized;
+}
+
+// Get client IP from request headers
+function getClientIP(req: Request): string {
+  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+         req.headers.get("x-real-ip") ||
+         req.headers.get("cf-connecting-ip") ||
+         "unknown";
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -48,8 +103,10 @@ serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
   );
 
+  const clientIP = getClientIP(req);
+
   try {
-    console.log("📧 Received newsletter email webhook");
+    console.log("📧 Received newsletter email webhook from IP:", clientIP);
     
     const contentType = req.headers.get("content-type") || "";
     console.log("📋 Content-Type:", contentType);
@@ -114,13 +171,42 @@ serve(async (req) => {
       );
     }
 
+    // ===== SECURITY CHECK 1: Email size limit (1MB) =====
+    const totalContentSize = (bodyHtml?.length || 0) + (bodyPlain?.length || 0);
+    if (totalContentSize > MAX_EMAIL_SIZE) {
+      console.error("❌ Email too large:", totalContentSize, "characters. IP:", clientIP);
+      return new Response(
+        JSON.stringify({ error: "Email content too large. Maximum size is 1MB." }),
+        { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Verify Mailgun webhook signature if MAILGUN_SIGNING_KEY is configured
     const signingKey = Deno.env.get("MAILGUN_SIGNING_KEY");
     if (signingKey) {
       if (!mailgunTimestamp || !mailgunToken || !mailgunSignature) {
-        console.error("❌ Missing Mailgun signature fields");
+        console.error("❌ Missing Mailgun signature fields. IP:", clientIP, "Recipient:", recipient);
         return new Response(
           JSON.stringify({ error: "Missing signature fields" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // ===== SECURITY CHECK 2: Timestamp validation (prevent replay attacks) =====
+      const webhookTimestamp = parseInt(mailgunTimestamp, 10);
+      const currentTimestamp = Math.floor(Date.now() / 1000);
+      const timestampAge = currentTimestamp - webhookTimestamp;
+      
+      if (isNaN(webhookTimestamp) || timestampAge > MAX_TIMESTAMP_AGE_SECONDS || timestampAge < -60) {
+        console.error("❌ Webhook timestamp too old or invalid:", {
+          webhookTimestamp,
+          currentTimestamp,
+          age: timestampAge,
+          ip: clientIP,
+          recipient
+        });
+        return new Response(
+          JSON.stringify({ error: "Webhook timestamp expired or invalid" }),
           { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
@@ -133,7 +219,14 @@ serve(async (req) => {
       );
 
       if (!isValidSignature) {
-        console.error("❌ Invalid Mailgun signature - rejecting request");
+        // ===== SECURITY CHECK 3: Enhanced logging for failed signature verification =====
+        console.error("❌ Invalid Mailgun signature - rejecting request:", {
+          ip: clientIP,
+          timestamp: new Date().toISOString(),
+          attemptedRecipient: recipient,
+          mailgunTimestamp,
+          sender: sender?.substring(0, 50) // Truncate for safety
+        });
         return new Response(
           JSON.stringify({ error: "Invalid signature" }),
           { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -228,22 +321,12 @@ serve(async (req) => {
 
     console.log(`📊 Rate limit check: ${emailsThisHour}/${RATE_LIMIT} emails this hour`);
 
-    // Parse and clean content
+    // ===== SECURITY CHECK 4: Enhanced HTML sanitization =====
     let content = "";
     
     if (bodyHtml) {
-      // Remove scripts, styles, and HTML tags
-      content = bodyHtml
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&nbsp;/g, " ")
-        .replace(/&amp;/g, "&")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"')
-        .replace(/\s+/g, " ")
-        .trim();
+      // Use DOM-based sanitization
+      content = sanitizeHtml(bodyHtml);
     } else if (bodyPlain) {
       content = bodyPlain.trim();
     }

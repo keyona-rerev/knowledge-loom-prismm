@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2, Moon, Sun, AlertTriangle, Mail, Copy, CheckCircle, RefreshCw } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Moon, Sun, AlertTriangle, Mail, Copy, CheckCircle, RefreshCw, Shield, Loader2 } from "lucide-react";
 import { useTheme } from "next-themes";
 
 const Settings = () => {
@@ -21,6 +21,7 @@ const Settings = () => {
   const [userNewsletterEmail, setUserNewsletterEmail] = useState<string | null>(null);
   const [emailCopied, setEmailCopied] = useState(false);
   const [loadingEmail, setLoadingEmail] = useState(false);
+  const [deletingData, setDeletingData] = useState(false);
   const [profile, setProfile] = useState({
     business_name: "",
     business_description: "",
@@ -797,6 +798,20 @@ This feature creates a unique email address for each user that can be used to su
                 <p className="text-xs text-muted-foreground">
                   Use this email to subscribe to newsletters. Content will automatically become reference cards.
                 </p>
+                
+                {/* Privacy Disclosure */}
+                <Alert className="mt-4">
+                  <Shield className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    <strong>Privacy Notice:</strong> Email content received at this address will be:
+                    <ul className="list-disc ml-4 mt-1 space-y-0.5">
+                      <li>Stored in our database for processing</li>
+                      <li>Processed by AI (Google Gemini or OpenAI) to extract insights</li>
+                      <li>Retained for 90 days, then automatically archived</li>
+                    </ul>
+                    By using this feature, you consent to sharing newsletter content with our AI providers.
+                  </AlertDescription>
+                </Alert>
               </div>
             )}
             
@@ -808,6 +823,75 @@ This feature creates a unique email address for each user that can be used to su
                 </AlertDescription>
               </Alert>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Privacy & Data Management */}
+        <Card className="mb-6 border-destructive/50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5" />
+              Privacy & Data Management
+            </CardTitle>
+            <CardDescription>Manage your newsletter data and privacy settings</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-base font-semibold text-destructive">Delete Newsletter Data</Label>
+              <p className="text-sm text-muted-foreground">
+                This will permanently delete all your newsletter-related data including:
+              </p>
+              <ul className="text-sm text-muted-foreground list-disc ml-4 space-y-1">
+                <li>Your newsletter email address</li>
+                <li>All received newsletter records</li>
+                <li>Reference cards created from newsletters</li>
+              </ul>
+              <Alert variant="destructive" className="mt-2">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  This action cannot be undone. Your other content (manual sources, drafts, etc.) will not be affected.
+                </AlertDescription>
+              </Alert>
+              <Button 
+                variant="destructive" 
+                onClick={async () => {
+                  if (!confirm("Are you sure you want to delete all your newsletter data? This cannot be undone.")) {
+                    return;
+                  }
+                  
+                  setDeletingData(true);
+                  try {
+                    const { data, error } = await supabase.functions.invoke("delete-user-data");
+                    
+                    if (error) {
+                      toast.error("Failed to delete data: " + error.message);
+                    } else {
+                      toast.success(`Deleted ${data.details?.user_newsletter_emails?.deleted || 0} email records, ${data.details?.newsletter_emails?.deleted || 0} newsletters, and ${data.details?.reference_cards_newsletter?.deleted || 0} reference cards`);
+                      setUserNewsletterEmail(null);
+                    }
+                  } catch (err) {
+                    toast.error("Failed to delete data");
+                    console.error(err);
+                  } finally {
+                    setDeletingData(false);
+                  }
+                }}
+                disabled={deletingData}
+                className="mt-2"
+              >
+                {deletingData ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete My Newsletter Data
+                  </>
+                )}
+              </Button>
+            </div>
           </CardContent>
         </Card>
 

@@ -262,18 +262,20 @@ USING (auth.uid() = user_id);
 
 ### Function Overview
 
-| Function | Purpose | Auth Required |
-|----------|---------|---------------|
-| `process-newsletter-email` | Mailgun webhook handler | No (webhook) |
-| `create-manual-source` | URL/PDF processing | Yes |
-| `process-reference-card` | AI analysis of cards | Yes |
-| `generate-content-directions` | AI content angle suggestions | Yes |
-| `generate-content-from-card` | Draft generation | Yes |
-| `generate-final-content` | Final content polish | Yes |
-| `regenerate-draft-with-feedback` | Revision with feedback | Yes |
-| `execute-autopilot-template` | Scheduled automation | Yes |
-| `send-draft-notification` | Email notifications | Yes |
-| `pull-rss-feed` | RSS/Google Alerts fetching | Yes |
+| Function | Purpose | Auth Status |
+|----------|---------|-------------|
+| `process-newsletter-email` | Mailgun webhook handler | Public (webhook signature verified) |
+| `create-manual-source` | URL/PDF processing | ✅ Secure (JWT from header) |
+| `process-reference-card` | AI analysis of cards | ⚠️ JWT disabled |
+| `generate-content-directions` | AI content angle suggestions | ⚠️ JWT disabled |
+| `generate-content-from-card` | Draft generation | ⚠️ JWT disabled |
+| `generate-final-content` | Final content polish | ⚠️ JWT disabled |
+| `regenerate-draft-with-feedback` | Revision with feedback | ⚠️ JWT disabled |
+| `execute-autopilot-template` | Scheduled automation | ⚠️ JWT disabled |
+| `send-draft-notification` | Email notifications | ⚠️ JWT disabled |
+| `pull-rss-feed` | RSS/Google Alerts fetching | ⚠️ JWT disabled |
+
+> **⚠️ Security Note:** Most edge functions currently have JWT verification disabled (`verify_jwt = false` in config.toml). While RLS policies protect database access, this means functions can be called without authentication. For production hardening, consider enabling JWT verification and extracting userId from the authenticated session instead of request body.
 
 ### Key Function Details
 
@@ -285,17 +287,20 @@ USING (auth.uid() = user_id);
 
 **Flow:**
 1. Receive POST from Mailgun (form-data or JSON)
-2. Extract recipient email to find user
-3. Check rate limit (50 emails/hour/user)
-4. Create reference_card with source_type='newsletter'
-5. Log to newsletter_emails table
-6. Trigger process-reference-card for AI analysis
+2. **Verify Mailgun signature** (HMAC-SHA256 when `MAILGUN_SIGNING_KEY` configured)
+3. Extract recipient email to find user
+4. Check rate limit (50 emails/hour/user)
+5. Create reference_card with source_type='newsletter'
+6. Log to newsletter_emails table
+7. Trigger process-reference-card for AI analysis
 
-**JWT Verification:** Disabled (public webhook)
+**JWT Verification:** Disabled (public webhook with signature verification)
 
 #### `create-manual-source`
 
 **Purpose:** Process manually added URLs and PDFs.
+
+**Authentication:** ✅ Secure - extracts userId from Authorization header JWT, not request body.
 
 **Parameters:**
 ```json
@@ -304,7 +309,6 @@ USING (auth.uid() = user_id);
   "url": "https://...",
   "pdf_text": "extracted text...",
   "pdf_title": "Document Title",
-  "user_id": "uuid",
   "question_set_id": "uuid" // optional
 }
 ```
@@ -320,9 +324,13 @@ USING (auth.uid() = user_id);
 4. Parse AI response
 5. Update card with insight_answers
 
+**Rate Limit:** 100 calls/hour/user
+
 #### `generate-content-from-card`
 
 **Purpose:** Generate draft content from reference cards.
+
+**Rate Limit:** 50 calls/hour/user
 
 **Parameters:**
 ```json
@@ -412,12 +420,20 @@ Value: v=spf1 include:mailgun.org ~all
 |-------|-------|
 | Expression Type | Catch All |
 | Priority | 0 |
-| Actions | Forward: `https://xtaslgxrgzksojtoekmz.supabase.co/functions/v1/process-newsletter-email` |
+| Actions | Forward: `https://[YOUR-PROJECT-ID].supabase.co/functions/v1/process-newsletter-email` |
 | Description | Insight Forge Newsletter Webhook |
 
 4. Save route
 
-#### 7. Configure App
+**Note:** Replace `[YOUR-PROJECT-ID]` with your production Supabase project ID.
+
+#### 7. Get Webhook Signing Key
+
+1. Go to Mailgun Dashboard → **Webhooks** (or API Security)
+2. Find **Webhook Signing Key**
+3. Copy this key - you'll need it for the `MAILGUN_SIGNING_KEY` secret
+
+#### 8. Configure App
 
 1. User logs into Insight Forge
 2. Go to **Settings**
@@ -517,21 +533,34 @@ VITE_SUPABASE_URL=https://[PROJECT_ID].supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=[anon key]
 ```
 
-#### 4. SPA Routing Fix
+#### 4. SPA Routing Fix (CRITICAL)
 
-The repository includes `public/_redirects`:
+> **⚠️ Important:** The `public/_redirects` file in the repository does NOT work on Render. You must configure rewrite rules in the Render Dashboard.
 
-```
-/* /index.html 200
-```
+**Steps to fix SPA routing:**
 
-This ensures React Router handles all routes.
+1. Go to Render Dashboard → Your Static Site → **Settings**
+2. Scroll to **Redirects/Rewrites** section
+3. Click **Add Rule**
+4. Configure:
+
+| Field | Value |
+|-------|-------|
+| Source | `/*` |
+| Destination | `/index.html` |
+| Type | **Rewrite** (not Redirect) |
+
+5. Save
+
+This ensures React Router handles all routes correctly. Without this, refreshing any page except the homepage will show "Not Found".
 
 #### 5. Deploy
 
 1. Push to main branch
 2. Render auto-deploys
 3. Access at your Render URL
+
+**Note:** After adding the rewrite rule, you may need to trigger a manual redeploy for it to take effect.
 
 ### Custom Domain on Render
 
@@ -577,7 +606,7 @@ This ensures React Router handles all routes.
 When migrating from development to production Supabase:
 
 - **Development:** `https://xtaslgxrgzksojtoekmz.supabase.co`
-- **Production:** `https://xxbgfpavdfybuqdiutiz.supabase.co`
+- **Production:** Your own Supabase project
 
 ### Step 1: Database Migrations
 
@@ -605,7 +634,7 @@ Using Supabase CLI:
 supabase login
 
 # Link to production project
-supabase link --project-ref xxbgfpavdfybuqdiutiz
+supabase link --project-ref [YOUR-PROJECT-ID]
 
 # Deploy all functions
 supabase functions deploy
@@ -624,16 +653,10 @@ In production Supabase Dashboard → Edge Functions → Secrets, add:
 
 ### Step 4: Update Mailgun Webhook
 
-In Mailgun Dashboard → Receiving → Routes, update the webhook URL:
+In Mailgun Dashboard → Receiving → Routes, update the webhook URL to point to your production Supabase project:
 
-**Change from:**
 ```
-https://xtaslgxrgzksojtoekmz.supabase.co/functions/v1/process-newsletter-email
-```
-
-**To:**
-```
-https://xxbgfpavdfybuqdiutiz.supabase.co/functions/v1/process-newsletter-email
+https://[YOUR-PROJECT-ID].supabase.co/functions/v1/process-newsletter-email
 ```
 
 ### Step 5: Update Frontend Environment
@@ -642,9 +665,9 @@ Update your deployment environment variables:
 
 | Variable | Production Value |
 |----------|-----------------|
-| `VITE_SUPABASE_URL` | `https://xxbgfpavdfybuqdiutiz.supabase.co` |
+| `VITE_SUPABASE_URL` | `https://[YOUR-PROJECT-ID].supabase.co` |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | [Production anon key] |
-| `VITE_SUPABASE_PROJECT_ID` | `xxbgfpavdfybuqdiutiz` |
+| `VITE_SUPABASE_PROJECT_ID` | `[YOUR-PROJECT-ID]` |
 
 ### Step 6: Verify Migration
 
@@ -686,9 +709,46 @@ SELECT * FROM pg_policies WHERE schemaname = 'public';
 
 **CRITICAL:** Always configure `MAILGUN_SIGNING_KEY` in production to prevent unauthorized webhook calls.
 
+### XSS Protection
+
+The application uses **DOMPurify** to sanitize HTML content before rendering. All uses of `dangerouslySetInnerHTML` are wrapped with DOMPurify.sanitize() with restricted allowed tags:
+- Allowed tags: `p`, `br`, `strong`, `em`, `ul`, `ol`, `li`, `h1`-`h6`, `blockquote`, `a`, `code`, `pre`
+- Allowed attributes: `href`, `target`, `rel` (on links only)
+
+### SSRF Protection
+
+URL fetching functions (`pull-rss-feed`, `create-manual-source`) implement Server-Side Request Forgery protection:
+- **Blocked IP ranges:** 127.0.0.1, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 0.0.0.0/8, 169.254.0.0/16
+- **Blocked protocols:** file://, localhost, gopher://
+- Prevents attackers from using the app to access internal resources
+
+### PDF Validation
+
+PDF uploads are validated with:
+- **MIME type check:** Must be `application/pdf`
+- **Magic bytes check:** File must start with `%PDF` header
+- **Size limits:** Max 50 pages, 50,000 characters
+
+### Password Policy
+
+User passwords must meet these requirements (enforced on signup):
+- Minimum 8 characters
+- At least one uppercase letter
+- At least one lowercase letter
+- At least one number
+- At least one special character
+
 ### Rate Limiting
 
-Newsletter endpoint enforces 50 emails/hour/user:
+Rate limits are enforced on AI-intensive operations:
+
+| Function | Rate Limit |
+|----------|------------|
+| Newsletter email processing | 50/hour/user |
+| Reference card processing | 100/hour/user |
+| Content generation | 50/hour/user |
+| Draft regeneration | 50/hour/user |
+| Final content generation | 50/hour/user |
 
 ```sql
 -- Check recent emails for rate limiting
@@ -701,6 +761,14 @@ AND received_at > NOW() - INTERVAL '1 hour';
 
 Email prefixes use `crypto.randomUUID()` for cryptographically secure generation.
 Database enforces uniqueness via `email_prefix_unique` constraint.
+
+### Known Security Limitations
+
+> **Note for Production Hardening:** The following items are acceptable for single-tenant handoff but should be addressed for multi-tenant deployments:
+
+1. **Edge Function JWT Bypass:** Most functions have `verify_jwt = false`. They rely on RLS for data protection, but endpoints are publicly callable.
+
+2. **userId from Request Body:** Some functions accept userId from the request body instead of extracting from JWT. The pattern from `create-manual-source` (extracting from Authorization header) should be applied to other functions for full security.
 
 ---
 
@@ -790,6 +858,13 @@ WHERE conrelid = 'reference_cards'::regclass;
 3. **Check edge function logs** for API errors
 4. **Test with Lovable AI** (remove custom config)
 
+### SPA Routing "Not Found" Errors
+
+If refreshing pages shows "Not Found":
+1. Go to Render Dashboard → Your Site → Settings
+2. Add Rewrite Rule: `/*` → `/index.html`
+3. Trigger a redeploy
+
 ---
 
 ## Database Migration Reference
@@ -861,20 +936,24 @@ CHECK (source_type IN ('rss', 'manual', 'newsletter', 'pdf', 'observation', 'jou
 
 | Issue Type | Contact |
 |------------|---------|
-| Application bugs | [DEVELOPER EMAIL] |
-| Mailgun issues | [IT TEAM EMAIL] |
+| Application bugs | [DEVELOPER EMAIL - Replace before handoff] |
+| Mailgun issues | [IT TEAM EMAIL - Replace before handoff] |
 | AI provider billing | Direct with Google/OpenAI |
-| General support | [SUPPORT EMAIL] |
+| General support | [SUPPORT EMAIL - Replace before handoff] |
 
 ---
 
-## Appendix: Supabase Project Info
+## Appendix: Project Configuration
+
+> **Note:** Replace all placeholder values with your production project details before handoff.
 
 | Item | Value |
 |------|-------|
-| Project ID | `xtaslgxrgzksojtoekmz` |
+| Project ID | `[YOUR-PROJECT-ID]` |
 | Region | [CHECK DASHBOARD] |
-| API URL | `https://xtaslgxrgzksojtoekmz.supabase.co` |
-| Anon Key | `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...` |
+| API URL | `https://[YOUR-PROJECT-ID].supabase.co` |
+| Anon Key | [YOUR ANON KEY] |
 
-**Note:** If migrating to client's own Supabase project, update all references to project ID and keys.
+**Development Instance (for reference):**
+- Project ID: `xtaslgxrgzksojtoekmz`
+- This was used during development and should NOT be used in production.

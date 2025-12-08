@@ -562,6 +562,97 @@ This ensures React Router handles all routes.
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key (full access) |
 | `LOVABLE_API_KEY` | Lovable AI gateway key (fallback) |
 
+### Edge Functions (User-configured Secrets)
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `MAILGUN_SIGNING_KEY` | Mailgun webhook signing key for signature verification | **Yes** (Production) |
+
+---
+
+## Production Migration Guide
+
+### Overview
+
+When migrating from development to production Supabase:
+
+- **Development:** `https://xtaslgxrgzksojtoekmz.supabase.co`
+- **Production:** `https://xxbgfpavdfybuqdiutiz.supabase.co`
+
+### Step 1: Database Migrations
+
+Run these SQL migrations in your **production** Supabase SQL Editor:
+
+```sql
+-- 1. Add UNIQUE constraint to email_prefix (CRITICAL SECURITY)
+ALTER TABLE user_newsletter_emails 
+ADD CONSTRAINT email_prefix_unique UNIQUE (email_prefix);
+```
+
+Verify the constraint was added:
+```sql
+SELECT conname, pg_get_constraintdef(oid) 
+FROM pg_constraint 
+WHERE conrelid = 'user_newsletter_emails'::regclass;
+```
+
+### Step 2: Deploy Edge Functions
+
+Using Supabase CLI:
+
+```bash
+# Login to Supabase
+supabase login
+
+# Link to production project
+supabase link --project-ref xxbgfpavdfybuqdiutiz
+
+# Deploy all functions
+supabase functions deploy
+
+# Or deploy specific function
+supabase functions deploy process-newsletter-email
+```
+
+### Step 3: Configure Secrets
+
+In production Supabase Dashboard → Edge Functions → Secrets, add:
+
+| Secret Name | Value | Where to Find |
+|-------------|-------|---------------|
+| `MAILGUN_SIGNING_KEY` | Your Mailgun signing key | Mailgun Dashboard → Webhooks → Webhook Signing Key |
+
+### Step 4: Update Mailgun Webhook
+
+In Mailgun Dashboard → Receiving → Routes, update the webhook URL:
+
+**Change from:**
+```
+https://xtaslgxrgzksojtoekmz.supabase.co/functions/v1/process-newsletter-email
+```
+
+**To:**
+```
+https://xxbgfpavdfybuqdiutiz.supabase.co/functions/v1/process-newsletter-email
+```
+
+### Step 5: Update Frontend Environment
+
+Update your deployment environment variables:
+
+| Variable | Production Value |
+|----------|-----------------|
+| `VITE_SUPABASE_URL` | `https://xxbgfpavdfybuqdiutiz.supabase.co` |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | [Production anon key] |
+| `VITE_SUPABASE_PROJECT_ID` | `xxbgfpavdfybuqdiutiz` |
+
+### Step 6: Verify Migration
+
+1. **Test newsletter flow:** Send test email to production newsletter address
+2. **Check edge function logs:** Verify "✅ Mailgun signature verified successfully" in logs
+3. **Verify rate limiting:** Check rate limit logs work correctly
+4. **Test authentication:** Ensure login/signup works with production auth
+
 ---
 
 ## Security Considerations
@@ -588,9 +679,12 @@ SELECT * FROM pg_policies WHERE schemaname = 'public';
 
 ### Webhook Security
 
-`process-newsletter-email` has JWT disabled for Mailgun access. Consider:
-- Adding Mailgun webhook signature verification
-- IP allowlisting if Mailgun supports it
+`process-newsletter-email` implements:
+- **Mailgun signature verification** (HMAC-SHA256) when `MAILGUN_SIGNING_KEY` is configured
+- **Rate limiting** (50 emails/hour/user)
+- **Domain validation** (ensures email matches user's configured domain)
+
+**CRITICAL:** Always configure `MAILGUN_SIGNING_KEY` in production to prevent unauthorized webhook calls.
 
 ### Rate Limiting
 
@@ -602,6 +696,11 @@ SELECT COUNT(*) FROM newsletter_emails
 WHERE user_id = $1 
 AND received_at > NOW() - INTERVAL '1 hour';
 ```
+
+### Email Prefix Security
+
+Email prefixes use `crypto.randomUUID()` for cryptographically secure generation.
+Database enforces uniqueness via `email_prefix_unique` constraint.
 
 ---
 
@@ -711,7 +810,9 @@ CREATE TABLE IF NOT EXISTS user_newsletter_emails (
   email_prefix TEXT NOT NULL,
   email_address TEXT NOT NULL,
   is_active BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT now()
+  created_at TIMESTAMPTZ DEFAULT now(),
+  -- SECURITY: Unique constraint prevents duplicate email prefixes
+  CONSTRAINT email_prefix_unique UNIQUE (email_prefix)
 );
 
 ALTER TABLE user_newsletter_emails ENABLE ROW LEVEL SECURITY;

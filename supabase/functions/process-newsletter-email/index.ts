@@ -6,6 +6,37 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Mailgun webhook signature verification using HMAC-SHA256
+async function verifyMailgunSignature(
+  timestamp: string,
+  token: string,
+  signature: string,
+  signingKey: string
+): Promise<boolean> {
+  try {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(timestamp + token);
+
+    const key = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(signingKey),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+
+    const sig = await crypto.subtle.sign("HMAC", key, data);
+    const hexSig = Array.from(new Uint8Array(sig))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    return hexSig === signature;
+  } catch (error) {
+    console.error("❌ Signature verification error:", error);
+    return false;
+  }
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -29,6 +60,9 @@ serve(async (req) => {
     let subject = "Newsletter";
     let bodyHtml = "";
     let bodyPlain = "";
+    let mailgunTimestamp = "";
+    let mailgunToken = "";
+    let mailgunSignature = "";
 
     // Determine content type - Accept form data, JSON, or empty (some webhooks send empty content-type)
     const isFormData = contentType.includes("multipart/form-data") || 
@@ -54,6 +88,10 @@ serve(async (req) => {
         subject = json.subject || "Newsletter";
         bodyHtml = json["body-html"] || json.bodyHtml || "";
         bodyPlain = json["body-plain"] || json.bodyPlain || "";
+        // Mailgun signature fields
+        mailgunTimestamp = json.timestamp || "";
+        mailgunToken = json.token || "";
+        mailgunSignature = json.signature || "";
       } else {
         // Parse as form-data (Mailgun default, also try for empty content-type)
         const formData = await req.formData();
@@ -63,6 +101,10 @@ serve(async (req) => {
         subject = formData.get("subject")?.toString() || "Newsletter";
         bodyHtml = formData.get("body-html")?.toString() || "";
         bodyPlain = formData.get("body-plain")?.toString() || "";
+        // Mailgun signature fields
+        mailgunTimestamp = formData.get("timestamp")?.toString() || "";
+        mailgunToken = formData.get("token")?.toString() || "";
+        mailgunSignature = formData.get("signature")?.toString() || "";
       }
     } catch (parseError) {
       console.error("❌ Failed to parse request body:", parseError);
@@ -70,6 +112,37 @@ serve(async (req) => {
         JSON.stringify({ error: "Failed to parse request body" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    // Verify Mailgun webhook signature if MAILGUN_SIGNING_KEY is configured
+    const signingKey = Deno.env.get("MAILGUN_SIGNING_KEY");
+    if (signingKey) {
+      if (!mailgunTimestamp || !mailgunToken || !mailgunSignature) {
+        console.error("❌ Missing Mailgun signature fields");
+        return new Response(
+          JSON.stringify({ error: "Missing signature fields" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const isValidSignature = await verifyMailgunSignature(
+        mailgunTimestamp,
+        mailgunToken,
+        mailgunSignature,
+        signingKey
+      );
+
+      if (!isValidSignature) {
+        console.error("❌ Invalid Mailgun signature - rejecting request");
+        return new Response(
+          JSON.stringify({ error: "Invalid signature" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      console.log("✅ Mailgun signature verified successfully");
+    } else {
+      console.warn("⚠️ MAILGUN_SIGNING_KEY not configured - skipping signature verification (DEVELOPMENT MODE)");
     }
     
     console.log("📬 Email details:", { recipient, from, subject: subject.substring(0, 50) });

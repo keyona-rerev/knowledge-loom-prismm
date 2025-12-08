@@ -407,7 +407,7 @@ const Feeds = () => {
       </header>
 
       <main className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold mb-4">Content Sources</h1>
+        <h1 className="text-3xl font-bold mb-4">🚀 Content Sources</h1>
 
         <InstructionsToggle
           instructions={`Content Sources helps you bring content into Insight Forge:

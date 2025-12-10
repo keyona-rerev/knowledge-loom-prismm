@@ -119,11 +119,7 @@ const Insights = () => {
 
       if (error) {
         console.error("Insert error details:", JSON.stringify(error));
-        // Provide more helpful error message
-        if (error.message?.includes('source_type_check')) {
-          throw new Error("Database constraint error. Please try again in a moment - the system may need to refresh.");
-        }
-        throw error;
+        throw new Error(error.message || error.details || 'Insert failed');
       }
 
       // Process the card with AI if question set is provided

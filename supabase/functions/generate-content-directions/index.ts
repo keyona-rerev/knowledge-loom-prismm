@@ -214,11 +214,30 @@ Respond in JSON format:
       if (!aiResponse.ok) {
         const errorText = await aiResponse.text();
         console.error("Lovable AI API error:", aiResponse.status, errorText);
+        if (aiResponse.status === 429) {
+          return new Response(
+            JSON.stringify({ error: "Rate limit exceeded. Please try again in a moment." }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        if (aiResponse.status === 402) {
+          return new Response(
+            JSON.stringify({ error: "AI credits exhausted. Please add credits to continue." }),
+            { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
         throw new Error(`AI processing failed: ${aiResponse.status}`);
       }
 
       const aiData = await aiResponse.json();
+      console.log("AI response received:", JSON.stringify(aiData).slice(0, 200));
+      
       const generatedText = aiData.choices?.[0]?.message?.content ?? "";
+      
+      if (!generatedText) {
+        console.error("Empty AI response:", JSON.stringify(aiData));
+        throw new Error("AI returned empty response");
+      }
       
       // Parse JSON, handling potential code fences
       let content = generatedText;
@@ -226,7 +245,13 @@ Respond in JSON format:
       if (fenceMatch) {
         content = fenceMatch[1].trim();
       }
-      result = JSON.parse(content);
+      
+      try {
+        result = JSON.parse(content);
+      } catch (parseError) {
+        console.error("Failed to parse AI response:", content.slice(0, 500));
+        throw new Error("AI returned invalid JSON");
+      }
     }
 
     return new Response(

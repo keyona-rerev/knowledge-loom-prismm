@@ -92,18 +92,22 @@ const Insights = () => {
     }
 
     try {
+      const insertData = {
+        user_id: session.user.id,
+        title: insight.title,
+        original_text: insight.content,
+        source_type: "observation" as const,
+        status: "active" as const,
+        question_set_id: questionSetId && questionSetId !== "none" ? questionSetId : null,
+        content_quality: "good"
+      };
+      
+      console.log("Inserting reference card with data:", insertData);
+      
       // Create the reference card
       const { data, error } = await supabase
         .from("reference_cards")
-        .insert({
-          user_id: session.user.id,
-          title: insight.title,
-          original_text: insight.content,
-          source_type: "observation",
-          status: "active",
-          question_set_id: questionSetId && questionSetId !== "none" ? questionSetId : null,
-          content_quality: "good"
-        })
+        .insert(insertData)
         .select()
         .single();
 

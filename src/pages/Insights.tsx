@@ -35,25 +35,27 @@ const Insights = () => {
   const [selectedQuestionSetId, setSelectedQuestionSetId] = useState<string>("none");
 
   useEffect(() => {
-    const checkAuth = async () => {
+    const initialize = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         navigate("/auth");
+        return;
       }
+      // Load both with the session we already have
+      await Promise.all([
+        loadInsightsWithSession(session.user.id),
+        loadQuestionSetsWithSession(session.user.id)
+      ]);
     };
-    checkAuth();
-    loadInsights();
-    loadQuestionSets();
+    initialize();
   }, [navigate]);
 
-  const loadInsights = async () => {
+  const loadInsightsWithSession = async (userId: string) => {
     setLoading(true);
-    const { data: { session } } = await supabase.auth.getSession();
-
     const { data, error } = await supabase
       .from("insight_cards")
       .select("*")
-      .eq("user_id", session?.user?.id)
+      .eq("user_id", userId)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -65,18 +67,12 @@ const Insights = () => {
     setLoading(false);
   };
 
-  const loadQuestionSets = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session?.user?.id) {
-      console.log("No session for question sets");
-      return;
-    }
-    
+  const loadQuestionSetsWithSession = async (userId: string) => {
+    // Fetch user's own question sets OR global ones
     const { data, error } = await supabase
       .from("question_sets")
       .select("id, name")
-      .eq("user_id", session.user.id)
+      .or(`user_id.eq.${userId},is_global.eq.true`)
       .eq("is_active", true)
       .order("name");
 
@@ -169,6 +165,8 @@ const Insights = () => {
       return;
     }
 
+    const { data: { session } } = await supabase.auth.getSession();
+    
     const { error } = await supabase
       .from("insight_cards")
       .delete()
@@ -178,7 +176,9 @@ const Insights = () => {
       toast.error("Failed to delete insight");
     } else {
       toast.success("Insight deleted");
-      loadInsights();
+      if (session?.user?.id) {
+        loadInsightsWithSession(session.user.id);
+      }
     }
   };
 

@@ -68,15 +68,24 @@ const Insights = () => {
   const loadQuestionSets = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     
+    if (!session?.user?.id) {
+      console.log("No session for question sets");
+      return;
+    }
+    
     const { data, error } = await supabase
       .from("question_sets")
       .select("id, name")
-      .eq("user_id", session?.user?.id)
+      .eq("user_id", session.user.id)
       .eq("is_active", true)
       .order("name");
 
+    console.log("Question sets loaded:", data, "Error:", error);
+    
     if (!error && data) {
       setQuestionSets(data);
+    } else if (error) {
+      console.error("Failed to load question sets:", error);
     }
   };
 
@@ -92,17 +101,18 @@ const Insights = () => {
     }
 
     try {
-      const insertData = {
+      // Use explicit object without TypeScript inference issues
+      const insertData: Record<string, unknown> = {
         user_id: session.user.id,
         title: insight.title,
         original_text: insight.content,
-        source_type: "observation" as const,
-        status: "active" as const,
+        source_type: "observation",
+        status: "active",
         question_set_id: questionSetId && questionSetId !== "none" ? questionSetId : null,
         content_quality: "good"
       };
       
-      console.log("Inserting reference card with data:", insertData);
+      console.log("Inserting reference card with data:", JSON.stringify(insertData));
       
       // Create the reference card
       const { data, error } = await supabase
@@ -112,7 +122,11 @@ const Insights = () => {
         .single();
 
       if (error) {
-        console.error("Insert error:", error);
+        console.error("Insert error details:", JSON.stringify(error));
+        // Provide more helpful error message
+        if (error.message?.includes('source_type_check')) {
+          throw new Error("Database constraint error. Please try again in a moment - the system may need to refresh.");
+        }
         throw error;
       }
 

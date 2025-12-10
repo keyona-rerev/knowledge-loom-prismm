@@ -104,13 +104,18 @@ const InsightDetail = () => {
     if (!id) return;
 
     const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session?.user?.id) {
+      toast.error("You must be logged in to convert insights");
+      return;
+    }
 
     try {
       // Create the reference card
       const { data, error } = await supabase
         .from("reference_cards")
         .insert({
-          user_id: session?.user?.id,
+          user_id: session.user.id,
           title: formData.title,
           original_text: formData.content,
           source_type: "observation",
@@ -121,7 +126,10 @@ const InsightDetail = () => {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error("Insert error:", error);
+        throw error;
+      }
 
       // Process the card with AI if question set is provided
       if (questionSetId && questionSetId !== "none") {

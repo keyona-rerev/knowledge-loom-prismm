@@ -57,21 +57,23 @@ serve(async (req) => {
 
     console.log("🔄 Executing autopilot template:", templateId, "Test run:", isTestRun);
 
-    // Get template - verify it belongs to the authenticated user
+    // Get autopilot template - verify it belongs to the authenticated user
     const { data: template, error: templateError } = await supabaseClient
-      .from("content_templates")
+      .from("autopilot_templates")
       .select("*")
       .eq("id", templateId)
       .eq("user_id", userId)
       .single();
 
     if (templateError || !template) {
-      console.error("❌ Template not found or access denied:", templateError);
+      console.error("❌ Autopilot template not found or access denied:", templateError);
       return new Response(
-        JSON.stringify({ error: "Template not found or access denied" }),
+        JSON.stringify({ error: "Autopilot template not found or access denied" }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    console.log("✅ Found autopilot template:", template.name);
 
     // Get recent reference cards for the user
     const { data: referenceCards, error: cardsError } = await supabaseClient
@@ -176,11 +178,12 @@ serve(async (req) => {
       }
     }
 
-    // Update template last run time
+    // Update autopilot template last run time
     if (!isTestRun) {
       await supabaseClient
-        .from("content_templates")
+        .from("autopilot_templates")
         .update({ 
+          last_run_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
         .eq("id", templateId);

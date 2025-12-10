@@ -48,12 +48,14 @@ const AutopilotTemplateEditor = () => {
 
     setAvailableFeeds(feedsData || []);
 
-    const { data: templatesData } = await supabase
-      .from("reference_card_templates")
+    // Load question sets for custom template selection
+    const { data: questionSetsData } = await supabase
+      .from("question_sets")
       .select("id, name")
-      .eq("user_id", session.user.id);
+      .eq("user_id", session.user.id)
+      .eq("is_active", true);
 
-    setAvailableTemplates(templatesData || []);
+    setAvailableTemplates(questionSetsData || []);
   };
 
   const loadTemplate = async () => {
@@ -308,34 +310,30 @@ const AutopilotTemplateEditor = () => {
                 </div>
               </div>
 
-              <div className="flex items-center space-x-2">
-                <Switch
-                  checked={formData.use_global_questions}
-                  onCheckedChange={(checked) => setFormData((prev) => ({ ...prev, use_global_questions: checked }))}
-                />
-                <Label>Use Global Questions</Label>
+              <div>
+                <Label htmlFor="custom_template">Question Set</Label>
+                <Select
+                  value={formData.custom_template_id || "none"}
+                  onValueChange={(value) => setFormData((prev) => ({ ...prev, custom_template_id: value === "none" ? null : value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a question set" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No question set</SelectItem>
+                    {availableTemplates.map((template) => (
+                      <SelectItem key={template.id} value={template.id}>
+                        {template.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {availableTemplates.length === 0 && (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    No question sets available. Create one in Settings → Question Sets.
+                  </p>
+                )}
               </div>
-
-              {!formData.use_global_questions && (
-                <div>
-                  <Label htmlFor="custom_template">Custom Question Template</Label>
-                  <Select
-                    value={formData.custom_template_id || ""}
-                    onValueChange={(value) => setFormData((prev) => ({ ...prev, custom_template_id: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a template" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableTemplates.map((template) => (
-                        <SelectItem key={template.id} value={template.id}>
-                          {template.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
 
               {/* Approval Settings Section */}
               <div className="border-t pt-6">

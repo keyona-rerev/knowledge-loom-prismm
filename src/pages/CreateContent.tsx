@@ -262,7 +262,7 @@ const CreateContent = () => {
           seed_category: seedCategory,
           selected_direction: direction,
           content_type: selectedTemplateData?.content_type || "blog_post",
-          template_id: selectedTemplate,
+          template_id: null, // Set to null since content_type_templates use string IDs, not UUIDs
           revision_count: 0,
           approval_status: "pending"
         } as any)
@@ -281,7 +281,7 @@ const CreateContent = () => {
             user_id: session?.user?.id,
             seed_category: seedCategory,
             selected_direction: direction,
-            template_id: selectedTemplate,
+            template_id: null, // Set to null since content_type_templates use string IDs, not UUIDs
             revision_count: 0,
             approval_status: "pending"
           } as any)

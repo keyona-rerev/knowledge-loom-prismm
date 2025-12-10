@@ -3,44 +3,65 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    const { direction, seedInsight, seedCategory, insightCardIds, userId, templateId } = await req.json();
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+    // Verify user authentication from JWT
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      console.error("❌ Missing authorization header");
+      return new Response(
+        JSON.stringify({ error: "Authentication required" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const token = authHeader.replace("Bearer ", "");
+    const supabaseAuth = createClient(supabaseUrl, serviceRoleKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token);
+    
+    if (authError || !user) {
+      console.error("❌ Invalid token:", authError?.message);
+      return new Response(
+        JSON.stringify({ error: "Invalid or expired authentication token" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const userId = user.id;
+    console.log("✅ Authenticated user:", userId);
+
+    // Use service role client for database operations
+    const supabaseClient = createClient(supabaseUrl, serviceRoleKey);
+
+    const { direction, seedInsight, seedCategory, insightCardIds, templateId } = await req.json();
 
     console.log("Generating final content with params:", { 
       direction: direction?.title, 
       seedCategory, 
       insightCardIdsCount: insightCardIds?.length,
-      userId,
       templateId
     });
 
-    if (!direction || !seedInsight || !userId) {
+    if (!direction || !seedInsight) {
       console.error("Missing required fields");
       return new Response(
         JSON.stringify({ error: "Missing required fields" }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-
-    // Initialize Supabase client first to fetch profile
-    const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-      { global: { headers: { Authorization: req.headers.get("Authorization")! } } }
-    );
 
     // Rate limiting: 100 final content generations per hour per user
     const windowStart = new Date();
@@ -60,25 +81,28 @@ serve(async (req) => {
         { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    
-    // Log this rate limit action
-    await supabaseClient.from('rate_limit_logs').insert({ user_id: userId, action: 'generate_final' });
 
-    // Fetch user's AI preferences, writing examples, and content templates
-    const { data: profile, error: profileError } = await supabaseClient
+    // Log this attempt for rate limiting
+    await supabaseClient.from('rate_limit_logs').insert({
+      user_id: userId,
+      action: 'generate_final'
+    });
+
+    // Fetch user's AI preferences and business context
+    const { data: profile } = await supabaseClient
       .from("profiles")
-      .select("ai_provider, ai_model, google_ai_api_key, custom_ai_endpoint, custom_ai_model_name, writing_examples, business_name, target_audience, content_type_templates")
+      .select("ai_provider, ai_model, google_ai_api_key, custom_ai_endpoint, custom_ai_model_name, brand_voice, writing_examples, business_name, business_description, target_audience, content_type_templates")
       .eq("user_id", userId)
       .single();
 
-    if (profileError || !profile) {
+    if (!profile) {
       return new Response(
-        JSON.stringify({ error: "User profile not found" }),
+        JSON.stringify({ error: "Profile not found" }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Validate AI configuration based on provider
+    // Validate AI configuration
     if (profile.ai_provider === "google-ai" && !profile.google_ai_api_key) {
       return new Response(
         JSON.stringify({ error: "Google AI API key not configured. Please add it in Settings." }),
@@ -93,57 +117,83 @@ serve(async (req) => {
       );
     }
 
-    // Fetch selected insight cards if any
-    let insightCardsData = [];
-    if (insightCardIds && insightCardIds.length > 0) {
-      const { data: insights, error: insightsError } = await supabaseClient
+    // Build writing style context
+    let writingStyleContext = "";
+    if (profile.writing_examples && Array.isArray(profile.writing_examples) && profile.writing_examples.length > 0) {
+      writingStyleContext = "\n\nWRITING STYLE EXAMPLES (mimic this tone, structure, and voice - but NOT the content):\n";
+      profile.writing_examples.slice(0, 4).forEach((example: { content: string }, i: number) => {
+        if (example.content) {
+          writingStyleContext += `\n--- Example ${i + 1} ---\n${example.content.substring(0, 1000)}\n`;
+        }
+      });
+      writingStyleContext += "\nIMPORTANT: Learn the STYLE from these examples but create ORIGINAL content.\n";
+    }
+
+    // Build business context
+    let businessContext = "";
+    if (profile.business_name || profile.business_description || profile.target_audience) {
+      businessContext = "\n\nBUSINESS CONTEXT:\n";
+      if (profile.business_name) businessContext += `Business: ${profile.business_name}\n`;
+      if (profile.business_description) businessContext += `About: ${profile.business_description}\n`;
+      if (profile.target_audience) businessContext += `Target Audience: ${profile.target_audience}\n`;
+      businessContext += "\nIMPORTANT: Write from this business's perspective specifically for this target audience.\n";
+    }
+
+    // Get content type template if specified
+    let contentTypePrompt = "";
+    if (direction.contentType && profile.content_type_templates) {
+      const templates = profile.content_type_templates as Array<{ id: string; name: string; prompt: string }>;
+      const matchingTemplate = templates.find(t => t.id === direction.contentType);
+      if (matchingTemplate?.prompt) {
+        contentTypePrompt = `\n\nCONTENT TYPE GUIDELINES:\n${matchingTemplate.prompt}`;
+      }
+    }
+
+    // Get insight cards if specified (verify ownership)
+    let insightContext = "";
+    if (insightCardIds?.length) {
+      const { data: cards } = await supabaseClient
         .from("insight_cards")
-        .select("title, content, insight_type")
+        .select("title, content")
         .in("id", insightCardIds)
         .eq("user_id", userId);
-
-      if (insightsError) {
-        console.error("Error fetching insight cards:", insightsError);
-      } else {
-        insightCardsData = insights || [];
-        console.log(`Fetched ${insightCardsData.length} insight cards`);
-      }
-    }
-
-    // Fetch template if provided
-    let template = null;
-    if (templateId) {
-      const { data: templateData, error: templateError } = await supabaseClient
-        .from("content_templates")
-        .select("*")
-        .eq("id", templateId)
-        .single();
       
-      if (!templateError && templateData) {
-        template = templateData;
-        console.log(`Using template: ${template.name}`);
+      if (cards?.length) {
+        insightContext = "\n\nRELEVANT INSIGHTS:\n";
+        cards.forEach((card: { title: string; content: string }) => {
+          insightContext += `- ${card.title}: ${card.content}\n`;
+        });
       }
     }
 
-    // Prepare the prompt for AI generation with writing examples and content type template
-    const contentTypeTemplate = (profile.content_type_templates as any[])?.find(
-      (t: any) => t.id === direction.contentType || t.name.toLowerCase().replace(/\s+/g, '_') === direction.contentType
-    );
-    const prompt = createContentPrompt(
-      direction, 
-      seedInsight, 
-      seedCategory, 
-      insightCardsData, 
-      profile.writing_examples || [], 
-      profile.business_name, 
-      profile.target_audience,
-      contentTypeTemplate
-    );
+    const prompt = `Generate full content based on this direction.
 
-    console.log(`Calling AI with provider: ${profile.ai_provider}, model: ${profile.ai_model}`);
+Direction: ${JSON.stringify(direction)}
+Seed Insight: ${seedInsight || "Not provided"}
+Category: ${seedCategory || "General"}
+${profile.brand_voice ? `Brand Voice: ${profile.brand_voice}` : ""}
+${insightContext}
+${contentTypePrompt}
+${writingStyleContext}
+${businessContext}
 
-    // Call AI based on user's provider preference
-    let generatedContent;
+Create comprehensive, publication-ready content that:
+1. Fully develops the direction into complete content
+2. Is engaging and provides actionable insights
+3. Is well-structured with clear sections
+4. Maintains professional quality throughout
+${profile.brand_voice ? `5. Follows the brand voice: ${profile.brand_voice}` : ""}
+${profile.target_audience ? `6. Is specifically written to be valuable for: ${profile.target_audience}` : ""}
+
+Respond in JSON format:
+{
+  "title": "Compelling title",
+  "content": "Full markdown-formatted content"
+}`;
+
+    console.log("🤖 Calling AI with provider:", profile.ai_provider);
+
+    let result;
     if (profile.ai_provider === "google-ai") {
       const aiResponse = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${profile.ai_model}:generateContent?key=${profile.google_ai_api_key}`,
@@ -152,10 +202,10 @@ serve(async (req) => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             contents: [{
-              parts: [{ text: `System: You are an expert content creator that crafts compelling, well-structured content pieces.\n\nUser: ${prompt}` }]
+              parts: [{ text: `System: You are a professional content writer. Always respond with valid JSON.\n\nUser: ${prompt}` }]
             }],
             generationConfig: {
-              temperature: 1,
+              temperature: 0.7,
               topK: 40,
               topP: 0.95,
               maxOutputTokens: 8192,
@@ -167,20 +217,19 @@ serve(async (req) => {
       if (!aiResponse.ok) {
         const errorText = await aiResponse.text();
         console.error("Google AI API error:", aiResponse.status, errorText);
-        
-        if (aiResponse.status === 429) {
-          return new Response(
-            JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-        
         throw new Error(`Google AI API error: ${aiResponse.status}`);
       }
 
       const aiData = await aiResponse.json();
-      generatedContent = aiData.candidates[0].content.parts[0].text;
+      const generatedText = aiData.candidates[0].content.parts[0].text;
       
+      let content = generatedText;
+      const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+      if (fenceMatch) {
+        content = fenceMatch[1].trim();
+      }
+      result = JSON.parse(content);
+
     } else if (profile.ai_provider === "custom") {
       const aiResponse = await fetch(profile.custom_ai_endpoint, {
         method: "POST",
@@ -191,9 +240,10 @@ serve(async (req) => {
         body: JSON.stringify({
           model: profile.custom_ai_model_name,
           messages: [
-            { role: "system", content: "You are an expert content creator that crafts compelling, well-structured content pieces." },
+            { role: "system", content: "You are a professional content writer. Always respond with valid JSON." },
             { role: "user", content: prompt }
           ],
+          response_format: { type: "json_object" }
         }),
       });
 
@@ -204,10 +254,10 @@ serve(async (req) => {
       }
 
       const aiData = await aiResponse.json();
-      generatedContent = aiData.choices[0].message.content;
+      result = JSON.parse(aiData.choices[0].message.content);
 
     } else {
-      // Use Lovable AI (default/fallback for "lovable-ai" or undefined)
+      // Use Lovable AI (default/fallback)
       const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
       if (!LOVABLE_API_KEY) {
         return new Response(
@@ -225,7 +275,7 @@ serve(async (req) => {
         body: JSON.stringify({
           model: "google/gemini-2.5-flash",
           messages: [
-            { role: "system", content: "You are an expert content creator that crafts compelling, well-structured content pieces." },
+            { role: "system", content: "You are a professional content writer. Always respond with valid JSON." },
             { role: "user", content: prompt }
           ],
         }),
@@ -234,161 +284,32 @@ serve(async (req) => {
       if (!aiResponse.ok) {
         const errorText = await aiResponse.text();
         console.error("Lovable AI API error:", aiResponse.status, errorText);
-
-        if (aiResponse.status === 429) {
-          return new Response(
-            JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-
         throw new Error(`AI processing failed: ${aiResponse.status}`);
       }
 
       const aiData = await aiResponse.json();
-      generatedContent = aiData.choices?.[0]?.message?.content ?? "";
-    }
-
-    if (!generatedContent) {
-      throw new Error("No content generated from AI");
-    }
-
-    console.log("AI response received successfully");
-
-    // Parse the response to extract title and content
-    const { title, content } = parseGeneratedContent(generatedContent, direction.title);
-
-    console.log("Content generation complete");
-    return new Response(
-      JSON.stringify({
-        title,
-        content,
-        direction,
-        insightCardsUsed: insightCardsData.length,
-        templateUsed: template?.name || "none"
-      }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      const generatedText = aiData.choices?.[0]?.message?.content ?? "";
+      
+      let content = generatedText;
+      const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+      if (fenceMatch) {
+        content = fenceMatch[1].trim();
       }
+      result = JSON.parse(content);
+    }
+
+    console.log("✅ Final content generated successfully");
+
+    return new Response(
+      JSON.stringify(result),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
+
   } catch (error) {
-    console.error("Error in generate-final-content:", error);
+    console.error("💥 Error in generate-final-content:", error);
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error occurred" }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
-
-function createContentPrompt(
-  direction: any, 
-  seedInsight: string, 
-  seedCategory: string, 
-  insightCards: any[], 
-  writingExamples: any[], 
-  businessName: string, 
-  targetAudience: string,
-  contentTypeTemplate?: any
-) {
-  let prompt = `Create a COMPLETE, FULLY-DEVELOPED, READY-TO-PUBLISH content piece based on the following direction:
-
-CONTENT DIRECTION:
-Title: ${direction.title}
-Description: ${direction.description}
-Angle: ${direction.angle}
-
-SEED INSIGHT (${seedCategory}): ${seedInsight}
-
-`;
-
-  if (insightCards.length > 0) {
-    prompt += "ADDITIONAL INSIGHTS TO INCORPORATE:\n";
-    insightCards.forEach((insight: any, index: number) => {
-      prompt += `${index + 1}. [${insight.insight_type}] ${insight.title}: ${insight.content}\n`;
-    });
-    prompt += "\n";
-  }
-
-  // Add content type template guidelines
-  if (contentTypeTemplate && contentTypeTemplate.prompt) {
-    prompt += `\n==== CONTENT TYPE REQUIREMENTS ====
-${contentTypeTemplate.name} Guidelines:
-${contentTypeTemplate.prompt}
-
-CRITICAL: Follow these guidelines exactly. This defines what makes a great ${contentTypeTemplate.name}.
-=================================\n\n`;
-  }
-
-  // Add writing examples for voice training
-  if (writingExamples && writingExamples.length > 0) {
-    const validExamples = writingExamples.filter((ex: string) => ex && ex.trim().length > 0);
-    if (validExamples.length > 0) {
-      prompt += `\n==== WRITING VOICE REFERENCE ====
-The following are examples of the author's writing style. Study the TONE, STRUCTURE, and VOICE carefully.
-CRITICAL: Use these examples ONLY to match writing style - DO NOT use the topics, facts, or substance from these examples.
-Your content must be 100% based on the insights above, but written in the style demonstrated below:\n\n`;
-      
-      validExamples.forEach((example: string, index: number) => {
-        prompt += `--- Writing Example ${index + 1} ---\n${example}\n\n`;
-      });
-      
-      prompt += `=================================\n\n`;
-    }
-  }
-
-  if (businessName || targetAudience) {
-    prompt += "CONTEXT:\n";
-    if (businessName) prompt += `Business: ${businessName}\n`;
-    if (targetAudience) prompt += `Target Audience: ${targetAudience}\n`;
-    prompt += "\n";
-  }
-
-  prompt += `CRITICAL OUTPUT REQUIREMENTS:
-
-YOU MUST GENERATE A COMPLETE, FINISHED, READY-TO-PUBLISH PIECE. NOT AN OUTLINE. NOT INSTRUCTIONS. NOT A DRAFT.
-
-This means:
-1. Full paragraphs with complete sentences and proper flow
-2. All sections fully written out with actual content
-3. Real examples, explanations, and details (not placeholders like "[Add example here]")
-4. Proper introduction, body, and conclusion - all FULLY WRITTEN
-5. If the content type requires specific elements (metrics, CTAs, etc.), INCLUDE THEM with actual content
-
-${contentTypeTemplate ? 
-  `Follow the ${contentTypeTemplate.name} guidelines above exactly regarding structure, length, tone, and required elements.` 
-  : 
-  `Follow standard best practices for the content format.`}
-
-${writingExamples && writingExamples.some((ex: string) => ex && ex.trim()) ? 
-  `VOICE: Match the writing style, tone, sentence structure, and vocabulary from the writing examples. Write as that author would write about these insights.` 
-  : 
-  `VOICE: Write in a clear, engaging style appropriate for the target audience.`}
-
-Format the response as:
-TITLE: [Your compelling, specific title]
-CONTENT: [Your COMPLETE, FULLY-WRITTEN, READY-TO-PUBLISH content using markdown formatting]
-
-REMEMBER: The output must be a FINISHED PIECE that can be published immediately, not a draft, outline, or set of writing instructions. Every section must be completely written with real content.`;
-
-  return prompt;
-}
-
-function parseGeneratedContent(generatedText: string, fallbackTitle: string) {
-  let title = fallbackTitle;
-  let content = generatedText;
-
-  // Try to extract title if formatted properly
-  const titleMatch = generatedText.match(/TITLE:\s*(.+?)(?:\n|$)/i);
-  if (titleMatch) {
-    title = titleMatch[1].trim();
-    content = generatedText.replace(/TITLE:\s*.+?\n/i, "").trim();
-  }
-
-  // Remove CONTENT: prefix if present
-  content = content.replace(/^CONTENT:\s*/i, "").trim();
-
-  return { title, content };
-}

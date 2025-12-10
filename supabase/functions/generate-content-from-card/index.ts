@@ -12,23 +12,48 @@ serve(async (req) => {
   }
 
   try {
-    const { cardId, templateId, outputFormat, userId } = await req.json();
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
-    if (!cardId || !userId) {
+    // Verify user authentication from JWT
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      console.error("❌ Missing authorization header");
       return new Response(
-        JSON.stringify({ error: "cardId and userId are required" }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        JSON.stringify({ error: "Authentication required" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-      { global: { headers: { Authorization: req.headers.get("Authorization")! } } }
-    );
+    const token = authHeader.replace("Bearer ", "");
+    const supabaseAuth = createClient(supabaseUrl, serviceRoleKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token);
+    
+    if (authError || !user) {
+      console.error("❌ Invalid token:", authError?.message);
+      return new Response(
+        JSON.stringify({ error: "Invalid or expired authentication token" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const userId = user.id;
+    console.log("✅ Authenticated user:", userId);
+
+    // Use service role client for database operations
+    const supabaseClient = createClient(supabaseUrl, serviceRoleKey);
+
+    const { cardId, templateId, outputFormat } = await req.json();
+
+    if (!cardId) {
+      return new Response(
+        JSON.stringify({ error: "cardId is required" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Rate limiting: 100 content generations per hour per user
     const windowStart = new Date();
@@ -48,25 +73,44 @@ serve(async (req) => {
         { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    
-    // Log this rate limit action
-    await supabaseClient.from('rate_limit_logs').insert({ user_id: userId, action: 'generate_content' });
 
-    // Fetch user's AI preferences, content type templates, and business context
-    const { data: profile, error: profileError } = await supabaseClient
-      .from("profiles")
-      .select("ai_provider, ai_model, google_ai_api_key, custom_ai_endpoint, custom_ai_model_name, content_type_templates, writing_examples, business_name, business_description, target_audience")
+    // Log this attempt for rate limiting
+    await supabaseClient.from('rate_limit_logs').insert({
+      user_id: userId,
+      action: 'generate_content'
+    });
+
+    // Get reference card - verify it belongs to the authenticated user
+    const { data: card, error: cardError } = await supabaseClient
+      .from("reference_cards")
+      .select("*")
+      .eq("id", cardId)
       .eq("user_id", userId)
       .single();
 
-    if (profileError || !profile) {
+    if (cardError || !card) {
+      console.error("❌ Card not found or access denied:", cardError);
       return new Response(
-        JSON.stringify({ error: "User profile not found" }),
+        JSON.stringify({ error: "Reference card not found or access denied" }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Validate AI configuration based on provider
+    // Get user's AI preferences and business context
+    const { data: profile } = await supabaseClient
+      .from("profiles")
+      .select("ai_provider, ai_model, google_ai_api_key, custom_ai_endpoint, custom_ai_model_name, brand_voice, writing_examples, business_name, business_description, target_audience, content_type_templates")
+      .eq("user_id", userId)
+      .single();
+
+    if (!profile) {
+      return new Response(
+        JSON.stringify({ error: "Profile not found" }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Validate AI configuration
     if (profile.ai_provider === "google-ai" && !profile.google_ai_api_key) {
       return new Response(
         JSON.stringify({ error: "Google AI API key not configured. Please add it in Settings." }),
@@ -81,47 +125,91 @@ serve(async (req) => {
       );
     }
 
-    console.log("🔄 Generating content from card:", cardId, "with template:", templateId, "using", profile.ai_provider);
-
-    // Get reference card with insights
-    const { data: card, error: cardError } = await supabaseClient
-      .from("reference_cards")
-      .select(`
-        *,
-        source_feeds (
-          name,
-          credibility_score
-        )
-      `)
-      .eq("id", cardId)
-      .single();
-
-    if (cardError || !card) {
-      console.error("❌ Card not found:", cardError);
-      throw new Error("Reference card not found");
+    // Get content template if specified
+    let templatePrompt = "";
+    if (templateId) {
+      const { data: template } = await supabaseClient
+        .from("content_templates")
+        .select("*")
+        .eq("id", templateId)
+        .single();
+      if (template) {
+        templatePrompt = `\n\nContent Template Structure:\n${JSON.stringify(template.template_structure)}`;
+      }
     }
 
-    // Get content type template from user profile if provided
-    let contentTypeTemplate = null;
-    if (templateId && profile?.content_type_templates) {
-      contentTypeTemplate = (profile.content_type_templates as any[])?.find(
-        (t: any) => t.id === templateId || t.name.toLowerCase().replace(/\s+/g, '_') === templateId
-      );
+    // Get content type template from user's profile settings
+    let contentTypePrompt = "";
+    if (outputFormat && profile.content_type_templates) {
+      const templates = profile.content_type_templates as Array<{ id: string; name: string; prompt: string }>;
+      const matchingTemplate = templates.find(t => t.id === outputFormat);
+      if (matchingTemplate?.prompt) {
+        contentTypePrompt = `\n\nCONTENT TYPE GUIDELINES:\n${matchingTemplate.prompt}`;
+      }
     }
 
-    // Prepare AI prompt with template, writing examples, and business context
-    const prompt = createContentPrompt(
-      card, 
-      contentTypeTemplate, 
-      outputFormat, 
-      profile.writing_examples,
-      profile.business_name,
-      profile.business_description,
-      profile.target_audience
-    );
+    // Build writing style context from examples
+    let writingStyleContext = "";
+    if (profile.writing_examples && Array.isArray(profile.writing_examples) && profile.writing_examples.length > 0) {
+      writingStyleContext = "\n\nWRITING STYLE EXAMPLES (mimic this tone, structure, and voice - but NOT the content):\n";
+      profile.writing_examples.slice(0, 4).forEach((example: { content: string }, i: number) => {
+        if (example.content) {
+          writingStyleContext += `\n--- Example ${i + 1} ---\n${example.content.substring(0, 1000)}\n`;
+        }
+      });
+      writingStyleContext += "\nIMPORTANT: Learn the STYLE from these examples (sentence structure, tone, vocabulary, formatting patterns) but create ORIGINAL content based on the reference card.\n";
+    }
 
-    // Call AI based on user's provider preference
-    let generatedContent;
+    // Build business context
+    let businessContext = "";
+    if (profile.business_name || profile.business_description || profile.target_audience) {
+      businessContext = "\n\nBUSINESS CONTEXT:\n";
+      if (profile.business_name) businessContext += `Business: ${profile.business_name}\n`;
+      if (profile.business_description) businessContext += `About: ${profile.business_description}\n`;
+      if (profile.target_audience) businessContext += `Target Audience: ${profile.target_audience}\n`;
+      businessContext += "\nIMPORTANT: Write from this business's perspective specifically for this target audience.\n";
+    }
+
+    // Build insight answers context
+    let insightContext = "";
+    if (card.insight_answers && typeof card.insight_answers === "object") {
+      insightContext = "\n\nKEY INSIGHTS FROM SOURCE:\n";
+      Object.entries(card.insight_answers).forEach(([question, answer]) => {
+        insightContext += `Q: ${question}\nA: ${answer}\n\n`;
+      });
+    }
+
+    const prompt = `Generate professional content based on this reference card.
+
+Source Material:
+Title: ${card.title}
+Summary: ${card.ai_summary || "No summary available"}
+${insightContext}
+
+Output Format: ${outputFormat || "blog_post"}
+${profile.brand_voice ? `Brand Voice: ${profile.brand_voice}` : ""}
+${templatePrompt}
+${contentTypePrompt}
+${writingStyleContext}
+${businessContext}
+
+Create a compelling ${outputFormat || "blog post"} that:
+1. Has an engaging title
+2. Provides valuable insights from the source material
+3. Is well-structured with clear sections
+4. Maintains professional tone throughout
+${profile.brand_voice ? `5. Follows the brand voice: ${profile.brand_voice}` : ""}
+${profile.target_audience ? `6. Is specifically written to be valuable for: ${profile.target_audience}` : ""}
+
+Respond in JSON format:
+{
+  "title": "Generated title",
+  "content": "Full formatted content with markdown"
+}`;
+
+    console.log("🤖 Calling AI with provider:", profile.ai_provider);
+
+    let result;
     if (profile.ai_provider === "google-ai") {
       const aiResponse = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${profile.ai_model}:generateContent?key=${profile.google_ai_api_key}`,
@@ -130,10 +218,10 @@ serve(async (req) => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             contents: [{
-              parts: [{ text: prompt }]
+              parts: [{ text: `System: You are a professional content writer. Always respond with valid JSON.\n\nUser: ${prompt}` }]
             }],
             generationConfig: {
-              temperature: 1,
+              temperature: 0.7,
               topK: 40,
               topP: 0.95,
               maxOutputTokens: 8192,
@@ -149,8 +237,15 @@ serve(async (req) => {
       }
 
       const aiData = await aiResponse.json();
-      generatedContent = aiData.candidates[0].content.parts[0].text;
+      const generatedText = aiData.candidates[0].content.parts[0].text;
       
+      let content = generatedText;
+      const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+      if (fenceMatch) {
+        content = fenceMatch[1].trim();
+      }
+      result = JSON.parse(content);
+
     } else if (profile.ai_provider === "custom") {
       const aiResponse = await fetch(profile.custom_ai_endpoint, {
         method: "POST",
@@ -161,8 +256,10 @@ serve(async (req) => {
         body: JSON.stringify({
           model: profile.custom_ai_model_name,
           messages: [
+            { role: "system", content: "You are a professional content writer. Always respond with valid JSON." },
             { role: "user", content: prompt }
           ],
+          response_format: { type: "json_object" }
         }),
       });
 
@@ -173,10 +270,10 @@ serve(async (req) => {
       }
 
       const aiData = await aiResponse.json();
-      generatedContent = aiData.choices[0].message.content;
+      result = JSON.parse(aiData.choices[0].message.content);
 
     } else {
-      // Use Lovable AI (default/fallback for "lovable-ai" or undefined)
+      // Use Lovable AI (default/fallback)
       const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
       if (!LOVABLE_API_KEY) {
         return new Response(
@@ -194,6 +291,7 @@ serve(async (req) => {
         body: JSON.stringify({
           model: "google/gemini-2.5-flash",
           messages: [
+            { role: "system", content: "You are a professional content writer. Always respond with valid JSON." },
             { role: "user", content: prompt }
           ],
         }),
@@ -206,122 +304,28 @@ serve(async (req) => {
       }
 
       const aiData = await aiResponse.json();
-      generatedContent = aiData.choices?.[0]?.message?.content ?? "";
+      const generatedText = aiData.choices?.[0]?.message?.content ?? "";
+      
+      let content = generatedText;
+      const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+      if (fenceMatch) {
+        content = fenceMatch[1].trim();
+      }
+      result = JSON.parse(content);
     }
 
-    // Parse the response to extract title and content
-    const { title, content } = parseGeneratedContent(generatedContent, card.title);
-
-    console.log("✅ Content generated successfully using template:", contentTypeTemplate?.name || 'default');
+    console.log("✅ Content generated successfully");
 
     return new Response(
-      JSON.stringify({
-        title,
-        content,
-        sourceCard: {
-          id: card.id,
-          title: card.title,
-          source: card.source_feeds?.name
-        },
-        templateUsed: contentTypeTemplate?.name || "manual"
-      }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      JSON.stringify(result),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
   } catch (error) {
-    console.error("Error in generate-content-from-card:", error);
+    console.error("💥 Error in generate-content-from-card:", error);
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
-
-function createContentPrompt(
-  card: any, 
-  contentTypeTemplate: any, 
-  outputFormat: string, 
-  writingExamples: any[],
-  businessName?: string,
-  businessDescription?: string,
-  targetAudience?: string
-) {
-  const primaryInsight = card.insight_answers ? Object.values(card.insight_answers)[0] : card.ai_summary;
-  
-  let prompt = `Create content based on this reference material:
-
-SOURCE MATERIAL:
-Title: ${card.title}
-Source: ${card.source_feeds?.name || 'Unknown'}
-Primary Insight: "${primaryInsight || 'No specific insight'}"
-
-ADDITIONAL INSIGHTS:
-${card.insight_answers ? Object.entries(card.insight_answers).map(([key, value]) => `• ${value}`).join('\n') : 'No additional insights'}
-
-`;
-
-  // Add business context
-  if (businessName || businessDescription || targetAudience) {
-    prompt += `\n==== BUSINESS CONTEXT ====\n`;
-    if (businessName) prompt += `Business: ${businessName}\n`;
-    if (businessDescription) prompt += `About: ${businessDescription}\n`;
-    if (targetAudience) prompt += `Target Audience: ${targetAudience}\n`;
-    prompt += `\nIMPORTANT: Write from this business's perspective and keep this audience sharply in focus. The content should be relevant and valuable for them specifically.\n=================================\n\n`;
-  }
-
-  // Add content type template guidelines if available
-  if (contentTypeTemplate && contentTypeTemplate.prompt) {
-    prompt += `\n==== CONTENT TYPE REQUIREMENTS ====
-${contentTypeTemplate.name} Guidelines:
-${contentTypeTemplate.prompt}
-
-CRITICAL: Follow these guidelines exactly for structure, tone, length, and formatting.
-=================================\n\n`;
-  }
-
-  // Add writing style examples if available
-  if (writingExamples && Array.isArray(writingExamples)) {
-    const validExamples = writingExamples.filter((ex: string) => ex && ex.trim().length > 0);
-    if (validExamples.length > 0) {
-      prompt += `\n==== WRITING VOICE REFERENCE ====
-Match the tone and style from these examples (use style only, not content):
-${validExamples.slice(0, 2).map((ex: string, i: number) => `\nExample ${i + 1}:\n${ex.substring(0, 300)}...`).join('\n')}
-=================================\n\n`;
-    }
-  }
-
-  prompt += `
-Generate a COMPLETE, READY-TO-PUBLISH content piece with:
-1. Compelling title
-2. Engaging introduction
-3. Well-developed body
-4. Clear conclusion
-${contentTypeTemplate ? `5. Following ${contentTypeTemplate.name} requirements exactly` : '5. Natural flow and readability'}
-
-Format as:
-TITLE: [Generated title]
-CONTENT: [Complete content in markdown]
-
-${contentTypeTemplate ? `Remember: Follow the ${contentTypeTemplate.name} content type requirements precisely.` : `Make it suitable for ${outputFormat} format.`}`;
-
-  return prompt;
-}
-
-function parseGeneratedContent(generatedText: string, fallbackTitle: string) {
-  let title = fallbackTitle;
-  let content = generatedText;
-
-  const titleMatch = generatedText.match(/TITLE:\s*(.+?)(?:\n|$)/i);
-  if (titleMatch) {
-    title = titleMatch[1].trim();
-    content = generatedText.replace(/TITLE:\s*.+?\n/i, "").trim();
-  }
-
-  content = content.replace(/^CONTENT:\s*/i, "").trim();
-  return { title, content };
-}

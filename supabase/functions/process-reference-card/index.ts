@@ -12,10 +12,39 @@ serve(async (req) => {
   }
 
   try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    );
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+    // Verify user authentication from JWT
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      console.error("❌ Missing authorization header");
+      return new Response(
+        JSON.stringify({ error: "Authentication required" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const token = authHeader.replace("Bearer ", "");
+    const supabaseAuth = createClient(supabaseUrl, serviceRoleKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token);
+    
+    if (authError || !user) {
+      console.error("❌ Invalid token:", authError?.message);
+      return new Response(
+        JSON.stringify({ error: "Invalid or expired authentication token" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const userId = user.id;
+    console.log("✅ Authenticated user:", userId);
+
+    // Use service role client for database operations
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
 
     const { cardId, customQuestion } = await req.json();
 
@@ -28,332 +57,309 @@ serve(async (req) => {
 
     console.log("Processing card:", cardId, "Custom question:", customQuestion ? "Yes" : "No");
 
-    // Get card first to get user_id for rate limiting
+    // Get card - verify it belongs to the authenticated user
     const { data: card, error: cardError } = await supabase
       .from("reference_cards")
       .select("*, reference_card_templates(custom_questions)")
       .eq("id", cardId)
+      .eq("user_id", userId)
       .single();
 
     if (cardError || !card) {
-      console.error("Card not found:", cardError);
+      console.error("❌ Card not found or access denied:", cardError);
       return new Response(
-        JSON.stringify({ error: "Card not found: " + (cardError?.message || "Unknown") }),
+        JSON.stringify({ error: "Card not found or access denied" }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     // Rate limiting: 100 card processings per hour per user
-    if (card.user_id) {
-      const windowStart = new Date();
-      windowStart.setMinutes(windowStart.getMinutes() - 60);
-      
-      const { count: rateCount, error: rateError } = await supabase
-        .from('rate_limit_logs')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', card.user_id)
-        .eq('action', 'process_card')
-        .gte('created_at', windowStart.toISOString());
-      
-      if (!rateError && (rateCount || 0) >= 100) {
-        console.log('❌ Rate limit exceeded for user:', card.user_id);
-        return new Response(
-          JSON.stringify({ error: 'Rate limit exceeded. Maximum 100 card processings per hour.' }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      
-      // Log this rate limit action
-      await supabase.from('rate_limit_logs').insert({ user_id: card.user_id, action: 'process_card' });
+    const windowStart = new Date();
+    windowStart.setMinutes(windowStart.getMinutes() - 60);
+    
+    const { count: rateCount, error: rateError } = await supabase
+      .from('rate_limit_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('action', 'process_card')
+      .gte('created_at', windowStart.toISOString());
+    
+    if (!rateError && (rateCount || 0) >= 100) {
+      console.log('❌ Rate limit exceeded for user:', userId);
+      return new Response(
+        JSON.stringify({ error: 'Rate limit exceeded. Maximum 100 card processings per hour.' }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    console.log("Card found:", card.title);
+    // Daily limit: 500 card processings per day
+    const dayStart = new Date();
+    dayStart.setHours(dayStart.getHours() - 24);
+    
+    const { count: dailyCount } = await supabase
+      .from('rate_limit_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('action', 'process_card')
+      .gte('created_at', dayStart.toISOString());
+    
+    if ((dailyCount || 0) >= 500) {
+      console.log('❌ Daily limit exceeded for user:', userId);
+      return new Response(
+        JSON.stringify({ error: 'Daily limit exceeded. Maximum 500 card processings per day.' }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
-    // Fetch user's AI preferences
-    const { data: profile, error: profileError } = await supabase
+    // Log this attempt for rate limiting
+    await supabase.from('rate_limit_logs').insert({
+      user_id: userId,
+      action: 'process_card'
+    });
+
+    // Get user's AI preferences
+    const { data: profile } = await supabase
       .from("profiles")
       .select("ai_provider, ai_model, google_ai_api_key, custom_ai_endpoint, custom_ai_model_name")
-      .eq("user_id", card.user_id)
+      .eq("user_id", userId)
       .single();
 
-    if (profileError) {
-      console.error("Profile fetch error:", profileError);
-    }
-
-    // Get questions from question_set_id or use custom question
+    // Build questions list
     let questions: string[] = [];
-    let isCustomQuestion = false;
-
-    if (customQuestion && customQuestion.trim()) {
-      // Use the custom question
-      questions = [customQuestion.trim()];
-      isCustomQuestion = true;
-      console.log("Using custom question:", customQuestion);
+    
+    if (customQuestion) {
+      questions = [customQuestion];
     } else if (card.question_set_id) {
-      console.log("Using question set:", card.question_set_id);
-      const { data: questionSet, error: questionSetError } = await supabase
+      // Get questions from assigned question set
+      const { data: questionSet } = await supabase
         .from("question_sets")
         .select("questions")
         .eq("id", card.question_set_id)
         .single();
-
-      if (questionSetError) {
-        console.error("Question set fetch error:", questionSetError);
-      } else if (questionSet?.questions && Array.isArray(questionSet.questions)) {
-        questions = questionSet.questions.filter((q: any) => typeof q === "string" && q.trim());
-        console.log("Loaded questions from question set:", questions.length);
+      
+      if (questionSet?.questions) {
+        questions = questionSet.questions;
+      }
+    } else if (card.reference_card_templates?.custom_questions) {
+      // Get questions from template
+      const templateQuestions = card.reference_card_templates.custom_questions as string[];
+      if (Array.isArray(templateQuestions)) {
+        questions = templateQuestions;
+      }
+    }
+    
+    // Default questions if none found
+    if (questions.length === 0) {
+      // Try to get user's active question set
+      const { data: activeSet } = await supabase
+        .from("question_sets")
+        .select("questions")
+        .eq("user_id", userId)
+        .eq("is_active", true)
+        .limit(1)
+        .single();
+      
+      if (activeSet?.questions) {
+        questions = activeSet.questions;
+      } else {
+        questions = [
+          "What is the main argument or thesis?",
+          "What evidence or examples support it?",
+          "How is this relevant to my work?"
+        ];
       }
     }
 
-    console.log("Questions found:", questions.length);
-
-    // Check for content quality issues
+    // Assess content quality
+    const contentLength = card.original_text?.length || 0;
+    let contentQuality = "unknown";
     let contentWarning = null;
-    let contentQuality = "good";
 
-    if (!card.original_text || card.original_text.trim().length < 100) {
-      contentWarning = "Limited content available - only title accessible";
-      contentQuality = "title_only";
-    } else if (card.original_text.length < 500) {
-      contentWarning = "Partial content - full article may not be accessible";
-      contentQuality = "partial";
+    if (contentLength < 100) {
+      contentQuality = "low";
+      contentWarning = "Very short content - may lack substance";
+    } else if (contentLength < 500) {
+      contentQuality = "medium";
+    } else {
+      contentQuality = "high";
     }
 
-    // Generate summary and optionally answer questions
-    let prompt = `Analyze the article and provide a concise summary (2-3 sentences).
-Article Title: ${card.title}
-Content: ${card.original_text}
+    // Build AI prompt
+    const prompt = `You are analyzing content to extract insights. Analyze this content and provide a summary plus answers to specific questions.
 
-Return ONLY valid JSON without code fences or any commentary.`;
+Content to analyze:
+Title: ${card.title || "Untitled"}
+Source: ${card.source_url || "Unknown"}
 
-    if (questions.length > 0) {
-      prompt += `
+${card.original_text || "No content available"}
 
-Also answer these questions based strictly on the content:
-${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}
+---
 
-Your JSON response schema:
+Please provide:
+1. A brief 2-3 sentence summary of the main points
+2. Answers to these questions:
+${questions.map((q, i) => `   ${i + 1}. ${q}`).join("\n")}
+
+Format your response as JSON:
 {
-  "summary": "your summary",
+  "summary": "Your 2-3 sentence summary here",
   "answers": {
-    "0": "answer to question 1",
-    "1": "answer to question 2"
+    "${questions[0]}": "Answer to first question",
+    ${questions.slice(1).map(q => `"${q}": "Answer"`).join(",\n    ")}
   }
 }`;
-    } else {
-      prompt += `
 
-Your JSON response schema:
-{
-  "summary": "your summary"
-}`;
-    }
+    console.log("🤖 Calling AI with provider:", profile?.ai_provider || "lovable-ai");
 
-    console.log("Calling AI API with provider:", profile?.ai_provider || "lovable-ai");
+    let result;
 
-    try {
-      let aiResponseData;
-
-      // Determine which AI provider to use
-      if (profile?.ai_provider === "google-ai" && profile.google_ai_api_key) {
-        // Use Google AI
-        const aiResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${profile.ai_model || 'gemini-2.0-flash-exp'}:generateContent?key=${profile.google_ai_api_key}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{
-                parts: [{ text: `System: You are a content analyst. Always respond with valid JSON.\n\nUser: ${prompt}` }]
-              }],
-              generationConfig: {
-                temperature: 1,
-                topK: 40,
-                topP: 0.95,
-                maxOutputTokens: 8192,
-              }
-            }),
-          }
-        );
-
-        if (!aiResponse.ok) {
-          const errorText = await aiResponse.text();
-          console.error("Google AI API error:", aiResponse.status, errorText);
-          throw new Error(`Google AI API error: ${aiResponse.status}`);
-        }
-
-        const aiData = await aiResponse.json();
-        aiResponseData = aiData.candidates[0].content.parts[0].text;
-
-      } else if (profile?.ai_provider === "custom" && profile.custom_ai_endpoint && profile.google_ai_api_key) {
-        // Use Custom AI
-        const aiResponse = await fetch(profile.custom_ai_endpoint, {
+    if (profile?.ai_provider === "google-ai" && profile.google_ai_api_key) {
+      const aiResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${profile.ai_model || "gemini-1.5-flash"}:generateContent?key=${profile.google_ai_api_key}`,
+        {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${profile.google_ai_api_key}`,
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: profile.custom_ai_model_name,
-            messages: [
-              { role: "system", content: "You are a content analyst. Always respond with valid JSON." },
-              { role: "user", content: prompt }
-            ],
+            contents: [{
+              parts: [{ text: prompt }]
+            }],
+            generationConfig: {
+              temperature: 0.3,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 4096,
+            }
           }),
-        });
-
-        if (!aiResponse.ok) {
-          const errorText = await aiResponse.text();
-          console.error("Custom AI API error:", aiResponse.status, errorText);
-          throw new Error(`Custom AI API error: ${aiResponse.status}`);
         }
+      );
 
-        const aiData = await aiResponse.json();
-        aiResponseData = aiData.choices[0].message.content;
-
-      } else {
-        // Use Lovable AI (default/fallback)
-        const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-        if (!LOVABLE_API_KEY) {
-          return new Response(
-            JSON.stringify({ error: "AI API not configured. Please configure an AI provider in Settings." }),
-            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-
-        const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-flash",
-            messages: [
-              { role: "system", content: "You are a content analyst. Always respond with valid JSON." },
-              { role: "user", content: prompt }
-            ],
-          }),
-        });
-
-        if (!aiResponse.ok) {
-          const errorText = await aiResponse.text();
-          console.error("Lovable AI API error:", aiResponse.status, errorText);
-          throw new Error(`AI processing failed: ${aiResponse.status} - ${errorText}`);
-        }
-
-        const aiData = await aiResponse.json();
-        aiResponseData = aiData.choices?.[0]?.message?.content ?? "";
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        console.error("Google AI API error:", aiResponse.status, errorText);
+        throw new Error(`Google AI API error: ${aiResponse.status}`);
       }
 
-      console.log("AI response received");
-
-      let content = aiResponseData;
-      // Strip code fences if present
+      const aiData = await aiResponse.json();
+      const generatedText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      
+      // Parse JSON from response
+      let content = generatedText;
       const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
       if (fenceMatch) {
         content = fenceMatch[1].trim();
       }
+      result = JSON.parse(content);
 
-      // Try to parse JSON robustly
-      let result: { summary: string; answers?: Record<string, string> };
-      try {
-        result = JSON.parse(content);
-      } catch (parseError) {
-        console.error("Failed to parse AI response as JSON:", content);
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          try {
-            result = JSON.parse(jsonMatch[0]);
-          } catch {
-            result = { summary: aiResponseData, answers: {} };
-          }
-        } else {
-          result = { summary: aiResponseData, answers: {} };
-        }
-      }
-
-      console.log("Updating card with results...");
-
-      // For custom questions, merge with existing answers instead of replacing
-      let finalAnswers = result.answers || {};
-      if (isCustomQuestion && card.insight_answers) {
-        // Generate a unique key for this custom question using timestamp
-        const customKey = `custom_${Date.now()}`;
-        const existingAnswers = typeof card.insight_answers === 'object' ? card.insight_answers : {};
-        
-        // Store the custom question and answer
-        finalAnswers = {
-          ...existingAnswers,
-          [customKey]: {
-            question: customQuestion.trim(),
-            answer: result.answers?.["0"] || result.summary,
-            timestamp: new Date().toISOString()
-          }
-        };
-        console.log("Merged custom question answer with existing answers");
-      }
-
-      // Update card with results
-      const updateData: any = {
-        status: "active"
-      };
-
-      // Only update summary if not a custom question
-      if (!isCustomQuestion) {
-        updateData.ai_summary = result.summary;
-        updateData.insight_answers = finalAnswers;
-        updateData.content_quality = contentQuality;
-        updateData.content_warning = contentWarning;
-      } else {
-        // For custom questions, only update the answers
-        updateData.insight_answers = finalAnswers;
-      }
-
-      const { error: updateError } = await supabase
-        .from("reference_cards")
-        .update(updateData)
-        .eq("id", cardId);
-
-      if (updateError) {
-        console.error("Failed to update card:", updateError);
-        throw new Error("Failed to update card: " + updateError.message);
-      }
-
-      console.log("Card updated successfully");
-
-      return new Response(
-        JSON.stringify({ 
-          success: true, 
-          summary: result.summary,
-          answers: result.answers || {},
-          contentQuality,
-          contentWarning 
+    } else if (profile?.ai_provider === "custom" && profile.custom_ai_endpoint) {
+      const aiResponse = await fetch(profile.custom_ai_endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${profile.google_ai_api_key}`,
+        },
+        body: JSON.stringify({
+          model: profile.custom_ai_model_name,
+          messages: [
+            { role: "system", content: "You are a content analyst. Always respond with valid JSON." },
+            { role: "user", content: prompt }
+          ],
+          response_format: { type: "json_object" }
         }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      });
 
-    } catch (aiError) {
-      console.error("AI processing error:", aiError);
+      if (!aiResponse.ok) {
+        throw new Error(`Custom AI API error: ${aiResponse.status}`);
+      }
+
+      const aiData = await aiResponse.json();
+      result = JSON.parse(aiData.choices[0].message.content);
+
+    } else {
+      // Use Lovable AI (default/fallback)
+      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+      if (!LOVABLE_API_KEY) {
+        return new Response(
+          JSON.stringify({ error: "AI API not configured. Please configure an AI provider in Settings." }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            { role: "system", content: "You are a content analyst. Always respond with valid JSON." },
+            { role: "user", content: prompt }
+          ],
+        }),
+      });
+
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        console.error("Lovable AI API error:", aiResponse.status, errorText);
+        throw new Error(`AI processing failed: ${aiResponse.status}`);
+      }
+
+      const aiData = await aiResponse.json();
+      const generatedText = aiData.choices?.[0]?.message?.content ?? "";
       
-      // Update card with error status
-      await supabase
-        .from("reference_cards")
-        .update({
-          content_warning: "Error: Unable to process content with AI - " + (aiError instanceof Error ? aiError.message : "Unknown error"),
-          content_quality: "error",
-          status: "needs_review"
-        })
-        .eq("id", cardId);
-
-      return new Response(
-        JSON.stringify({ error: "AI processing failed", details: aiError instanceof Error ? aiError.message : "Unknown error" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      let content = generatedText;
+      const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+      if (fenceMatch) {
+        content = fenceMatch[1].trim();
+      }
+      result = JSON.parse(content);
     }
 
+    // Handle custom questions - merge with existing answers
+    let updatedAnswers = result.answers || {};
+    if (customQuestion && card.insight_answers) {
+      const existingAnswers = typeof card.insight_answers === 'object' ? card.insight_answers : {};
+      updatedAnswers = {
+        ...existingAnswers,
+        [`[Custom - ${new Date().toLocaleDateString()}] ${customQuestion}`]: 
+          result.answers?.[customQuestion] || Object.values(result.answers || {})[0] || ""
+      };
+    }
+
+    // Update the card with AI results
+    const { error: updateError } = await supabase
+      .from("reference_cards")
+      .update({
+        ai_summary: result.summary,
+        insight_answers: updatedAnswers,
+        content_quality: contentQuality,
+        content_warning: contentWarning,
+        status: "active",
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", cardId);
+
+    if (updateError) {
+      console.error("❌ Failed to update card:", updateError);
+      throw updateError;
+    }
+
+    console.log("✅ Card processed successfully:", cardId);
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        cardId,
+        summary: result.summary,
+        answers: updatedAnswers,
+        quality: contentQuality
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+
   } catch (error) {
-    console.error("Error in process-reference-card:", error);
+    console.error("💥 Error processing card:", error);
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

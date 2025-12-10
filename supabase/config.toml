@@ -1,37 +1,38 @@
 project_id = "xtaslgxrgzksojtoekmz"
 
 [functions.pull-rss-feed]
-verify_jwt = false
+verify_jwt = true
 
 [functions.create-manual-source]
-verify_jwt = false
+verify_jwt = true
 
 [functions.process-reference-card]
-verify_jwt = false
+verify_jwt = true
 
 [functions.generate-content-directions]
-verify_jwt = false
+verify_jwt = true
 
 [functions.generate-final-content]
-verify_jwt = false
+verify_jwt = true
 
 [functions.execute-autopilot-template]
-verify_jwt = false
+verify_jwt = true
 
 [functions.generate-content-from-card]
-verify_jwt = false
+verify_jwt = true
 
 [functions.send-draft-notification]
-verify_jwt = false
+verify_jwt = true
 
 [functions.regenerate-draft-with-feedback]
-verify_jwt = false
-
-[functions.process-newsletter-email]
-verify_jwt = false
+verify_jwt = true
 
 [functions.delete-user-data]
 verify_jwt = true
 
 [functions.cleanup-old-emails]
+verify_jwt = true
+
+# Webhook function - uses Mailgun signature verification instead of JWT
+[functions.process-newsletter-email]
 verify_jwt = false

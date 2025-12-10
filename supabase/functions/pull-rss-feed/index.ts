@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { DOMParser } from "https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -56,190 +57,235 @@ function isAllowedUrl(urlString: string): boolean {
       }
       // 169.254.0.0/16 - Link-local
       if (a === 169 && b === 254) {
-        console.log('❌ SSRF blocked: link-local IP');
+        console.log('❌ SSRF blocked: link-local IP range');
         return false;
       }
       // 127.0.0.0/8 - Loopback
       if (a === 127) {
-        console.log('❌ SSRF blocked: loopback IP');
+        console.log('❌ SSRF blocked: loopback IP range');
         return false;
       }
-      // 0.0.0.0/8 - Current network
+      // 0.0.0.0/8
       if (a === 0) {
-        console.log('❌ SSRF blocked: zero IP');
+        console.log('❌ SSRF blocked: zero IP range');
         return false;
       }
     }
     
     return true;
-  } catch {
-    console.log('❌ SSRF blocked: invalid URL');
+  } catch (e) {
+    console.log('❌ SSRF blocked: invalid URL:', e);
     return false;
   }
 }
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    );
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
-    const { feedId } = await req.json();
+    // Verify user authentication from JWT
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      console.error("❌ Missing authorization header");
+      return new Response(
+        JSON.stringify({ error: "Authentication required" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const token = authHeader.replace("Bearer ", "");
+    const supabaseAuth = createClient(supabaseUrl, serviceRoleKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token);
+    
+    if (authError || !user) {
+      console.error("❌ Invalid token:", authError?.message);
+      return new Response(
+        JSON.stringify({ error: "Invalid or expired authentication token" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const userId = user.id;
+    console.log("✅ Authenticated user:", userId);
+
+    // Use service role client for database operations
+    const supabaseClient = createClient(supabaseUrl, serviceRoleKey);
+
+    const { feedId, maxItems = 10 } = await req.json();
 
     if (!feedId) {
-      console.error("❌ Missing feedId");
       return new Response(
         JSON.stringify({ error: "feedId is required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log("🔄 Processing RSS feed:", feedId);
-
-    // Get feed details with default template
-    const { data: feed, error: feedError } = await supabase
+    // Get feed - verify it belongs to the authenticated user
+    const { data: feed, error: feedError } = await supabaseClient
       .from("source_feeds")
-      .select("*, default_template_id, user_id")
+      .select("*")
       .eq("id", feedId)
+      .eq("user_id", userId)
       .single();
 
     if (feedError || !feed) {
-      console.error("❌ Feed not found:", feedError);
+      console.error("❌ Feed not found or access denied:", feedError);
       return new Response(
-        JSON.stringify({ error: "Feed not found", details: feedError?.message }),
+        JSON.stringify({ error: "Feed not found or access denied" }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log("✅ Feed found:", feed.name, "User ID:", feed.user_id);
+    console.log("📡 Pulling feed:", feed.name, "URL:", feed.url);
 
-    // SSRF Protection: Validate feed URL before fetching
+    // SSRF protection check
     if (!isAllowedUrl(feed.url)) {
-      console.error("❌ SSRF blocked: Feed URL is not allowed:", feed.url);
+      console.error("❌ SSRF blocked URL:", feed.url);
+      await supabaseClient
+        .from("source_feeds")
+        .update({ health_status: "error", last_pulled_at: new Date().toISOString() })
+        .eq("id", feedId);
+      
       return new Response(
-        JSON.stringify({ error: "Invalid feed URL - internal or private addresses are not allowed" }),
+        JSON.stringify({ error: "Invalid feed URL - blocked by security policy" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Fetch RSS feed
-    const rssResponse = await fetch(feed.url);
-    const rssText = await rssResponse.text();
-
-    // Parse RSS
-    const items = parseRSS(rssText);
-    const createdCardIds = [];
-
-    // Create reference cards with full content fetching
-    for (const item of items.slice(0, 5)) {
-      let fullContent = item.description;
-      
-      // Fetch full article content if link exists AND is allowed (SSRF protection)
-      if (item.link && isAllowedUrl(item.link)) {
-        try {
-          const articleResponse = await fetch(item.link);
-          const articleHtml = await articleResponse.text();
-          
-          // Extract text content (remove scripts, styles, HTML tags)
-          fullContent = articleHtml
-            .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-            .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
-            .replace(/<[^>]+>/g, " ")
-            .replace(/\s+/g, " ")
-            .trim();
-        } catch (error) {
-          console.error("Failed to fetch full article:", error);
+    // Fetch the RSS feed
+    let response;
+    try {
+      response = await fetch(feed.url, {
+        headers: {
+          "User-Agent": "InsightForge RSS Reader/1.0",
+          "Accept": "application/rss+xml, application/xml, text/xml, */*"
         }
-      } else if (item.link && !isAllowedUrl(item.link)) {
-        console.log("⚠️ Skipping article fetch due to SSRF protection:", item.link);
+      });
+    } catch (fetchError) {
+      console.error("❌ Failed to fetch feed:", fetchError);
+      await supabaseClient
+        .from("source_feeds")
+        .update({ health_status: "error", last_pulled_at: new Date().toISOString() })
+        .eq("id", feedId);
+      
+      throw new Error(`Failed to fetch feed: ${fetchError instanceof Error ? fetchError.message : "Network error"}`);
+    }
+
+    if (!response.ok) {
+      await supabaseClient
+        .from("source_feeds")
+        .update({ health_status: "error", last_pulled_at: new Date().toISOString() })
+        .eq("id", feedId);
+      
+      throw new Error(`Feed returned status ${response.status}`);
+    }
+
+    const xmlText = await response.text();
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+
+    if (!xmlDoc) {
+      throw new Error("Failed to parse XML");
+    }
+
+    // Parse RSS items
+    const items = Array.from(xmlDoc.querySelectorAll("item")) as Element[];
+    const createdCards = [];
+
+    console.log(`📰 Found ${items.length} items in feed`);
+
+    for (let i = 0; i < Math.min(items.length, maxItems); i++) {
+      const item = items[i];
+      const title = item.querySelector("title")?.textContent || "Untitled";
+      const link = item.querySelector("link")?.textContent || "";
+      const description = item.querySelector("description")?.textContent || "";
+      const pubDate = item.querySelector("pubDate")?.textContent;
+
+      // Check if article already exists
+      if (link) {
+        const { data: existing } = await supabaseClient
+          .from("reference_cards")
+          .select("id")
+          .eq("source_url", link)
+          .eq("user_id", userId)
+          .single();
+
+        if (existing) {
+          console.log("⏭️ Skipping existing article:", title.substring(0, 50));
+          continue;
+        }
       }
 
-      const { data: cardData, error: insertError } = await supabase
+      // Clean HTML from description
+      const cleanDescription = description
+        .replace(/<[^>]*>/g, "")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .trim()
+        .substring(0, 10000);
+
+      // Create reference card
+      const { data: card, error: cardError } = await supabaseClient
         .from("reference_cards")
         .insert({
-          title: item.title,
-          original_text: fullContent,
-          source_url: item.link,
-          source_type: "rss",
+          user_id: userId,
           source_feed_id: feedId,
-          template_id: feed.default_template_id,
-          status: "processing",
-          global_relevance_score: 5,
-          user_id: feed.user_id
+          title: title.substring(0, 500),
+          source_url: link,
+          original_text: cleanDescription,
+          source_type: "rss",
+          status: "active",
+          template_id: feed.default_template_id
         })
         .select()
         .single();
 
-      if (insertError) {
-        console.error("❌ Failed to insert reference card:", insertError);
-      } else if (cardData) {
-        console.log("✅ Created card:", cardData.id, "-", cardData.title);
-        createdCardIds.push(cardData.id);
+      if (cardError) {
+        console.error("❌ Failed to create card:", cardError);
+        continue;
       }
+
+      console.log("✅ Created card:", card.id, "-", title.substring(0, 40));
+      createdCards.push(card);
     }
 
-    // Auto-process all created cards
-    console.log("Triggering auto-processing for", createdCardIds.length, "cards");
-    for (const cardId of createdCardIds) {
-      try {
-        const { error: processError } = await supabase.functions.invoke("process-reference-card", {
-          body: { cardId }
-        });
-        if (processError) {
-          console.error("Failed to process card", cardId, ":", processError);
-        }
-      } catch (error) {
-        console.error("Error processing card", cardId, ":", error);
-      }
-    }
-
-    // Update feed last_pulled_at
-    await supabase
+    // Update feed status
+    await supabaseClient
       .from("source_feeds")
-      .update({ 
+      .update({
         last_pulled_at: new Date().toISOString(),
-        last_successful_pull_at: new Date().toISOString()
+        last_successful_pull_at: new Date().toISOString(),
+        health_status: "healthy"
       })
       .eq("id", feedId);
 
+    console.log(`✅ Feed pull complete. Created ${createdCards.length} new cards.`);
+
     return new Response(
-      JSON.stringify({ success: true, itemsCreated: createdCardIds.length, cardIds: createdCardIds }),
+      JSON.stringify({
+        success: true,
+        cardsCreated: createdCards.length,
+        cardIds: createdCards.map(c => c.id)
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
+
   } catch (error) {
-    console.error("Error:", error);
+    console.error("💥 Error pulling feed:", error);
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
-
-// Simplified RSS parser
-function parseRSS(xmlText: string) {
-  const items: Array<{ title: string; description: string; link: string }> = [];
-  
-  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-  let match;
-
-  while ((match = itemRegex.exec(xmlText)) !== null) {
-    const itemContent = match[1];
-    
-    const titleMatch = /<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>(.*?)<\/title>/.exec(itemContent);
-    const descMatch = /<description><!\[CDATA\[(.*?)\]\]><\/description>|<description>(.*?)<\/description>/.exec(itemContent);
-    const linkMatch = /<link>(.*?)<\/link>/.exec(itemContent);
-
-    items.push({
-      title: titleMatch?.[1] || titleMatch?.[2] || "Untitled",
-      description: (descMatch?.[1] || descMatch?.[2] || "").substring(0, 500),
-      link: linkMatch?.[1] || "",
-    });
-  }
-
-  return items;
-}

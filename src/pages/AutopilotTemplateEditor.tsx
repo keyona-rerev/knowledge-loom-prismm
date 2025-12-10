@@ -48,12 +48,12 @@ const AutopilotTemplateEditor = () => {
 
     setAvailableFeeds(feedsData || []);
 
-    // Load question sets for custom template selection
+    // Load question sets for custom template selection (user's own + global)
     const { data: questionSetsData } = await supabase
       .from("question_sets")
-      .select("id, name")
-      .eq("user_id", session.user.id)
-      .eq("is_active", true);
+      .select("id, name, is_global")
+      .eq("is_active", true)
+      .or(`user_id.eq.${session.user.id},is_global.eq.true`);
 
     setAvailableTemplates(questionSetsData || []);
   };

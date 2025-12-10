@@ -142,7 +142,7 @@ const Insights = () => {
       setConvertDialogOpen(false);
       setSelectedInsightId(null);
       setSelectedQuestionSetId("none");
-      navigate(`/reference-cards/${data.id}`);
+      navigate('/reference-cards');
     } catch (error: any) {
       console.error("Convert error details:", error);
       console.error("Error message:", error?.message);

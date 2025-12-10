@@ -12,6 +12,40 @@ serve(async (req) => {
   }
 
   try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+    // Verify user authentication from JWT
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      console.error("❌ Missing authorization header");
+      return new Response(
+        JSON.stringify({ error: "Authentication required" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const token = authHeader.replace("Bearer ", "");
+    const supabaseAuth = createClient(supabaseUrl, serviceRoleKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token);
+    
+    if (authError || !user) {
+      console.error("❌ Invalid token:", authError?.message);
+      return new Response(
+        JSON.stringify({ error: "Invalid or expired authentication token" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const userId = user.id;
+    console.log("✅ Authenticated user:", userId);
+
+    // Use service role client for database operations
+    const supabaseClient = createClient(supabaseUrl, serviceRoleKey);
+
     const { draftId } = await req.json();
 
     if (!draftId) {
@@ -21,13 +55,7 @@ serve(async (req) => {
       });
     }
 
-    const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-      { global: { headers: { Authorization: req.headers.get("Authorization")! } } }
-    );
-
-    // Get draft with user info
+    // Get draft - verify it belongs to the authenticated user
     const { data: draft, error: draftError } = await supabaseClient
       .from("drafts")
       .select(`
@@ -37,19 +65,26 @@ serve(async (req) => {
         )
       `)
       .eq("id", draftId)
+      .eq("user_id", userId)
       .single();
 
-    if (draftError) throw draftError;
+    if (draftError || !draft) {
+      console.error("❌ Draft not found or access denied:", draftError);
+      return new Response(
+        JSON.stringify({ error: "Draft not found or access denied" }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Get pending count
     const { count: pendingCount } = await supabaseClient
       .from("drafts")
       .select("*", { count: "exact", head: true })
-      .eq("user_id", draft.user_id)
+      .eq("user_id", userId)
       .eq("approval_status", "pending");
 
     // In a real implementation, send actual email here
-    console.log('📧 Would send email to:', draft.profiles.email, {
+    console.log('📧 Would send email to:', draft.profiles?.email, {
       draftTitle: draft.title,
       pendingCount,
       draftId: draft.id
@@ -59,7 +94,7 @@ serve(async (req) => {
     await supabaseClient
       .from("email_notifications")
       .insert({
-        user_id: draft.user_id,
+        user_id: userId,
         draft_id: draftId,
         type: "draft_ready",
         sent_at: new Date().toISOString()
@@ -69,7 +104,7 @@ serve(async (req) => {
       JSON.stringify({ 
         success: true, 
         message: "Notification processed",
-        email: draft.profiles.email,
+        email: draft.profiles?.email,
         pendingCount 
       }),
       {

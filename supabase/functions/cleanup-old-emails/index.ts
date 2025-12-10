@@ -16,12 +16,40 @@ serve(async (req) => {
   }
 
   try {
-    console.log("🧹 Starting email cleanup job");
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    );
+    // Verify user authentication from JWT
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      console.error("❌ Missing authorization header");
+      return new Response(
+        JSON.stringify({ error: "Authentication required" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const token = authHeader.replace("Bearer ", "");
+    const supabaseAuth = createClient(supabaseUrl, serviceRoleKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token);
+    
+    if (authError || !user) {
+      console.error("❌ Invalid token:", authError?.message);
+      return new Response(
+        JSON.stringify({ error: "Invalid or expired authentication token" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const userId = user.id;
+    console.log("✅ Authenticated user:", userId);
+    console.log("🧹 Starting email cleanup job for user:", userId);
+
+    // Use service role client for database operations
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
 
     // Calculate cutoff date (90 days ago)
     const cutoffDate = new Date();
@@ -30,10 +58,11 @@ serve(async (req) => {
 
     console.log(`📅 Deleting emails older than: ${cutoffISO}`);
 
-    // 1. Get IDs of reference cards that will be archived/deleted
+    // 1. Get IDs of reference cards that will be archived/deleted - only for this user
     const { data: oldEmails, error: selectError } = await supabase
       .from("newsletter_emails")
       .select("id, reference_card_id")
+      .eq("user_id", userId)
       .lt("received_at", cutoffISO);
 
     if (selectError) {
@@ -67,6 +96,7 @@ serve(async (req) => {
         .from("reference_cards")
         .update({ status: "archived" })
         .in("id", referenceCardIds)
+        .eq("user_id", userId)
         .eq("source_type", "newsletter");
       
       if (archiveError) {
@@ -76,10 +106,11 @@ serve(async (req) => {
       }
     }
 
-    // 3. Delete old newsletter_emails records
+    // 3. Delete old newsletter_emails records for this user only
     const { count: deletedCount, error: deleteError } = await supabase
       .from("newsletter_emails")
       .delete({ count: "exact" })
+      .eq("user_id", userId)
       .lt("received_at", cutoffISO);
 
     if (deleteError) {

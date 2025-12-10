@@ -6,6 +6,30 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Universal AI JSON response parser - handles any AI provider's response format
+function parseAIJsonResponse(text: string, functionName: string): any {
+  let content = text.trim();
+  
+  // Strip markdown code fences (handles ```json, ```, ```javascript, etc.)
+  const fenceMatch = content.match(/```(?:\w*)?\s*([\s\S]*?)\s*```/i);
+  if (fenceMatch) {
+    content = fenceMatch[1].trim();
+  }
+  
+  // Try to find JSON object or array if there's extra text
+  const jsonMatch = content.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+  if (jsonMatch) {
+    content = jsonMatch[1];
+  }
+  
+  try {
+    return JSON.parse(content);
+  } catch (error) {
+    console.error(`[${functionName}] Failed to parse AI JSON response:`, content.slice(0, 500));
+    throw new Error("AI returned invalid JSON format");
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -222,13 +246,7 @@ Respond in JSON format:
 
       const aiData = await aiResponse.json();
       const generatedText = aiData.candidates[0].content.parts[0].text;
-      
-      let content = generatedText;
-      const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-      if (fenceMatch) {
-        content = fenceMatch[1].trim();
-      }
-      result = JSON.parse(content);
+      result = parseAIJsonResponse(generatedText, "generate-final-content");
 
     } else if (profile.ai_provider === "custom") {
       const aiResponse = await fetch(profile.custom_ai_endpoint, {
@@ -254,7 +272,8 @@ Respond in JSON format:
       }
 
       const aiData = await aiResponse.json();
-      result = JSON.parse(aiData.choices[0].message.content);
+      const generatedText = aiData.choices[0].message.content;
+      result = parseAIJsonResponse(generatedText, "generate-final-content");
 
     } else {
       // Use Lovable AI (default/fallback)
@@ -289,13 +308,7 @@ Respond in JSON format:
 
       const aiData = await aiResponse.json();
       const generatedText = aiData.choices?.[0]?.message?.content ?? "";
-      
-      let content = generatedText;
-      const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-      if (fenceMatch) {
-        content = fenceMatch[1].trim();
-      }
-      result = JSON.parse(content);
+      result = parseAIJsonResponse(generatedText, "generate-final-content");
     }
 
     console.log("✅ Final content generated successfully");

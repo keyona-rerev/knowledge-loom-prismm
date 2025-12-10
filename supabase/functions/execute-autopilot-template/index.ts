@@ -12,46 +12,68 @@ serve(async (req) => {
   }
 
   try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+    // Verify user authentication from JWT
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      console.error("❌ Missing authorization header");
+      return new Response(
+        JSON.stringify({ error: "Authentication required" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const token = authHeader.replace("Bearer ", "");
+    const supabaseAuth = createClient(supabaseUrl, serviceRoleKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token);
+    
+    if (authError || !user) {
+      console.error("❌ Invalid token:", authError?.message);
+      return new Response(
+        JSON.stringify({ error: "Invalid or expired authentication token" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const userId = user.id;
+    console.log("✅ Authenticated user:", userId);
+
+    // Use service role client for database operations
+    const supabaseClient = createClient(supabaseUrl, serviceRoleKey);
+
     const { templateId, isTestRun = false } = await req.json();
 
     if (!templateId) {
       return new Response(
         JSON.stringify({ error: "templateId is required" }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-      { global: { headers: { Authorization: req.headers.get("Authorization")! } } }
-    );
-
     console.log("🔄 Executing autopilot template:", templateId, "Test run:", isTestRun);
 
-    // Get template with feed details
+    // Get template - verify it belongs to the authenticated user
     const { data: template, error: templateError } = await supabaseClient
       .from("content_templates")
       .select("*")
       .eq("id", templateId)
+      .eq("user_id", userId)
       .single();
 
     if (templateError || !template) {
-      console.error("❌ Template not found:", templateError);
-      throw new Error("Template not found");
+      console.error("❌ Template not found or access denied:", templateError);
+      return new Response(
+        JSON.stringify({ error: "Template not found or access denied" }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     // Get recent reference cards for the user
-    const { data: { session } } = await supabaseClient.auth.getSession();
-    const userId = session?.user?.id;
-
-    if (!userId) {
-      throw new Error("User not authenticated");
-    }
-
     const { data: referenceCards, error: cardsError } = await supabaseClient
       .from("reference_cards")
       .select("id, title, ai_summary, insight_answers, source_feed_id")
@@ -83,7 +105,7 @@ serve(async (req) => {
         .select("*")
         .eq("content_type", template.content_type)
         .eq("is_active", true)
-        .or(`user_id.eq.${template.user_id},is_system_template.eq.true`)
+        .or(`user_id.eq.${userId},is_system_template.eq.true`)
         .order("is_system_template", { ascending: false })
         .limit(1)
         .single();
@@ -95,12 +117,15 @@ serve(async (req) => {
     // Generate draft from each reference card
     for (const card of referenceCards) {
       try {
-        // Generate content using AI
+        // Generate content using AI - pass auth header to nested function
         const { data: generatedContent, error: aiError } = await supabaseClient.functions.invoke("generate-content-from-card", {
           body: {
             cardId: card.id,
             templateId: contentTemplate?.id,
             outputFormat: template.content_type
+          },
+          headers: {
+            Authorization: authHeader
           }
         });
 
@@ -118,9 +143,9 @@ serve(async (req) => {
             status: "draft",
             user_id: userId,
             seed_insight: card.ai_summary,
-            content_type: template.output_format,
+            content_type: template.content_type,
             autopilot_template_id: template.id,
-            approval_status: template.approval_required !== false ? 'pending' : 'draft',
+            approval_status: 'pending',
             revision_count: 0
           })
           .select()
@@ -137,7 +162,10 @@ serve(async (req) => {
         if (draftData) {
           console.log("📧 Triggering notification for draft:", draftData.id);
           await supabaseClient.functions.invoke('send-draft-notification', {
-            body: { draftId: draftData.id }
+            body: { draftId: draftData.id },
+            headers: {
+              Authorization: authHeader
+            }
           });
         }
 
@@ -153,7 +181,7 @@ serve(async (req) => {
       await supabaseClient
         .from("content_templates")
         .update({ 
-          last_run_at: new Date().toISOString()
+          updated_at: new Date().toISOString()
         })
         .eq("id", templateId);
     }

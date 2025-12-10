@@ -197,7 +197,7 @@ serve(async (req) => {
     }
 
     // Parse RSS items
-    const items = Array.from(xmlDoc.querySelectorAll("item")) as Element[];
+    const items = Array.from(xmlDoc.querySelectorAll("item")) as any[];
     const createdCards = [];
 
     console.log(`📰 Found ${items.length} items in feed`);

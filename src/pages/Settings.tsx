@@ -11,17 +11,15 @@ import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2, Moon, Sun, AlertTriangle, Mail, Copy, CheckCircle, RefreshCw, Shield, Loader2 } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Moon, Sun, AlertTriangle, Mail, Shield, Loader2 } from "lucide-react";
 import { useTheme } from "next-themes";
 
 const Settings = () => {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const [loading, setLoading] = useState(false);
-  const [userNewsletterEmail, setUserNewsletterEmail] = useState<string | null>(null);
-  const [emailCopied, setEmailCopied] = useState(false);
-  const [loadingEmail, setLoadingEmail] = useState(false);
   const [deletingData, setDeletingData] = useState(false);
+  const [customModel, setCustomModel] = useState("");
   const [profile, setProfile] = useState({
     business_name: "",
     business_description: "",
@@ -31,7 +29,7 @@ const Settings = () => {
     secondary_color: "#7E69AB",
     accent_color: "#6E59A5",
     ai_provider: "google-ai",
-    ai_model: "gemini-2.0-flash-exp",
+    ai_model: "gemini-2.5-flash-lite",
     google_ai_api_key: "",
     custom_ai_endpoint: "",
     custom_ai_model_name: "",
@@ -39,6 +37,14 @@ const Settings = () => {
     content_type_templates: [] as Array<{id: string, name: string, prompt: string}>,
     newsletter_domain: ""
   });
+
+  const FREE_MODELS = [
+    { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite (Free — Recommended)" },
+    { value: "gemini-3-flash-preview", label: "Gemini 3 Flash Preview (Free)" },
+    { value: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash-Lite Preview (Free)" },
+  ];
+
+  const isCustomModel = !FREE_MODELS.find(m => m.value === profile.ai_model);
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -55,6 +61,10 @@ const Settings = () => {
         .maybeSingle();
 
       if (data) {
+        const loadedModel = data.ai_model || "gemini-2.5-flash-lite";
+        const isKnownFreeModel = FREE_MODELS.find(m => m.value === loadedModel);
+        if (!isKnownFreeModel) setCustomModel(loadedModel);
+
         setProfile({
           business_name: data.business_name || "",
           business_description: data.business_description || "",
@@ -64,23 +74,18 @@ const Settings = () => {
           secondary_color: data.secondary_color || "#7E69AB",
           accent_color: data.accent_color || "#6E59A5",
           ai_provider: data.ai_provider || "google-ai",
-          ai_model: data.ai_model || "gemini-2.0-flash-exp",
+          ai_model: loadedModel,
           google_ai_api_key: data.google_ai_api_key || "",
           custom_ai_endpoint: data.custom_ai_endpoint || "",
           custom_ai_model_name: data.custom_ai_model_name || "",
-          writing_examples: Array.isArray(data.writing_examples) 
-            ? (data.writing_examples.filter((ex): ex is string => typeof ex === 'string'))
+          writing_examples: Array.isArray(data.writing_examples)
+            ? data.writing_examples.filter((ex): ex is string => typeof ex === 'string')
             : [],
           content_type_templates: Array.isArray(data.content_type_templates)
             ? data.content_type_templates as Array<{id: string, name: string, prompt: string}>
             : [],
           newsletter_domain: data.newsletter_domain || ""
         });
-        
-        // Load newsletter email if domain is set
-        if (data.newsletter_domain) {
-          loadNewsletterEmail(session.user.id, data.newsletter_domain);
-        }
       } else if (error && error.code !== "PGRST116") {
         toast.error("Failed to load profile");
       }
@@ -88,79 +93,21 @@ const Settings = () => {
     loadProfile();
   }, []);
 
-  const loadNewsletterEmail = async (userId: string, domain: string) => {
-    setLoadingEmail(true);
-    const { data: existingEmail } = await supabase
-      .from("user_newsletter_emails")
-      .select("email_address, email_prefix")
-      .eq("user_id", userId)
-      .eq("is_active", true)
-      .single();
-
-    if (existingEmail) {
-      const expectedEmail = `${existingEmail.email_prefix}@${domain}`;
-      if (existingEmail.email_address !== expectedEmail) {
-        await supabase
-          .from("user_newsletter_emails")
-          .update({ email_address: expectedEmail })
-          .eq("user_id", userId)
-          .eq("is_active", true);
-        setUserNewsletterEmail(expectedEmail);
-      } else {
-        setUserNewsletterEmail(existingEmail.email_address);
-      }
-    }
-    setLoadingEmail(false);
-  };
-
-  const generateNewsletterEmail = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session || !profile.newsletter_domain) return;
-
-    setLoadingEmail(true);
-    const prefix = `user-${crypto.randomUUID().slice(0, 12)}`;
-    const email = `${prefix}@${profile.newsletter_domain}`;
-
-    const { error } = await supabase
-      .from("user_newsletter_emails")
-      .insert({
-        user_id: session.user.id,
-        email_address: email,
-        email_prefix: prefix,
-        is_active: true,
-      });
-
-    if (error) {
-      toast.error("Failed to generate newsletter email");
-    } else {
-      setUserNewsletterEmail(email);
-      toast.success("Newsletter email generated!");
-    }
-    setLoadingEmail(false);
-  };
-
-  const copyEmailToClipboard = async () => {
-    if (!userNewsletterEmail) return;
-    try {
-      await navigator.clipboard.writeText(userNewsletterEmail);
-      setEmailCopied(true);
-      toast.success("Email copied to clipboard!");
-      setTimeout(() => setEmailCopied(false), 2000);
-    } catch (err) {
-      toast.error("Failed to copy email");
-    }
-  };
-
   const handleSave = async () => {
     setLoading(true);
 
-    // Get current user
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
       toast.error("You must be logged in to save settings");
       setLoading(false);
       return;
     }
+
+    // If custom model is selected, use the custom model string
+    const profileToSave = {
+      ...profile,
+      ai_model: isCustomModel ? customModel : profile.ai_model,
+    };
 
     const { data: existingProfile } = await supabase
       .from("profiles")
@@ -172,14 +119,13 @@ const Settings = () => {
     if (existingProfile) {
       const result = await supabase
         .from("profiles")
-        .update(profile)
+        .update(profileToSave)
         .eq("id", existingProfile.id);
       error = result.error;
     } else {
-      // Include user_id when creating new profile
       const result = await supabase
         .from("profiles")
-        .insert([{ ...profile, user_id: session.user.id }]);
+        .insert([{ ...profileToSave, user_id: session.user.id }]);
       error = result.error;
     }
 
@@ -187,32 +133,9 @@ const Settings = () => {
       toast.error("Failed to save settings");
     } else {
       toast.success("Settings saved successfully");
-      
-      // Sync newsletter email if domain is set
-      if (profile.newsletter_domain && session) {
-        const { data: existingEmail } = await supabase
-          .from("user_newsletter_emails")
-          .select("email_address, email_prefix")
-          .eq("user_id", session.user.id)
-          .eq("is_active", true)
-          .single();
-
-        if (existingEmail) {
-          const expectedEmail = `${existingEmail.email_prefix}@${profile.newsletter_domain}`;
-          if (existingEmail.email_address !== expectedEmail) {
-            await supabase
-              .from("user_newsletter_emails")
-              .update({ email_address: expectedEmail })
-              .eq("user_id", session.user.id)
-              .eq("is_active", true);
-            setUserNewsletterEmail(expectedEmail);
-          }
-        }
-      }
     }
     setLoading(false);
   };
-
 
   return (
     <div className="min-h-screen bg-background">
@@ -228,6 +151,7 @@ const Settings = () => {
       <main className="container mx-auto px-4 py-8 max-w-3xl">
         <h1 className="text-3xl font-bold mb-8">Settings</h1>
 
+        {/* Business Information */}
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>Business Information</CardTitle>
@@ -276,6 +200,7 @@ const Settings = () => {
           </CardContent>
         </Card>
 
+        {/* Appearance */}
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>Appearance</CardTitle>
@@ -285,9 +210,7 @@ const Settings = () => {
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label htmlFor="dark-mode" className="text-base">Dark Mode</Label>
-                <p className="text-sm text-muted-foreground">
-                  Toggle between light and dark theme
-                </p>
+                <p className="text-sm text-muted-foreground">Toggle between light and dark theme</p>
               </div>
               <div className="flex items-center gap-2">
                 {theme === "dark" ? (
@@ -305,99 +228,54 @@ const Settings = () => {
           </CardContent>
         </Card>
 
+        {/* Colors & Branding */}
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>Colors & Branding</CardTitle>
             <CardDescription>Customize your app's color scheme</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="primary-color">Primary Color</Label>
-              <div className="flex items-center gap-3 mt-2">
-                <Input
-                  id="primary-color"
-                  type="color"
-                  value={profile.primary_color}
-                  onChange={(e) => setProfile(prev => ({ ...prev, primary_color: e.target.value }))}
-                  className="w-20 h-10 cursor-pointer"
-                />
-                <Input
-                  type="text"
-                  value={profile.primary_color}
-                  onChange={(e) => setProfile(prev => ({ ...prev, primary_color: e.target.value }))}
-                  placeholder="#9b87f5"
-                  className="flex-1"
-                />
+            {(["primary", "secondary", "accent"] as const).map((colorKey) => (
+              <div key={colorKey}>
+                <Label htmlFor={`${colorKey}-color`}>
+                  {colorKey.charAt(0).toUpperCase() + colorKey.slice(1)} Color
+                </Label>
+                <div className="flex items-center gap-3 mt-2">
+                  <Input
+                    id={`${colorKey}-color`}
+                    type="color"
+                    value={profile[`${colorKey}_color`]}
+                    onChange={(e) => setProfile(prev => ({ ...prev, [`${colorKey}_color`]: e.target.value }))}
+                    className="w-20 h-10 cursor-pointer"
+                  />
+                  <Input
+                    type="text"
+                    value={profile[`${colorKey}_color`]}
+                    onChange={(e) => setProfile(prev => ({ ...prev, [`${colorKey}_color`]: e.target.value }))}
+                    className="flex-1"
+                  />
+                </div>
               </div>
-            </div>
-            <div>
-              <Label htmlFor="secondary-color">Secondary Color</Label>
-              <div className="flex items-center gap-3 mt-2">
-                <Input
-                  id="secondary-color"
-                  type="color"
-                  value={profile.secondary_color}
-                  onChange={(e) => setProfile(prev => ({ ...prev, secondary_color: e.target.value }))}
-                  className="w-20 h-10 cursor-pointer"
-                />
-                <Input
-                  type="text"
-                  value={profile.secondary_color}
-                  onChange={(e) => setProfile(prev => ({ ...prev, secondary_color: e.target.value }))}
-                  placeholder="#7E69AB"
-                  className="flex-1"
-                />
-              </div>
-            </div>
-            <div>
-              <Label htmlFor="accent-color">Accent Color</Label>
-              <div className="flex items-center gap-3 mt-2">
-                <Input
-                  id="accent-color"
-                  type="color"
-                  value={profile.accent_color}
-                  onChange={(e) => setProfile(prev => ({ ...prev, accent_color: e.target.value }))}
-                  className="w-20 h-10 cursor-pointer"
-                />
-                <Input
-                  type="text"
-                  value={profile.accent_color}
-                  onChange={(e) => setProfile(prev => ({ ...prev, accent_color: e.target.value }))}
-                  placeholder="#6E59A5"
-                  className="flex-1"
-                />
-              </div>
-            </div>
+            ))}
           </CardContent>
         </Card>
 
+        {/* Writing Style */}
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>Writing Style & Voice Training</CardTitle>
             <CardDescription>Provide up to 4 examples of your writing so AI can match your tone and style</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <InstructionsToggle 
-              instructions={`**Training AI to Match Your Voice**
-
-The AI uses these examples to understand your:
-• Writing style and tone (formal, casual, conversational)
-• Sentence structure and flow
-• Vocabulary and word choice
-• How you present ideas and arguments
-
-IMPORTANT: The AI will reference the STRUCTURE, TONE, and VOICE from your examples but will NOT use the actual content/substance. Your examples teach style, not topics.
-
-Best practices:
-• Provide 2-4 diverse examples (different topics but same voice)
-• Use 200-500 words per example
-• Choose your best, most representative writing
-• Examples can be blog posts, articles, emails, or any written content in your natural voice`}
+            <InstructionsToggle
+              instructions={`**Training AI to Match Your Voice**\n\nThe AI uses these examples to understand your:\n• Writing style and tone (formal, casual, conversational)\n• Sentence structure and flow\n• Vocabulary and word choice\n\nBest practices:\n• Provide 2-4 diverse examples (different topics but same voice)\n• Use 200-500 words per example\n• Choose your best, most representative writing`}
             />
             {[0, 1, 2, 3].map((index) => (
               <div key={index} className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor={`example-${index}`}>Writing Example {index + 1} {index < 2 && "(Recommended)"}</Label>
+                  <Label htmlFor={`example-${index}`}>
+                    Writing Example {index + 1} {index < 2 && "(Recommended)"}
+                  </Label>
                   {profile.writing_examples[index] && (
                     <Button
                       variant="ghost"
@@ -420,7 +298,7 @@ Best practices:
                     newExamples[index] = e.target.value;
                     setProfile(prev => ({ ...prev, writing_examples: newExamples }));
                   }}
-                  placeholder={`Paste a sample of your writing here (200-500 words recommended)...`}
+                  placeholder="Paste a sample of your writing here (200-500 words recommended)..."
                   rows={6}
                   className="font-mono text-sm"
                 />
@@ -432,30 +310,16 @@ Best practices:
           </CardContent>
         </Card>
 
+        {/* Content Type Templates */}
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>Content Type Templates</CardTitle>
-            <CardDescription>Define what makes great content for each format - structure, tone, and requirements</CardDescription>
+            <CardDescription>Define what makes great content for each format</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <InstructionsToggle 
-              instructions={`**Content Type Templates**
-
-These templates teach the AI what constitutes each content format:
-• STRUCTURE: How should content be organized? (sections, length, flow)
-• TONE: What voice/style should be used? (professional, casual, analytical)
-• REQUIREMENTS: What must be included? (metrics, examples, CTAs)
-
-The AI will use these guidelines when generating content to ensure it matches the expected format.
-
-Examples:
-• LinkedIn: Concise, engaging, 1300-1500 characters with hook and CTA
-• Blog Post: Comprehensive, SEO-optimized, 1200-2000 words with headers
-• Case Study: Detailed, results-focused, 1500-2500 words with metrics
-
-You can edit existing templates or add custom ones for your specific needs.`}
+            <InstructionsToggle
+              instructions={`**Content Type Templates**\n\nThese templates teach the AI what constitutes each content format:\n• STRUCTURE: How should content be organized?\n• TONE: What voice/style should be used?\n• REQUIREMENTS: What must be included?\n\nExamples:\n• LinkedIn: Concise, 1300-1500 characters with hook and CTA\n• Blog Post: SEO-optimized, 1200-2000 words with headers`}
             />
-
             {profile.content_type_templates.map((template, index) => (
               <div key={template.id} className="space-y-3 p-4 border rounded-lg">
                 <div className="flex items-center justify-between">
@@ -482,9 +346,6 @@ You can edit existing templates or add custom ones for your specific needs.`}
                         disabled
                         className="bg-muted cursor-not-allowed"
                       />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        This ID is used internally and cannot be changed
-                      </p>
                     </div>
                   </div>
                   <Button
@@ -513,13 +374,9 @@ You can edit existing templates or add custom ones for your specific needs.`}
                     rows={8}
                     className="text-sm"
                   />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Be specific: Include ideal length, tone, structure, what to include/exclude, formatting style
-                  </p>
                 </div>
               </div>
             ))}
-
             <Button
               variant="outline"
               onClick={() => {
@@ -538,87 +395,36 @@ You can edit existing templates or add custom ones for your specific needs.`}
           </CardContent>
         </Card>
 
+        {/* AI Provider Configuration */}
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>AI Provider Configuration</CardTitle>
             <CardDescription>Configure which AI model powers your content generation</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <InstructionsToggle 
-              instructions={
-                profile.ai_provider === 'google-ai' 
-                  ? `**Using Google AI (Recommended)**
-
-Step 1: Get Your Google AI API Key
-• Go to https://aistudio.google.com/app/apikey
-• Sign in with your Google account
-• Click "Create API Key"
-• Copy the key (starts with AIza...)
-
-Step 2: Enter API Key Below
-• Paste your API key in the field
-• This ONE key works with ALL Gemini models
-
-Step 3: Choose Your Model
-• Select which Gemini model to use for content generation
-• Recommended: Gemini 2.0 Flash (Experimental) for best balance
-
-Step 4: Save Settings
-• Click "Save Settings" to apply
-• Test by creating content - uses YOUR quota!`
-                  : `**Custom AI Provider (Advanced)**
-
-Step 1: Prepare Your AI Service
-• Have your AI API endpoint ready (e.g., OpenAI, Anthropic, Hugging Face)
-• Ensure you have a valid API key
-• Know your model name (e.g., gpt-4, claude-3-5-sonnet)
-
-Step 2: Configure Below
-• Select "Custom AI Provider"
-• Enter your API endpoint URL
-• Enter the exact model name
-• Paste your API key
-• Click "Save Settings"
-
-Step 3: Compatibility
-• Endpoint should be OpenAI-compatible format
-• Must support /chat/completions or similar
-• Contact the developer if you need help with integration
-
-**Note:** This is an advanced option for users who want to use AI providers other than Google Gemini.`
-              }
-              autoShowDuration={15000}
-            />
-
             <div className="space-y-2">
               <Label htmlFor="ai_provider" className="text-base font-semibold">Step 1: Choose Your AI Provider</Label>
               <Select
                 value={profile.ai_provider}
-                onValueChange={(value) => 
-                  setProfile(prev => ({ ...prev, ai_provider: value }))
-                }
+                onValueChange={(value) => setProfile(prev => ({ ...prev, ai_provider: value }))}
               >
                 <SelectTrigger id="ai_provider">
                   <SelectValue placeholder="Select AI provider" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="lovable-ai">Lovable AI (Development/Testing)</SelectItem>
-                  <SelectItem value="google-ai">Google AI (Use your own Gemini account)</SelectItem>
+                  <SelectItem value="google-ai">Google AI (Recommended — Free tier available)</SelectItem>
                   <SelectItem value="custom">Custom AI Provider (Advanced)</SelectItem>
                 </SelectContent>
               </Select>
-              {profile.ai_provider === 'lovable-ai' && (
-                <p className="text-sm text-muted-foreground">
-                  Lovable AI is available for development and testing. Before handoff, configure your own AI provider (Google AI or Custom).
-                </p>
-              )}
             </div>
 
             {profile.ai_provider === 'google-ai' && (
               <Alert>
                 <AlertDescription className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="google_ai_api_key" className="text-base font-semibold">Step 2: Enter Your API Key</Label>
+                    <Label htmlFor="google_ai_api_key" className="text-base font-semibold">
+                      Step 2: Enter Your Google AI API Key
+                    </Label>
                     <Input
                       id="google_ai_api_key"
                       type="password"
@@ -627,29 +433,64 @@ Step 3: Compatibility
                       onChange={(e) => setProfile(prev => ({ ...prev, google_ai_api_key: e.target.value }))}
                     />
                     <p className="text-sm text-muted-foreground">
-                      One API key works with all Gemini models. Get yours at: <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">https://aistudio.google.com/app/apikey</a>
+                      Get a free API key at:{" "}
+                      <a
+                        href="https://aistudio.google.com/app/apikey"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline"
+                      >
+                        aistudio.google.com/app/apikey
+                      </a>
                     </p>
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="ai_model" className="text-base font-semibold">Step 3: Choose Your Preferred Model</Label>
+                    <Label htmlFor="ai_model" className="text-base font-semibold">
+                      Step 3: Choose Your Model
+                    </Label>
                     <Select
-                      value={profile.ai_model}
-                      onValueChange={(value) => setProfile(prev => ({ ...prev, ai_model: value }))}
+                      value={isCustomModel ? "custom" : profile.ai_model}
+                      onValueChange={(value) => {
+                        if (value === "custom") {
+                          setProfile(prev => ({ ...prev, ai_model: "custom" }));
+                        } else {
+                          setCustomModel("");
+                          setProfile(prev => ({ ...prev, ai_model: value }));
+                        }
+                      }}
                     >
                       <SelectTrigger id="ai_model">
                         <SelectValue placeholder="Select model" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="gemini-2.0-flash-exp">Gemini 2.0 Flash (Experimental) - Recommended</SelectItem>
-                        <SelectItem value="gemini-1.5-flash">Gemini 1.5 Flash</SelectItem>
-                        <SelectItem value="gemini-1.5-pro">Gemini 1.5 Pro</SelectItem>
-                        <SelectItem value="gemini-2.0-flash-thinking-exp-1219">Gemini 2.0 Flash Thinking (Experimental)</SelectItem>
+                        <SelectItem value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite (Free — Recommended)</SelectItem>
+                        <SelectItem value="gemini-3-flash-preview">Gemini 3 Flash Preview (Free)</SelectItem>
+                        <SelectItem value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash-Lite Preview (Free)</SelectItem>
+                        <SelectItem value="custom">Custom Model...</SelectItem>
                       </SelectContent>
                     </Select>
-                    <p className="text-sm text-muted-foreground">
-                      Your API key works with all models above. Choose which to use for content generation.
-                    </p>
+
+                    {(isCustomModel || profile.ai_model === "custom") && (
+                      <div className="mt-2">
+                        <Input
+                          placeholder="Enter exact model string, e.g. gemini-3.1-pro-preview"
+                          value={customModel}
+                          onChange={(e) => setCustomModel(e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Find available model strings at{" "}
+                          <a
+                            href="https://ai.google.dev/gemini-api/docs/models"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline"
+                          >
+                            ai.google.dev/gemini-api/docs/models
+                          </a>
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </AlertDescription>
               </Alert>
@@ -667,37 +508,26 @@ Step 3: Compatibility
                       value={profile.custom_ai_endpoint || ''}
                       onChange={(e) => setProfile(prev => ({ ...prev, custom_ai_endpoint: e.target.value }))}
                     />
-                    <p className="text-sm text-muted-foreground">
-                      Enter the full URL to your AI provider's chat completions endpoint
-                    </p>
                   </div>
-
                   <div className="space-y-2">
                     <Label htmlFor="custom_ai_model_name" className="text-base font-semibold">Step 3: Model Name</Label>
                     <Input
                       id="custom_ai_model_name"
                       type="text"
-                      placeholder="gpt-4, claude-3-5-sonnet, etc."
+                      placeholder="e.g. gpt-4o, claude-sonnet-4-5"
                       value={profile.custom_ai_model_name || ''}
                       onChange={(e) => setProfile(prev => ({ ...prev, custom_ai_model_name: e.target.value }))}
                     />
-                    <p className="text-sm text-muted-foreground">
-                      The exact model identifier from your provider's documentation
-                    </p>
                   </div>
-
                   <div className="space-y-2">
                     <Label htmlFor="custom_ai_api_key" className="text-base font-semibold">Step 4: API Key</Label>
                     <Input
                       id="custom_ai_api_key"
                       type="password"
-                      placeholder="Your custom provider API key"
+                      placeholder="Your API key"
                       value={profile.google_ai_api_key || ''}
                       onChange={(e) => setProfile(prev => ({ ...prev, google_ai_api_key: e.target.value }))}
                     />
-                    <p className="text-sm text-muted-foreground">
-                      Your API key is encrypted and stored securely
-                    </p>
                   </div>
                 </AlertDescription>
               </Alert>
@@ -705,124 +535,26 @@ Step 3: Compatibility
           </CardContent>
         </Card>
 
+        {/* Newsletter Configuration */}
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Mail className="h-5 w-5" />
-              Newsletter Email Configuration
+              Newsletter Intake
             </CardTitle>
-            <CardDescription>Configure your newsletter inbox domain for automatic content capture</CardDescription>
+            <CardDescription>How newsletters are captured into your reference cards</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <InstructionsToggle 
-              instructions={`**Newsletter Inbox Setup**
-
-This feature creates a unique email address for each user that can be used to subscribe to any newsletter. Newsletters received will automatically become reference cards.
-
-**Setup Steps:**
-
-1. **Get a Domain** - You need a domain you control (e.g., newsletters.yourbusiness.com)
-
-2. **Create Mailgun Account** - Go to https://www.mailgun.com and create an account
-
-3. **Add Your Domain to Mailgun:**
-   • Navigate to Sending → Domains
-   • Click "Add New Domain"
-   • Follow DNS verification steps
-
-4. **Configure Catch-All Route:**
-   • Go to Receiving → Routes
-   • Create new route with:
-     - Expression: catch_all()
-     - Action: forward("https://xtaslgxrgzksojtoekmz.supabase.co/functions/v1/process-newsletter-email")
-   
-5. **Enter Your Domain Below** - Once Mailgun is configured, enter the domain here
-
-6. **Test It** - Go to Content Sources, copy your unique email, and subscribe to a test newsletter`}
-            />
-            
-            <div className="space-y-2">
-              <Label htmlFor="newsletter-domain">Newsletter Domain</Label>
-              <Input
-                id="newsletter-domain"
-                value={profile.newsletter_domain}
-                onChange={(e) => setProfile(prev => ({ ...prev, newsletter_domain: e.target.value }))}
-                placeholder="e.g., newsletters.yourbusiness.com"
-              />
-              <p className="text-sm text-muted-foreground">
-                The domain you've configured in Mailgun for receiving newsletters.
-              </p>
-            </div>
-            
-            {profile.newsletter_domain && (
-              <div className="space-y-3 pt-2 border-t">
-                <Label className="text-base font-semibold">Your Newsletter Email</Label>
-                {loadingEmail ? (
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                    <span className="text-sm">Loading...</span>
-                  </div>
-                ) : userNewsletterEmail ? (
-                  <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
-                    <code className="flex-1 text-sm font-mono break-all">{userNewsletterEmail}</code>
-                    <Button onClick={copyEmailToClipboard} variant="outline" size="sm">
-                      {emailCopied ? (
-                        <>
-                          <CheckCircle className="h-4 w-4 mr-1 text-green-500" />
-                          Copied
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="h-4 w-4 mr-1" />
-                          Copy
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-sm text-muted-foreground">
-                      Save settings to generate your unique newsletter email address.
-                    </p>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={generateNewsletterEmail}
-                      disabled={loadingEmail}
-                    >
-                      <Mail className="h-4 w-4 mr-2" />
-                      Generate Email Now
-                    </Button>
-                  </div>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  Use this email to subscribe to newsletters. Content will automatically become reference cards.
+          <CardContent>
+            <Alert>
+              <AlertDescription className="space-y-2">
+                <p>
+                  Newsletters are captured automatically through Gmail using the Knowledge Loom label system.
                 </p>
-                
-                {/* Privacy Disclosure */}
-                <Alert className="mt-4">
-                  <Shield className="h-4 w-4" />
-                  <AlertDescription className="text-xs">
-                    <strong>Privacy Notice:</strong> Email content received at this address will be:
-                    <ul className="list-disc ml-4 mt-1 space-y-0.5">
-                      <li>Stored in our database for processing</li>
-                      <li>Processed by AI (Google Gemini or OpenAI) to extract insights</li>
-                      <li>Retained for 90 days, then automatically archived</li>
-                    </ul>
-                    By using this feature, you consent to sharing newsletter content with our AI providers.
-                  </AlertDescription>
-                </Alert>
-              </div>
-            )}
-            
-            {!profile.newsletter_domain && (
-              <Alert>
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>
-                  Newsletter inbox is disabled until you configure a domain and set up Mailgun.
-                </AlertDescription>
-              </Alert>
-            )}
+                <p className="text-sm text-muted-foreground">
+                  To add a newsletter: open it in Gmail, apply the <strong>loom-queue</strong> label, and it will appear as a reference card within 5 minutes. To process newsletters automatically going forward, set up a Gmail filter that applies <strong>loom-queue</strong> to emails from your chosen senders.
+                </p>
+              </AlertDescription>
+            </Alert>
           </CardContent>
         </Card>
 
@@ -839,35 +571,25 @@ This feature creates a unique email address for each user that can be used to su
             <div className="space-y-2">
               <Label className="text-base font-semibold text-destructive">Delete Newsletter Data</Label>
               <p className="text-sm text-muted-foreground">
-                This will permanently delete all your newsletter-related data including:
+                Permanently deletes all newsletter-related data including received newsletter records and reference cards created from newsletters.
               </p>
-              <ul className="text-sm text-muted-foreground list-disc ml-4 space-y-1">
-                <li>Your newsletter email address</li>
-                <li>All received newsletter records</li>
-                <li>Reference cards created from newsletters</li>
-              </ul>
               <Alert variant="destructive" className="mt-2">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertDescription>
                   This action cannot be undone. Your other content (manual sources, drafts, etc.) will not be affected.
                 </AlertDescription>
               </Alert>
-              <Button 
-                variant="destructive" 
+              <Button
+                variant="destructive"
                 onClick={async () => {
-                  if (!confirm("Are you sure you want to delete all your newsletter data? This cannot be undone.")) {
-                    return;
-                  }
-                  
+                  if (!confirm("Are you sure you want to delete all your newsletter data? This cannot be undone.")) return;
                   setDeletingData(true);
                   try {
                     const { data, error } = await supabase.functions.invoke("delete-user-data");
-                    
                     if (error) {
                       toast.error("Failed to delete data: " + error.message);
                     } else {
-                      toast.success(`Deleted ${data.details?.user_newsletter_emails?.deleted || 0} email records, ${data.details?.newsletter_emails?.deleted || 0} newsletters, and ${data.details?.reference_cards_newsletter?.deleted || 0} reference cards`);
-                      setUserNewsletterEmail(null);
+                      toast.success(`Deleted ${data.details?.newsletter_emails?.deleted || 0} newsletters and ${data.details?.reference_cards_newsletter?.deleted || 0} reference cards`);
                     }
                   } catch (err) {
                     toast.error("Failed to delete data");

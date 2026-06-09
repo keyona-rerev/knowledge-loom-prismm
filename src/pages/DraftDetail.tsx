@@ -7,9 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { ArrowLeft, FileText, Clock, Edit, Save, Sparkles } from "lucide-react";
+import { ArrowLeft, FileText, Clock, Edit, Save, Sparkles, ImageIcon } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { VisualForge } from "@/components/VisualForge";
 
 interface ContentTemplate {
   id: string;
@@ -31,19 +33,21 @@ const DraftDetail = () => {
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [regenerating, setRegenerating] = useState(false);
   const [revisions, setRevisions] = useState<any[]>([]);
+  const [userId, setUserId] = useState<string>("");
 
   const getApprovalBadgeVariant = (status?: string) => {
     switch (status) {
       case "approved": return "default";
       case "rejected": return "destructive";
       case "pending":
-      default:
-        return "secondary";
+      default: return "secondary";
     }
   };
 
   const loadDraft = async () => {
     if (!id) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user?.id) setUserId(session.user.id);
 
     const { data, error } = await supabase
       .from("drafts")
@@ -52,7 +56,6 @@ const DraftDetail = () => {
       .single();
 
     if (error) {
-      console.error("Error loading draft:", error);
       toast.error("Failed to load draft");
       navigate("/drafts");
     } else {
@@ -66,19 +69,14 @@ const DraftDetail = () => {
 
   const loadRevisions = async () => {
     if (!id) return;
-    
     const { data, error } = await supabase
       .from("draft_revisions")
       .select("*")
       .eq("draft_id", id)
       .order("version", { ascending: false });
-
-    if (!error && data) {
-      setRevisions(data);
-    }
+    if (!error && data) setRevisions(data);
   };
 
-  // Load available templates
   const loadTemplates = async () => {
     try {
       const { data, error } = await supabase
@@ -86,14 +84,8 @@ const DraftDetail = () => {
         .select("*")
         .eq("is_active", true)
         .order("name");
-
       if (error) {
-        console.error("Error loading templates:", error);
-        if (error.code === '42P01') {
-          console.log("Content templates table not created yet");
-          setTemplates([]);
-          return;
-        }
+        if (error.code === '42P01') { setTemplates([]); return; }
       } else {
         setTemplates(data || []);
       }
@@ -110,19 +102,11 @@ const DraftDetail = () => {
 
   const handleSave = async () => {
     if (!draft) return;
-
     const { error } = await supabase
       .from("drafts")
-      .update({ 
-        body: editedBody,
-        seed_insight: editedSeedInsight,
-        updated_at: new Date().toISOString()
-      })
+      .update({ body: editedBody, seed_insight: editedSeedInsight, updated_at: new Date().toISOString() })
       .eq("id", draft.id);
-
-    if (error) {
-      toast.error("Failed to save draft");
-    } else {
+    if (error) { toast.error("Failed to save draft"); } else {
       toast.success("Draft saved");
       setIsEditing(false);
       loadDraft();
@@ -130,40 +114,18 @@ const DraftDetail = () => {
     }
   };
 
-  // NEW FUNCTION: Regenerate draft with template
   const handleRegenerate = async () => {
-    if (!draft || !selectedTemplate) {
-      toast.error("Please select a template");
-      return;
-    }
-
+    if (!draft || !selectedTemplate) { toast.error("Please select a template"); return; }
     setRegenerating(true);
     toast.info("Regenerating draft with template...");
-
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      
       const { data, error } = await supabase.functions.invoke("regenerate-draft-with-feedback", {
-        body: {
-          draftId: draft.id,
-          templateId: selectedTemplate,
-          userId: session?.user?.id,
-          feedback: "Regenerate with selected template structure"
-        },
+        body: { draftId: draft.id, templateId: selectedTemplate, userId: session?.user?.id, feedback: "Regenerate with selected template structure" },
       });
-
-      if (error) {
-        throw error;
-      }
-
-      if (data.success) {
-        toast.success("Draft regenerated with template!");
-        await loadDraft(); // Reload the updated draft
-      } else {
-        toast.error("Failed to regenerate draft");
-      }
+      if (error) throw error;
+      if (data.success) { toast.success("Draft regenerated with template!"); await loadDraft(); } else { toast.error("Failed to regenerate draft"); }
     } catch (error) {
-      console.error("Regeneration error:", error);
       toast.error("Failed to regenerate draft: " + (error as any)?.message);
     } finally {
       setRegenerating(false);
@@ -172,6 +134,7 @@ const DraftDetail = () => {
 
   const handleApprove = async () => {
     if (!draft) return;
+    const { data: { session } } = await supabase.auth.getSession();
     const { error } = await supabase
       .from("drafts")
       .update({ approval_status: "approved", reviewed_at: new Date().toISOString() })
@@ -179,8 +142,14 @@ const DraftDetail = () => {
     if (error) {
       toast.error("Failed to approve draft");
     } else {
-      toast.success("Draft approved");
+      toast.success("Draft approved! Generating visual...");
       await loadDraft();
+      // Trigger visual generation in background
+      if (session?.user?.id) {
+        supabase.functions.invoke("generate-draft-visual", {
+          body: { draftId: draft.id, userId: session.user.id }
+        }).catch(err => console.error("Visual generation error:", err));
+      }
     }
   };
 
@@ -190,67 +159,42 @@ const DraftDetail = () => {
       .from("drafts")
       .update({ approval_status: "rejected", reviewed_at: new Date().toISOString() })
       .eq("id", draft.id);
-    if (error) {
-      toast.error("Failed to reject draft");
-    } else {
-      toast.success("Draft rejected");
-      await loadDraft();
-    }
+    if (error) { toast.error("Failed to reject draft"); } else { toast.success("Draft rejected"); await loadDraft(); }
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div>Loading draft...</div>
-      </div>
-    );
+    return <div className="min-h-screen bg-background flex items-center justify-center"><div>Loading draft...</div></div>;
   }
 
   if (!draft) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div>Draft not found</div>
-      </div>
-    );
+    return <div className="min-h-screen bg-background flex items-center justify-center"><div>Draft not found</div></div>;
   }
+
+  const isApproved = draft.approval_status === "approved";
 
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <Button variant="ghost" onClick={() => navigate("/drafts")}>
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Drafts
+            <ArrowLeft className="mr-2 h-4 w-4" />Back to Drafts
           </Button>
           <div className="flex gap-2">
             {isEditing ? (
               <>
-                <Button variant="outline" onClick={() => setIsEditing(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleSave}>
-                  <Save className="mr-2 h-4 w-4" />
-                  Save
-                </Button>
+                <Button variant="outline" onClick={() => setIsEditing(false)}>Cancel</Button>
+                <Button onClick={handleSave}><Save className="mr-2 h-4 w-4" />Save</Button>
               </>
             ) : (
               <>
                 {templates.length > 0 && (
-                  <Button 
-                    onClick={handleRegenerate} 
-                    disabled={regenerating}
-                    variant="outline"
-                  >
-                    <Sparkles className="mr-2 h-4 w-4" />
-                    {regenerating ? "Regenerating..." : "Regenerate with Template"}
+                  <Button onClick={handleRegenerate} disabled={regenerating} variant="outline">
+                    <Sparkles className="mr-2 h-4 w-4" />{regenerating ? "Regenerating..." : "Regenerate with Template"}
                   </Button>
                 )}
                 <Button variant="outline" onClick={handleApprove}>Approve</Button>
                 <Button variant="destructive" onClick={handleReject}>Reject</Button>
-                <Button onClick={() => setIsEditing(true)}>
-                  <Edit className="mr-2 h-4 w-4" />
-                  Edit
-                </Button>
+                <Button onClick={() => setIsEditing(true)}><Edit className="mr-2 h-4 w-4" />Edit</Button>
               </>
             )}
           </div>
@@ -270,13 +214,10 @@ const DraftDetail = () => {
               </div>
               <FileText className="h-6 w-6 text-muted-foreground" />
             </div>
-            
-            {/* NEW: Template Selection for Regeneration */}
+
             {templates.length > 0 && !isEditing && (
               <div className="mt-4">
-                <Label htmlFor="regenerate-template" className="text-sm font-medium">
-                  Regenerate with Template
-                </Label>
+                <Label htmlFor="regenerate-template" className="text-sm font-medium">Regenerate with Template</Label>
                 <div className="flex gap-2 mt-1">
                   <Select value={selectedTemplate} onValueChange={setSelectedTemplate}>
                     <SelectTrigger id="regenerate-template" className="flex-1">
@@ -286,11 +227,8 @@ const DraftDetail = () => {
                       {templates.map((template) => (
                         <SelectItem key={template.id} value={template.id}>
                           <div className="flex items-center gap-2">
-                            <FileText className="h-4 w-4" />
-                            {template.name}
-                            <span className="text-xs text-muted-foreground ml-1">
-                              ({template.content_type})
-                            </span>
+                            <FileText className="h-4 w-4" />{template.name}
+                            <span className="text-xs text-muted-foreground ml-1">({template.content_type})</span>
                           </div>
                         </SelectItem>
                       ))}
@@ -298,52 +236,30 @@ const DraftDetail = () => {
                   </Select>
                 </div>
                 {selectedTemplate && (
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {templates.find(t => t.id === selectedTemplate)?.description}
-                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">{templates.find(t => t.id === selectedTemplate)?.description}</p>
                 )}
               </div>
             )}
 
             <div className="flex flex-wrap gap-2 mt-3">
-              <Badge variant={getApprovalBadgeVariant(draft.approval_status)}>
-                {(draft.approval_status || "pending").replace("_", " ")}
-              </Badge>
-              <Badge variant="default">
-                {draft.status?.replace("_", " ") || "draft"}
-              </Badge>
-              <Badge variant="outline">
-                {draft.content_type || "ad-hoc"}
-              </Badge>
-              {/* ✅ FIXED: Use autopilot_template_id instead of template_id */}
+              <Badge variant={getApprovalBadgeVariant(draft.approval_status)}>{(draft.approval_status || "pending").replace("_", " ")}</Badge>
+              <Badge variant="default">{draft.status?.replace("_", " ") || "draft"}</Badge>
+              <Badge variant="outline">{draft.content_type || "ad-hoc"}</Badge>
               {draft.autopilot_template_id && (
-                <Badge variant="secondary">
-                  Template: {templates.find(t => t.id === draft.autopilot_template_id)?.name || "Unknown"}
-                </Badge>
+                <Badge variant="secondary">Template: {templates.find(t => t.id === draft.autopilot_template_id)?.name || "Unknown"}</Badge>
               )}
-              {draft.revision_count > 0 && (
-                <Badge variant="secondary">
-                  v{draft.revision_count + 1}
-                </Badge>
-              )}
+              {draft.revision_count > 0 && <Badge variant="secondary">v{draft.revision_count + 1}</Badge>}
             </div>
           </CardHeader>
+
           <CardContent className="space-y-6">
             {(draft.seed_insight || isEditing) && (
               <div>
                 <h3 className="font-semibold mb-2">Seed Insight</h3>
                 {isEditing ? (
-                  <Textarea
-                    value={editedSeedInsight}
-                    onChange={(e) => setEditedSeedInsight(e.target.value)}
-                    rows={3}
-                    placeholder="Enter the seed insight for this draft..."
-                    className="text-sm"
-                  />
+                  <Textarea value={editedSeedInsight} onChange={(e) => setEditedSeedInsight(e.target.value)} rows={3} placeholder="Enter the seed insight for this draft..." className="text-sm" />
                 ) : (
-                  <p className="text-sm text-muted-foreground p-3 bg-muted rounded-lg">
-                    {draft.seed_insight}
-                  </p>
+                  <p className="text-sm text-muted-foreground p-3 bg-muted rounded-lg">{draft.seed_insight}</p>
                 )}
               </div>
             )}
@@ -351,16 +267,9 @@ const DraftDetail = () => {
             <div>
               <h3 className="font-semibold mb-2">Content</h3>
               {isEditing ? (
-                <Textarea
-                  value={editedBody}
-                  onChange={(e) => setEditedBody(e.target.value)}
-                  rows={20}
-                  className="font-mono text-sm"
-                />
+                <Textarea value={editedBody} onChange={(e) => setEditedBody(e.target.value)} rows={20} className="font-mono text-sm" />
               ) : (
-                <div className="p-4 bg-muted rounded-lg whitespace-pre-wrap font-mono text-sm">
-                  {draft.body}
-                </div>
+                <div className="p-4 bg-muted rounded-lg whitespace-pre-wrap font-mono text-sm">{draft.body}</div>
               )}
             </div>
 
@@ -370,17 +279,28 @@ const DraftDetail = () => {
                 <Card>
                   <CardContent className="p-4">
                     <h4 className="font-semibold mb-1">{draft.selected_direction.title || "No title"}</h4>
-                    <p className="text-sm text-muted-foreground mb-1">
-                      {draft.selected_direction.description || "No description"}
-                    </p>
+                    <p className="text-sm text-muted-foreground mb-1">{draft.selected_direction.description || "No description"}</p>
                     {draft.selected_direction.angle && (
-                      <p className="text-xs text-muted-foreground italic">
-                        Angle: {draft.selected_direction.angle}
-                      </p>
+                      <p className="text-xs text-muted-foreground italic">Angle: {draft.selected_direction.angle}</p>
                     )}
                   </CardContent>
                 </Card>
               </div>
+            )}
+
+            {/* VisualForge — only shown for approved drafts */}
+            {isApproved && userId && (
+              <>
+                <Separator />
+                <div>
+                  <div className="flex items-center gap-2 mb-4">
+                    <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                    <h3 className="font-semibold">Visual</h3>
+                    <span className="text-xs text-muted-foreground">Auto-generated on approval</span>
+                  </div>
+                  <VisualForge draftId={draft.id} userId={userId} />
+                </div>
+              </>
             )}
 
             {revisions.length > 0 && (
@@ -400,14 +320,10 @@ const DraftDetail = () => {
                       <CardContent className="p-3">
                         <div className="flex justify-between items-center mb-1">
                           <span className="text-sm font-medium">Version {revision.version}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {formatDistanceToNow(new Date(revision.created_at), { addSuffix: true })}
-                          </span>
+                          <span className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(revision.created_at), { addSuffix: true })}</span>
                         </div>
                         {revision.changes_summary && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {revision.changes_summary}
-                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">{revision.changes_summary}</p>
                         )}
                       </CardContent>
                     </Card>

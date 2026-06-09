@@ -35,7 +35,8 @@ const App = () => (
         <AuthProvider>
           <Toaster />
           <Sonner />
-              <BrowserRouter basename="/knowledge-loom-fp">            <Routes>
+          <BrowserRouter basename="/knowledge-loom-prismm">
+            <Routes>
               <Route path="/auth" element={<Auth />} />
               <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
               <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />

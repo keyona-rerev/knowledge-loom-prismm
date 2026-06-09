@@ -2,6 +2,8 @@
  * Shared AI caller utility for all Insight Forge edge functions.
  * Reads provider, model, api_key, and optional endpoint from the user profile
  * and routes to the correct API. Add new providers here — no edge function changes needed.
+ *
+ * Supported providers: anthropic, google-ai, openai, grok, deepseek, custom
  */
 
 export interface AIProfile {
@@ -56,7 +58,6 @@ async function callGemini(profile: AIProfile, messages: AIMessage[], system?: st
   const model = profile.ai_model || "gemini-2.0-flash-exp";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${profile.ai_api_key}`;
 
-  // Gemini doesn't have a system role — prepend to first user message
   const contents = messages.map(m => ({
     role: m.role === "assistant" ? "model" : "user",
     parts: [{ text: m.content }],
@@ -143,7 +144,6 @@ export async function callAI(
       text = await callOpenAICompat(profile, messages, system);
       break;
     default:
-      // Default to Anthropic
       text = await callAnthropic(profile, messages, system);
   }
 

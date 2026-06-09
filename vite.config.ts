@@ -4,7 +4,7 @@ import path from "path";
 import { componentTagger } from "lovable-tagger";
 
 export default defineConfig(({ mode }) => ({
-  base: '/knowledge-loom-fp/',
+  base: '/knowledge-loom-prismm/',
   server: {
     host: "::",
     port: 8080,

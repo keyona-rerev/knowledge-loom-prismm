@@ -34,6 +34,11 @@ jobs:
         run: |
           for func in supabase/functions/*/; do
             func_name=$(basename "$func")
+            # Skip _shared and any folder starting with underscore
+            if [[ "$func_name" == _* ]]; then
+              echo "Skipping $func_name (shared utility)"
+              continue
+            fi
             echo "Deploying $func_name..."
             supabase functions deploy "$func_name"
           done

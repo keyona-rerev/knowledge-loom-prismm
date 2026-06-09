@@ -1,5 +1,9 @@
-import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.0";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+// execute-autopilot-template does not call AI directly —
+// it delegates to generate-content-from-card which uses the shared caller.
+// No AI refactor needed here, but we remove any google_ai_api_key references.
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,208 +11,82 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
-    // Verify user authentication from JWT
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      console.error("❌ Missing authorization header");
-      return new Response(
-        JSON.stringify({ error: "Authentication required" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    if (!authHeader) return new Response(JSON.stringify({ error: "Authentication required" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-    const token = authHeader.replace("Bearer ", "");
-    const supabaseAuth = createClient(supabaseUrl, serviceRoleKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
+    const supabaseAuth = createClient(supabaseUrl, serviceRoleKey, { global: { headers: { Authorization: authHeader } } });
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(authHeader.replace("Bearer ", ""));
+    if (authError || !user) return new Response(JSON.stringify({ error: "Invalid or expired authentication token" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token);
-    
-    if (authError || !user) {
-      console.error("❌ Invalid token:", authError?.message);
-      return new Response(
-        JSON.stringify({ error: "Invalid or expired authentication token" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const userId = user.id;
-    console.log("✅ Authenticated user:", userId);
-
-    // Use service role client for database operations
-    const supabaseClient = createClient(supabaseUrl, serviceRoleKey);
-
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
     const { templateId, isTestRun = false } = await req.json();
 
-    if (!templateId) {
-      return new Response(
-        JSON.stringify({ error: "templateId is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    if (!templateId) return new Response(JSON.stringify({ error: "templateId is required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-    console.log("🔄 Executing autopilot template:", templateId, "Test run:", isTestRun);
+    const { data: template } = await supabase.from("autopilot_templates").select("*").eq("id", templateId).eq("user_id", user.id).single();
+    if (!template) return new Response(JSON.stringify({ error: "Autopilot template not found or access denied" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-    // Get autopilot template - verify it belongs to the authenticated user
-    const { data: template, error: templateError } = await supabaseClient
-      .from("autopilot_templates")
-      .select("*")
-      .eq("id", templateId)
-      .eq("user_id", userId)
-      .single();
-
-    if (templateError || !template) {
-      console.error("❌ Autopilot template not found or access denied:", templateError);
-      return new Response(
-        JSON.stringify({ error: "Autopilot template not found or access denied" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    console.log("✅ Found autopilot template:", template.name);
-
-    // Get recent reference cards for the user
-    const { data: referenceCards, error: cardsError } = await supabaseClient
-      .from("reference_cards")
-      .select("id, title, ai_summary, insight_answers, source_feed_id")
-      .eq("user_id", userId)
-      .eq("status", "active")
-      .order("created_at", { ascending: false })
-      .limit(3);
-
-    if (cardsError) {
-      console.error("❌ Error fetching reference cards:", cardsError);
-      throw cardsError;
-    }
+    const { data: referenceCards } = await supabase.from("reference_cards").select("id, title, ai_summary").eq("user_id", user.id).eq("status", "active").order("created_at", { ascending: false }).limit(3);
 
     if (!referenceCards || referenceCards.length === 0) {
-      console.log("📭 No reference cards found for user");
-      return new Response(
-        JSON.stringify({ success: true, message: "No content available", draftsCreated: 0 }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return new Response(JSON.stringify({ success: true, message: "No content available", draftsCreated: 0 }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    console.log(`📚 Found ${referenceCards.length} reference cards for template`);
-
-    // Get content template if specified
     let contentTemplate = null;
     if (template.content_type) {
-      const { data: tmpl } = await supabaseClient
-        .from("content_templates")
-        .select("*")
-        .eq("content_type", template.content_type)
-        .eq("is_active", true)
-        .or(`user_id.eq.${userId},is_system_template.eq.true`)
-        .order("is_system_template", { ascending: false })
-        .limit(1)
-        .single();
+      const { data: tmpl } = await supabase.from("content_templates").select("*").eq("content_type", template.content_type).eq("is_active", true).or(`user_id.eq.${user.id},is_system_template.eq.true`).order("is_system_template", { ascending: false }).limit(1).single();
       contentTemplate = tmpl;
     }
 
     const createdDrafts = [];
 
-    // Generate draft from each reference card
     for (const card of referenceCards) {
       try {
-        // Generate content using AI - pass auth header to nested function
-        const { data: generatedContent, error: aiError } = await supabaseClient.functions.invoke("generate-content-from-card", {
-          body: {
-            cardId: card.id,
-            templateId: contentTemplate?.id,
-            outputFormat: template.content_type
-          },
-          headers: {
-            Authorization: authHeader
-          }
+        const { data: generatedContent, error: aiError } = await supabase.functions.invoke("generate-content-from-card", {
+          body: { cardId: card.id, templateId: contentTemplate?.id, outputFormat: template.content_type },
+          headers: { Authorization: authHeader }
         });
 
-        if (aiError) {
-          console.error(`❌ AI generation failed for card ${card.id}:`, aiError);
-          continue;
-        }
+        if (aiError) { console.error(`AI generation failed for card ${card.id}:`, aiError); continue; }
 
-        // Create draft with template
-        const { data: draftData, error: draftError } = await supabaseClient
-          .from("drafts")
-          .insert({
-            title: generatedContent?.title || `Draft from ${card.title}`,
-            body: generatedContent?.content || "Content generation in progress...",
-            status: "draft",
-            user_id: userId,
-            seed_insight: card.ai_summary,
-            content_type: template.content_type,
-            autopilot_template_id: template.id,
-            approval_status: 'pending',
-            revision_count: 0
-          })
-          .select()
-          .single();
+        const { data: draftData, error: draftError } = await supabase.from("drafts").insert({
+          title: generatedContent?.title || `Draft from ${card.title}`,
+          body: generatedContent?.content || "Content generation in progress...",
+          status: "draft",
+          user_id: user.id,
+          seed_insight: card.ai_summary,
+          content_type: template.content_type,
+          autopilot_template_id: template.id,
+          approval_status: 'pending',
+          revision_count: 0
+        }).select().single();
 
-        if (draftError) {
-          console.error(`❌ Draft creation failed:`, draftError);
-          continue;
-        }
+        if (draftError) { console.error("Draft creation failed:", draftError); continue; }
 
-        console.log("✅ Draft created:", draftData.id);
-
-        // Send notification
-        if (draftData) {
-          console.log("📧 Triggering notification for draft:", draftData.id);
-          await supabaseClient.functions.invoke('send-draft-notification', {
-            body: { draftId: draftData.id },
-            headers: {
-              Authorization: authHeader
-            }
-          });
-        }
+        await supabase.functions.invoke('send-draft-notification', {
+          body: { draftId: draftData.id },
+          headers: { Authorization: authHeader }
+        });
 
         createdDrafts.push(draftData);
-
       } catch (error) {
-        console.error(`💥 Error processing card ${card.id}:`, error);
+        console.error(`Error processing card ${card.id}:`, error);
       }
     }
 
-    // Update autopilot template last run time
     if (!isTestRun) {
-      await supabaseClient
-        .from("autopilot_templates")
-        .update({ 
-          last_run_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", templateId);
+      await supabase.from("autopilot_templates").update({ last_run_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", templateId);
     }
 
-    return new Response(
-      JSON.stringify({ 
-        success: true, 
-        draftsCreated: createdDrafts.length,
-        draftIds: createdDrafts.map(d => d.id),
-        isTestRun 
-      }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
+    return new Response(JSON.stringify({ success: true, draftsCreated: createdDrafts.length, draftIds: createdDrafts.map(d => d.id), isTestRun }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (error) {
-    console.error("💥 Error in execute-autopilot-template:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
+    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });

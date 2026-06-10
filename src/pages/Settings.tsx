@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -11,8 +11,9 @@ import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2, Moon, Sun, AlertTriangle, Mail, Shield, Loader2 } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Moon, Sun, AlertTriangle, Mail, Shield, Loader2, Upload, FileText } from "lucide-react";
 import { useTheme } from "next-themes";
+import { parsePDF } from "@/lib/pdf-parser";
 
 const AI_PROVIDERS = [
   { value: "anthropic", label: "Claude (Anthropic)", keyLabel: "Anthropic API Key", keyPlaceholder: "sk-ant-...", modelPlaceholder: "claude-sonnet-4-20250514", docsUrl: "https://console.anthropic.com/settings/keys", docsLabel: "console.anthropic.com" },
@@ -23,16 +24,23 @@ const AI_PROVIDERS = [
   { value: "custom", label: "Custom (OpenAI-compatible)", keyLabel: "API Key", keyPlaceholder: "Your API key", modelPlaceholder: "your-model-name", docsUrl: "", docsLabel: "" },
 ];
 
+const DOSSIER_CHAR_LIMIT = 50000;
+
 const Settings = () => {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const [loading, setLoading] = useState(false);
   const [deletingData, setDeletingData] = useState(false);
+  const [dossierUploading, setDossierUploading] = useState(false);
+  const dossierFileInputRef = useRef<HTMLInputElement>(null);
   const [profile, setProfile] = useState({
     business_name: "",
     business_description: "",
     target_audience: "",
     brand_voice: "",
+    content_dossier: "",
+    content_dossier_filename: "",
+    content_dossier_updated_at: "",
     primary_color: "#f9655b",
     secondary_color: "#6658ea",
     accent_color: "#f5c070",
@@ -54,11 +62,15 @@ const Settings = () => {
       const { data, error } = await supabase.from("profiles").select("*").eq("user_id", session.user.id).maybeSingle();
 
       if (data) {
+        const d = data as any;
         setProfile({
           business_name: data.business_name || "",
           business_description: data.business_description || "",
           target_audience: data.target_audience || "",
           brand_voice: data.brand_voice || "",
+          content_dossier: d.content_dossier || "",
+          content_dossier_filename: d.content_dossier_filename || "",
+          content_dossier_updated_at: d.content_dossier_updated_at || "",
           primary_color: data.primary_color || "#f9655b",
           secondary_color: data.secondary_color || "#6658ea",
           accent_color: data.accent_color || "#f5c070",
@@ -80,6 +92,43 @@ const Settings = () => {
     loadProfile();
   }, []);
 
+  const handleDossierUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setDossierUploading(true);
+    try {
+      let text = "";
+      const lowerName = file.name.toLowerCase();
+      if (file.type === "application/pdf" || lowerName.endsWith(".pdf")) {
+        const result = await parsePDF(file);
+        text = result.text;
+      } else if (lowerName.endsWith(".txt") || lowerName.endsWith(".md") || file.type.startsWith("text/")) {
+        text = await file.text();
+      } else {
+        throw new Error("Unsupported file type. Upload a PDF, TXT, or MD file.");
+      }
+      text = text.trim().substring(0, DOSSIER_CHAR_LIMIT);
+      if (!text) { throw new Error("No readable text found in that file."); }
+      setProfile(prev => ({
+        ...prev,
+        content_dossier: text,
+        content_dossier_filename: file.name,
+        content_dossier_updated_at: new Date().toISOString(),
+      }));
+      toast.success(`Dossier loaded from ${file.name}. Click Save Settings to apply.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to read file");
+    } finally {
+      setDossierUploading(false);
+      if (dossierFileInputRef.current) dossierFileInputRef.current.value = "";
+    }
+  };
+
+  const handleDossierClear = () => {
+    setProfile(prev => ({ ...prev, content_dossier: "", content_dossier_filename: "", content_dossier_updated_at: "" }));
+    toast.info("Dossier cleared. Click Save Settings to apply.");
+  };
+
   const handleSave = async () => {
     setLoading(true);
     const { data: { session } } = await supabase.auth.getSession();
@@ -87,12 +136,14 @@ const Settings = () => {
 
     const { data: existingProfile } = await supabase.from("profiles").select("id").eq("user_id", session.user.id).maybeSingle();
 
+    const payload = { ...profile, content_dossier_updated_at: profile.content_dossier_updated_at || null } as any;
+
     let error;
     if (existingProfile) {
-      const result = await supabase.from("profiles").update(profile).eq("id", existingProfile.id);
+      const result = await supabase.from("profiles").update(payload).eq("id", existingProfile.id);
       error = result.error;
     } else {
-      const result = await supabase.from("profiles").insert([{ ...profile, user_id: session.user.id }]);
+      const result = await supabase.from("profiles").insert([{ ...payload, user_id: session.user.id }]);
       error = result.error;
     }
 
@@ -136,6 +187,60 @@ const Settings = () => {
               <Label htmlFor="brand-voice">Brand Voice</Label>
               <Textarea id="brand-voice" value={profile.brand_voice} onChange={(e) => setProfile(prev => ({ ...prev, brand_voice: e.target.value }))} placeholder="Professional, casual, authoritative, etc." rows={2} />
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Company Content Dossier */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />Company Content Dossier
+            </CardTitle>
+            <CardDescription>Upload a deep reference document about your company. The AI uses it for accuracy, terminology, positioning, and proof points in every generated draft.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <InstructionsToggle instructions={`**What goes in a content dossier?**\n\nA dossier is the deep company knowledge that does not fit in the short fields above:\n• Product details, features, and how things actually work\n• Positioning, messaging pillars, and approved language\n• Customer pain points, objections, and proof points\n• Stats, case studies, and differentiators\n• Things to never say\n\nUpload a PDF, TXT, or Markdown file (up to ${DOSSIER_CHAR_LIMIT.toLocaleString()} characters of extracted text). You can edit the extracted text below before saving.`} />
+
+            <input
+              ref={dossierFileInputRef}
+              type="file"
+              accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown"
+              onChange={handleDossierUpload}
+              className="hidden"
+              id="dossier-file-input"
+            />
+
+            <div className="flex items-center gap-3">
+              <Button variant="outline" onClick={() => dossierFileInputRef.current?.click()} disabled={dossierUploading}>
+                {dossierUploading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Reading file...</> : <><Upload className="h-4 w-4 mr-2" />{profile.content_dossier ? "Replace Dossier" : "Upload Dossier"}</>}
+              </Button>
+              {profile.content_dossier && (
+                <Button variant="ghost" onClick={handleDossierClear}>
+                  <Trash2 className="h-4 w-4 mr-2" />Remove
+                </Button>
+              )}
+            </div>
+
+            {profile.content_dossier ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-muted-foreground">
+                    {profile.content_dossier_filename && <span className="font-medium text-foreground">{profile.content_dossier_filename}</span>}
+                    {profile.content_dossier_updated_at && <span> · updated {new Date(profile.content_dossier_updated_at).toLocaleDateString()}</span>}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{profile.content_dossier.length.toLocaleString()} / {DOSSIER_CHAR_LIMIT.toLocaleString()} characters</p>
+                </div>
+                <Textarea
+                  value={profile.content_dossier}
+                  onChange={(e) => setProfile(prev => ({ ...prev, content_dossier: e.target.value.substring(0, DOSSIER_CHAR_LIMIT) }))}
+                  rows={10}
+                  className="font-mono text-xs"
+                />
+                <p className="text-xs text-muted-foreground">Extracted text is editable. Trim anything irrelevant for sharper results.</p>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No dossier uploaded yet. You can also paste text directly after uploading any file, or just upload a TXT file with your notes.</p>
+            )}
           </CardContent>
         </Card>
 

@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { ArrowLeft, FileText, Clock, Edit, Save, Sparkles, ImageIcon } from "lucide-react";
+import { ArrowLeft, FileText, Clock, Edit, Save, Sparkles, ImageIcon, RotateCcw, Link2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { VisualForge } from "@/components/VisualForge";
 
@@ -25,6 +25,8 @@ const DraftDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [draft, setDraft] = useState<any>(null);
+  const [parentDraft, setParentDraft] = useState<any>(null);
+  const [childDrafts, setChildDrafts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [editedBody, setEditedBody] = useState("");
@@ -58,13 +60,34 @@ const DraftDetail = () => {
     if (error) {
       toast.error("Failed to load draft");
       navigate("/drafts");
-    } else {
-      setDraft(data);
-      setEditedBody(data.body || "");
-      setEditedSeedInsight(data.seed_insight || "");
-      setSelectedTemplate(data.autopilot_template_id || "");
-      setLoading(false);
+      return;
     }
+
+    setDraft(data);
+    setEditedBody(data.body || "");
+    setEditedSeedInsight(data.seed_insight || "");
+    setSelectedTemplate(data.autopilot_template_id || "");
+    setLoading(false);
+
+    // Load parent if this is a child
+    if (data.parent_draft_id) {
+      const { data: parent } = await supabase
+        .from("drafts")
+        .select("id, title, content_type, approval_status, reuse_count, max_reuse_count, reuse_angles_used")
+        .eq("id", data.parent_draft_id)
+        .single();
+      setParentDraft(parent || null);
+    } else {
+      setParentDraft(null);
+    }
+
+    // Load children if this is a parent
+    const { data: children } = await supabase
+      .from("drafts")
+      .select("id, title, content_type, approval_status, created_at, seed_insight")
+      .eq("parent_draft_id", id)
+      .order("created_at", { ascending: true });
+    setChildDrafts(children || []);
   };
 
   const loadRevisions = async () => {
@@ -85,7 +108,7 @@ const DraftDetail = () => {
         .eq("is_active", true)
         .order("name");
       if (error) {
-        if (error.code === '42P01') { setTemplates([]); return; }
+        if (error.code === "42P01") { setTemplates([]); return; }
       } else {
         setTemplates(data || []);
       }
@@ -117,16 +140,15 @@ const DraftDetail = () => {
   const handleRegenerate = async () => {
     if (!draft || !selectedTemplate) { toast.error("Please select a template"); return; }
     setRegenerating(true);
-    toast.info("Regenerating draft with template...");
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const { data, error } = await supabase.functions.invoke("regenerate-draft-with-feedback", {
         body: { draftId: draft.id, templateId: selectedTemplate, userId: session?.user?.id, feedback: "Regenerate with selected template structure" },
       });
       if (error) throw error;
-      if (data.success) { toast.success("Draft regenerated with template!"); await loadDraft(); } else { toast.error("Failed to regenerate draft"); }
+      if (data.success) { toast.success("Draft regenerated!"); await loadDraft(); } else { toast.error("Failed to regenerate draft"); }
     } catch (error) {
-      toast.error("Failed to regenerate draft: " + (error as any)?.message);
+      toast.error("Failed to regenerate: " + (error as any)?.message);
     } finally {
       setRegenerating(false);
     }
@@ -137,14 +159,17 @@ const DraftDetail = () => {
     const { data: { session } } = await supabase.auth.getSession();
     const { error } = await supabase
       .from("drafts")
-      .update({ approval_status: "approved", reviewed_at: new Date().toISOString() })
+      .update({
+        approval_status: "approved",
+        reviewed_at: new Date().toISOString(),
+        published_at: new Date().toISOString(),
+      })
       .eq("id", draft.id);
     if (error) {
       toast.error("Failed to approve draft");
     } else {
       toast.success("Draft approved! Generating visual...");
       await loadDraft();
-      // Trigger visual generation in background
       if (session?.user?.id) {
         supabase.functions.invoke("generate-draft-visual", {
           body: { draftId: draft.id, userId: session.user.id }
@@ -171,6 +196,8 @@ const DraftDetail = () => {
   }
 
   const isApproved = draft.approval_status === "approved";
+  const reuseAngles = Array.isArray(draft.reuse_angles_used) ? draft.reuse_angles_used as string[] : [];
+  const reuseRemaining = (draft.max_reuse_count || 0) - (draft.reuse_count || 0);
 
   return (
     <div className="min-h-screen bg-background">
@@ -189,7 +216,7 @@ const DraftDetail = () => {
               <>
                 {templates.length > 0 && (
                   <Button onClick={handleRegenerate} disabled={regenerating} variant="outline">
-                    <Sparkles className="mr-2 h-4 w-4" />{regenerating ? "Regenerating..." : "Regenerate with Template"}
+                    <Sparkles className="mr-2 h-4 w-4" />{regenerating ? "Regenerating..." : "Regenerate"}
                   </Button>
                 )}
                 <Button variant="outline" onClick={handleApprove}>Approve</Button>
@@ -201,7 +228,36 @@ const DraftDetail = () => {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8 max-w-4xl">
+      <main className="container mx-auto px-4 py-8 max-w-4xl space-y-6">
+
+        {/* Parent relationship — shown when this is a child post */}
+        {parentDraft && (
+          <Card className="border-muted bg-muted/20">
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Link2 className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Child post — generated from</span>
+              </div>
+              <div
+                className="flex items-center justify-between cursor-pointer hover:opacity-80"
+                onClick={() => navigate(`/drafts/${parentDraft.id}`)}
+              >
+                <div>
+                  <p className="text-sm font-medium">{parentDraft.title}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{parentDraft.content_type}</p>
+                  {draft.seed_insight && draft.seed_insight.startsWith("Reuse") && (
+                    <p className="text-xs text-muted-foreground mt-0.5 italic">{draft.seed_insight}</p>
+                  )}
+                </div>
+                <Badge variant={getApprovalBadgeVariant(parentDraft.approval_status)} className="ml-4 shrink-0">
+                  {parentDraft.approval_status}
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Main draft card */}
         <Card>
           <CardHeader>
             <div className="flex justify-between items-start">
@@ -217,10 +273,10 @@ const DraftDetail = () => {
 
             {templates.length > 0 && !isEditing && (
               <div className="mt-4">
-                <Label htmlFor="regenerate-template" className="text-sm font-medium">Regenerate with Template</Label>
+                <Label className="text-sm font-medium">Regenerate with Template</Label>
                 <div className="flex gap-2 mt-1">
                   <Select value={selectedTemplate} onValueChange={setSelectedTemplate}>
-                    <SelectTrigger id="regenerate-template" className="flex-1">
+                    <SelectTrigger className="flex-1">
                       <SelectValue placeholder="Select template..." />
                     </SelectTrigger>
                     <SelectContent>
@@ -235,9 +291,6 @@ const DraftDetail = () => {
                     </SelectContent>
                   </Select>
                 </div>
-                {selectedTemplate && (
-                  <p className="text-sm text-muted-foreground mt-1">{templates.find(t => t.id === selectedTemplate)?.description}</p>
-                )}
               </div>
             )}
 
@@ -245,10 +298,13 @@ const DraftDetail = () => {
               <Badge variant={getApprovalBadgeVariant(draft.approval_status)}>{(draft.approval_status || "pending").replace("_", " ")}</Badge>
               <Badge variant="default">{draft.status?.replace("_", " ") || "draft"}</Badge>
               <Badge variant="outline">{draft.content_type || "ad-hoc"}</Badge>
-              {draft.autopilot_template_id && (
-                <Badge variant="secondary">Template: {templates.find(t => t.id === draft.autopilot_template_id)?.name || "Unknown"}</Badge>
-              )}
               {draft.revision_count > 0 && <Badge variant="secondary">v{draft.revision_count + 1}</Badge>}
+              {(draft.max_reuse_count || 0) > 0 && (
+                <Badge variant="secondary" className="flex items-center gap-1">
+                  <RotateCcw className="h-3 w-3" />
+                  {draft.reuse_count || 0}/{draft.max_reuse_count} reuses
+                </Badge>
+              )}
             </div>
           </CardHeader>
 
@@ -257,7 +313,7 @@ const DraftDetail = () => {
               <div>
                 <h3 className="font-semibold mb-2">Seed Insight</h3>
                 {isEditing ? (
-                  <Textarea value={editedSeedInsight} onChange={(e) => setEditedSeedInsight(e.target.value)} rows={3} placeholder="Enter the seed insight for this draft..." className="text-sm" />
+                  <Textarea value={editedSeedInsight} onChange={(e) => setEditedSeedInsight(e.target.value)} rows={3} className="text-sm" />
                 ) : (
                   <p className="text-sm text-muted-foreground p-3 bg-muted rounded-lg">{draft.seed_insight}</p>
                 )}
@@ -273,22 +329,28 @@ const DraftDetail = () => {
               )}
             </div>
 
-            {draft.selected_direction && (
+            {/* Reuse history — shown when this is a parent with reuses */}
+            {reuseAngles.length > 0 && (
               <div>
-                <h3 className="font-semibold mb-2">Selected Direction</h3>
-                <Card>
-                  <CardContent className="p-4">
-                    <h4 className="font-semibold mb-1">{draft.selected_direction.title || "No title"}</h4>
-                    <p className="text-sm text-muted-foreground mb-1">{draft.selected_direction.description || "No description"}</p>
-                    {draft.selected_direction.angle && (
-                      <p className="text-xs text-muted-foreground italic">Angle: {draft.selected_direction.angle}</p>
-                    )}
-                  </CardContent>
-                </Card>
+                <h3 className="font-semibold mb-2 flex items-center gap-2">
+                  <RotateCcw className="h-4 w-4" />
+                  Reuse history ({reuseAngles.length} of {draft.max_reuse_count})
+                </h3>
+                <div className="space-y-1">
+                  {reuseAngles.map((angle, i) => (
+                    <div key={i} className="flex items-start gap-2 p-2 bg-muted rounded text-sm">
+                      <span className="text-xs text-muted-foreground shrink-0 mt-0.5">#{i + 1}</span>
+                      <span>{angle}</span>
+                    </div>
+                  ))}
+                  {reuseRemaining > 0 && (
+                    <p className="text-xs text-muted-foreground pt-1">{reuseRemaining} reuse{reuseRemaining !== 1 ? "s" : ""} remaining in window</p>
+                  )}
+                </div>
               </div>
             )}
 
-            {/* VisualForge — only shown for approved drafts */}
+            {/* Visual */}
             {isApproved && userId && (
               <>
                 <Separator />
@@ -303,6 +365,7 @@ const DraftDetail = () => {
               </>
             )}
 
+            {/* Version history */}
             {revisions.length > 0 && (
               <div>
                 <h3 className="font-semibold mb-2">Version History ({revisions.length + 1} versions)</h3>
@@ -333,6 +396,42 @@ const DraftDetail = () => {
             )}
           </CardContent>
         </Card>
+
+        {/* Child posts — shown when this is a parent */}
+        {childDrafts.length > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Link2 className="h-4 w-4" />
+                Child posts ({childDrafts.length})
+              </CardTitle>
+              <CardDescription>Posts generated from this piece of content</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {childDrafts.map((child, i) => (
+                <div
+                  key={child.id}
+                  className="flex items-center justify-between p-3 border rounded-lg cursor-pointer hover:bg-muted/30"
+                  onClick={() => navigate(`/drafts/${child.id}`)}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground shrink-0">#{i + 1}</span>
+                      <p className="text-sm font-medium truncate">{child.title}</p>
+                    </div>
+                    {child.seed_insight && (
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate italic">{child.seed_insight}</p>
+                    )}
+                  </div>
+                  <Badge variant={getApprovalBadgeVariant(child.approval_status)} className="ml-4 shrink-0 text-xs">
+                    {child.approval_status}
+                  </Badge>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
       </main>
     </div>
   );

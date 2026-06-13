@@ -36,3 +36,7 @@ verify_jwt = true
 # Webhook function - uses Mailgun signature verification instead of JWT
 [functions.process-newsletter-email]
 verify_jwt = false
+
+# Cron entrypoint - called by pg_cron with a shared secret (x-cron-secret), not a JWT
+[functions.fire-due-schedules]
+verify_jwt = false

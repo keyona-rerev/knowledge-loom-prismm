@@ -25,7 +25,7 @@ import Insights from "./pages/Insights";
 import InsightDetail from "./pages/InsightDetail";
 import Review from "./pages/Review";
 import ContentCalendar from "./pages/ContentCalendar";
-import ContentSchedule from "./pages/ContentSchedule";
+import Schedule from "./pages/Schedule";
 import QuestionSets from "./pages/QuestionSets";
 import QuestionSetEditor from "./pages/QuestionSetEditor";
 
@@ -62,7 +62,7 @@ const App = () => (
               <Route path="/insights/:id" element={<ProtectedRoute><InsightDetail /></ProtectedRoute>} />
               <Route path="/review" element={<ProtectedRoute><Review /></ProtectedRoute>} />
               <Route path="/calendar" element={<ProtectedRoute><ContentCalendar /></ProtectedRoute>} />
-              <Route path="/schedule" element={<ProtectedRoute><ContentSchedule /></ProtectedRoute>} />
+              <Route path="/schedule" element={<ProtectedRoute><Schedule /></ProtectedRoute>} />
               <Route path="/question-sets" element={<ProtectedRoute><QuestionSets /></ProtectedRoute>} />
               <Route path="/question-sets/new" element={<ProtectedRoute><QuestionSetEditor /></ProtectedRoute>} />
               <Route path="/question-sets/:id/edit" element={<ProtectedRoute><QuestionSetEditor /></ProtectedRoute>} />

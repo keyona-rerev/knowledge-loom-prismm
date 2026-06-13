@@ -2,10 +2,21 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAI } from "../_shared/ai-caller.ts";
 
+// Knowledge Loom autopilot. A schedule slot is a standing instruction: produce a post
+// of this format and nature, doing this job, for this lane and reader. Generation reads
+// the strategy and audience libraries plus the seed bank, not reference cards. Newsletter
+// intake still feeds reference cards in parallel and is untouched here.
+//
+// Per run a slot either resurfaces an eligible parent (reuse) or generates fresh. When the
+// slot requires a child, fresh runs also produce a companion post in the child format.
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
 function parseJSON(text: string): any {
   let content = text.trim();
@@ -16,6 +27,97 @@ function parseJSON(text: string): any {
   return JSON.parse(content);
 }
 
+const arr = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]) : []);
+const sampleLines = (v: unknown, n: number): string =>
+  arr(v).slice(0, n).map((s, i) => `Sample ${i + 1}:\n${String(s).slice(0, 600)}`).join("\n\n");
+
+interface SlotContext {
+  format: any;
+  nature: any;
+  job: any;
+  lane: any | null;
+  reader: any | null;
+  questions: string[];
+  audience: any | null;
+  seed: any | null;
+  brand: { business_name?: string; business_description?: string; brand_voice?: string };
+}
+
+// Assemble the full strategy and audience context into a single prompt block.
+function buildContextBlock(ctx: SlotContext): string {
+  const lines: string[] = [];
+  const b = ctx.brand;
+  if (b.business_name || b.business_description || b.brand_voice) {
+    lines.push("BRAND");
+    if (b.business_name) lines.push(`Name: ${b.business_name}`);
+    if (b.business_description) lines.push(`About: ${b.business_description}`);
+    if (b.brand_voice) lines.push(`Voice: ${b.brand_voice}`);
+    lines.push("");
+  }
+  const a = ctx.audience;
+  if (a) {
+    lines.push("AUDIENCE");
+    if (a.thesis) lines.push(`Thesis: ${a.thesis}`);
+    if (arr(a.fit_criteria).length) lines.push(`Fit criteria: ${arr(a.fit_criteria).join("; ")}`);
+    if (a.institution_type) lines.push(`Institution type: ${a.institution_type}`);
+    if (a.asset_range) lines.push(`Asset range: ${a.asset_range}`);
+    if (a.core_systems) lines.push(`Core systems: ${a.core_systems}`);
+    if (arr(a.language_use).length) lines.push(`Language to use: ${arr(a.language_use).join("; ")}`);
+    if (arr(a.language_avoid).length) lines.push(`Language to avoid: ${arr(a.language_avoid).join("; ")}`);
+    lines.push("");
+  }
+  if (ctx.lane) {
+    lines.push("LANE");
+    lines.push(`${ctx.lane.name}${ctx.lane.is_wedge ? " (wedge lane)" : ""}`);
+    if (ctx.lane.description) lines.push(ctx.lane.description);
+    if (arr(ctx.lane.vocabulary).length) lines.push(`Vocabulary: ${arr(ctx.lane.vocabulary).join(", ")}`);
+    lines.push("");
+  } else {
+    lines.push("LANE: write so it lands in both lanes; avoid lane-specific jargon.");
+    lines.push("");
+  }
+  if (ctx.reader) {
+    lines.push("READER");
+    lines.push(`Role: ${ctx.reader.role}${ctx.reader.who ? ` (${ctx.reader.who})` : ""}`);
+    lines.push(`Side: ${ctx.reader.side === "end_user" ? "end user" : "decision maker"}`);
+    if (ctx.questions.length) lines.push(`Questions this reader needs answered:\n- ${ctx.questions.join("\n- ")}`);
+    lines.push("");
+  } else {
+    lines.push("READER: no single reader fixed; write to the audience broadly.");
+    lines.push("");
+  }
+  lines.push("JOB (what this post must accomplish)");
+  lines.push(`${ctx.job.name} [funnel: ${ctx.job.funnel_stage}]`);
+  if (ctx.job.description) lines.push(ctx.job.description);
+  lines.push("");
+  lines.push("NATURE (how the post argues)");
+  lines.push(`${ctx.nature.name} (fit: ${ctx.nature.fit})`);
+  if (ctx.nature.move) lines.push(`Move: ${ctx.nature.move}`);
+  if (ctx.nature.evidence_type) lines.push(`Lean on: ${ctx.nature.evidence_type}`);
+  const natureSamples = sampleLines(ctx.nature.writing_samples, 2);
+  if (natureSamples) lines.push(`Examples of this nature:\n${natureSamples}`);
+  lines.push("");
+  lines.push("FORMAT (the artifact and how it is written)");
+  lines.push(ctx.format.name);
+  if (ctx.format.definition) lines.push(ctx.format.definition);
+  if (ctx.format.min_words || ctx.format.max_words) {
+    lines.push(`Target length: ${ctx.format.min_words ?? "?"} to ${ctx.format.max_words ?? "?"} words.`);
+  }
+  const formatSamples = sampleLines(ctx.format.writing_samples, 2);
+  if (formatSamples) lines.push(`Examples in this format:\n${formatSamples}`);
+  return lines.join("\n");
+}
+
+// Pick a reader to rotate into a slot when the slot leaves the reader unset.
+function pickReader(readers: any[], lane: any | null): any | null {
+  const published = readers.filter((r) => r.is_published_to);
+  if (!published.length) return null;
+  const laneKey = lane?.key;
+  const matching = published.filter((r) => r.lane_scope === "both" || (laneKey && r.lane_scope === laneKey));
+  const pool = matching.length ? matching : published;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -24,252 +126,280 @@ serve(async (req) => {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) return new Response(JSON.stringify({ error: "Authentication required" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    if (!authHeader) return json({ error: "Authentication required" }, 401);
 
     const supabaseAuth = createClient(supabaseUrl, serviceRoleKey, { global: { headers: { Authorization: authHeader } } });
     const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(authHeader.replace("Bearer ", ""));
-    if (authError || !user) return new Response(JSON.stringify({ error: "Invalid or expired authentication token" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    if (authError || !user) return json({ error: "Invalid or expired authentication token" }, 401);
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
-    const { scheduleEntryId, isTestRun = false } = await req.json();
+    const { scheduleId, isTestRun = false } = await req.json();
+    if (!scheduleId) return json({ error: "scheduleId is required" }, 400);
 
-    if (!scheduleEntryId) return new Response(JSON.stringify({ error: "scheduleEntryId is required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-
-    // Load the schedule entry — all decisions come from here, nothing is hardcoded
-    const { data: scheduleEntry } = await supabase
+    // 1. The slot. Every decision flows from here.
+    const { data: slot } = await supabase
       .from("content_schedules")
       .select("*")
-      .eq("id", scheduleEntryId)
+      .eq("id", scheduleId)
       .eq("user_id", user.id)
       .eq("is_active", true)
       .single();
+    if (!slot) return json({ error: "Slot not found, inactive, or access denied" }, 404);
 
-    if (!scheduleEntry) return new Response(JSON.stringify({ error: "Schedule entry not found, inactive, or access denied" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-
+    // 2. Brand and AI provider.
     const { data: profile } = await supabase
       .from("profiles")
-      .select("ai_provider, ai_model, ai_api_key, ai_endpoint, brand_voice, writing_examples, business_name, business_description, target_audience, content_type_templates")
+      .select("ai_provider, ai_model, ai_api_key, ai_endpoint, business_name, business_description, brand_voice")
       .eq("user_id", user.id)
       .single();
+    if (!profile) return json({ error: "Profile not found" }, 404);
+    if (!profile.ai_api_key) return json({ error: "No AI API key configured in Settings" }, 400);
 
-    if (!profile) return new Response(JSON.stringify({ error: "Profile not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const aiProfile = { ai_provider: profile.ai_provider, ai_model: profile.ai_model, ai_api_key: profile.ai_api_key, ai_endpoint: profile.ai_endpoint };
 
-    if (!profile.ai_api_key) return new Response(JSON.stringify({ error: "No AI API key configured in Settings" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    // 3. Resolve the slot's libraries.
+    const [{ data: format }, { data: nature }, { data: job }] = await Promise.all([
+      supabase.from("formats").select("*").eq("id", slot.format_id).eq("user_id", user.id).single(),
+      supabase.from("natures").select("*").eq("id", slot.nature_id).eq("user_id", user.id).single(),
+      supabase.from("jobs").select("*").eq("id", slot.job_id).eq("user_id", user.id).single(),
+    ]);
+    if (!format || !nature || !job) return json({ error: "Slot references a missing format, nature, or job" }, 400);
+    // Enforce: schedules only run engine jobs. Reference motions are run by hand.
+    if (job.kind !== "engine_job") return json({ error: "Slot job must be an engine job" }, 400);
 
-    const createdDrafts = [];
+    let lane: any = null;
+    if (slot.lane_id) {
+      const { data } = await supabase.from("lanes").select("*").eq("id", slot.lane_id).eq("user_id", user.id).maybeSingle();
+      lane = data;
+    }
 
-    // ─── REUSE DECISION TREE ───────────────────────────────────────────────────
-    // Before generating fresh content, check if there are eligible parent drafts
-    // to resurface. Eligibility: approved, published, within reuse window,
-    // reuse_count < max_reuse_count, no child already queued this week.
+    // Reader: the slot fixes one, or we rotate among published readers.
+    let reader: any = null;
+    if (slot.reader_id) {
+      const { data } = await supabase.from("readers").select("*").eq("id", slot.reader_id).eq("user_id", user.id).maybeSingle();
+      reader = data;
+    } else {
+      const { data: allReaders } = await supabase.from("readers").select("*").eq("user_id", user.id).eq("is_active", true);
+      reader = pickReader(allReaders || [], lane);
+    }
+    let questions: string[] = [];
+    if (reader) {
+      const { data: rq } = await supabase.from("reader_questions").select("question").eq("reader_id", reader.id).order("sort_order");
+      questions = (rq || []).map((q) => q.question);
+    }
 
-    let reuseParent = null;
+    // 4. Audience profile.
+    const { data: audience } = await supabase.from("audience_profile").select("*").eq("user_id", user.id).maybeSingle();
 
-    if (scheduleEntry.max_reuse_count > 0) {
-      const windowCutoff = new Date();
-      windowCutoff.setDate(windowCutoff.getDate() - (scheduleEntry.reuse_window_days || 90));
+    // 5. Seed: prefer the least-used, longest-unused seed that fits this lane and nature.
+    const laneScopes = ["both"];
+    if (lane?.key === "credit_union" || lane?.key === "community_bank") laneScopes.push(lane.key);
+    let seed: any = null;
+    {
+      const { data: seeds } = await supabase
+        .from("seeds")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+        .in("lane_scope", laneScopes)
+        .order("last_used_at", { ascending: true, nullsFirst: true })
+        .order("times_used", { ascending: true })
+        .limit(20);
+      const list = seeds || [];
+      const byNature = list.filter((s) => s.suggested_nature_key && s.suggested_nature_key === nature.key);
+      seed = (byNature[0] || list[0]) ?? null;
+    }
 
-      // Find oldest eligible parent for this content type
-      const { data: eligibleParents } = await supabase
+    const brand = {
+      business_name: profile.business_name ?? undefined,
+      business_description: profile.business_description ?? undefined,
+      brand_voice: profile.brand_voice ?? undefined,
+    };
+    const baseCtx: SlotContext = { format, nature, job, lane, reader, questions, audience, seed, brand };
+    const contextBlock = buildContextBlock(baseCtx);
+    const system = "You are Prismm's content engine. Prismm is inheritance infrastructure for financial institutions. Write in the brand voice, answer the reader's real questions, and never invent statistics. Respond with valid JSON only.";
+
+    const createdDrafts: any[] = [];
+
+    // 6. Reuse decision: when the slot pairs with a child and an eligible parent exists,
+    // resurface it from a fresh angle rather than generating new fresh content.
+    let reuseParent: any = null;
+    if (slot.requires_child && (slot.max_reuse_count ?? 0) > 0) {
+      const { data: parents } = await supabase
         .from("drafts")
         .select("*")
         .eq("user_id", user.id)
-        .eq("content_type", scheduleEntry.content_type_id)
+        .eq("schedule_id", slot.id)
         .eq("approval_status", "approved")
         .is("parent_draft_id", null)
-        .gte("published_at", windowCutoff.toISOString())
-        .filter("reuse_count", "lt", supabase.raw("max_reuse_count"))
+        .not("published_at", "is", null)
+        .gt("max_reuse_count", 0)
         .order("published_at", { ascending: true })
-        .limit(5);
-
-      if (eligibleParents && eligibleParents.length > 0) {
-        // Pick the one with the fewest reuses relative to its max
-        reuseParent = eligibleParents.sort((a, b) =>
-          (a.reuse_count / (a.max_reuse_count || 1)) - (b.reuse_count / (b.max_reuse_count || 1))
-        )[0];
-      }
+        .limit(10);
+      const eligible = (parents || []).filter((p) => {
+        if ((p.reuse_count ?? 0) >= (p.max_reuse_count ?? 0)) return false;
+        const windowDays = p.reuse_window_days ?? 90;
+        const windowEnd = new Date(new Date(p.published_at).getTime() + windowDays * 86400000);
+        return new Date() <= windowEnd;
+      });
+      reuseParent = eligible.sort((a, b) =>
+        ((a.reuse_count ?? 0) / (a.max_reuse_count || 1)) - ((b.reuse_count ?? 0) / (b.max_reuse_count || 1))
+      )[0] ?? null;
     }
 
-    // ─── PATH A: GENERATE CHILD FROM EXISTING PARENT ──────────────────────────
-    if (reuseParent && scheduleEntry.requires_child && scheduleEntry.child_content_type_id) {
-      const anglesUsed = Array.isArray(reuseParent.reuse_angles_used) ? reuseParent.reuse_angles_used : [];
+    // Resolve child format/nature once (used by both reuse and companion paths).
+    const childFormatId = slot.child_format_id || slot.format_id;
+    const childNatureId = slot.child_nature_id || slot.nature_id;
+    const loadChildLibs = async () => {
+      const [{ data: cf }, { data: cn }] = await Promise.all([
+        supabase.from("formats").select("*").eq("id", childFormatId).eq("user_id", user.id).single(),
+        supabase.from("natures").select("*").eq("id", childNatureId).eq("user_id", user.id).single(),
+      ]);
+      return { cf, cn };
+    };
 
-      const contentTypeTemplates = Array.isArray(profile.content_type_templates) ? profile.content_type_templates as Array<{ id: string; name: string; prompt: string }> : [];
-      const childTemplate = contentTypeTemplates.find(t => t.id === scheduleEntry.child_content_type_id);
+    if (reuseParent) {
+      // PATH A: child that resurfaces the parent from a new angle.
+      const { cf, cn } = await loadChildLibs();
+      if (!cf || !cn) return json({ error: "Slot child references a missing format or nature" }, 400);
+      const childCtx: SlotContext = { ...baseCtx, format: cf, nature: cn };
+      const anglesUsed = arr(reuseParent.reuse_angles_used);
+      const prompt = `${buildContextBlock(childCtx)}
 
-      let writingStyleContext = "";
-      if (profile.writing_examples && Array.isArray(profile.writing_examples)) {
-        const childExamples = (profile.writing_examples as any[]).filter((ex: any) => ex.content_type_id === scheduleEntry.child_content_type_id);
-        const fallbackExamples = (profile.writing_examples as any[]).filter((ex: any) => !ex.content_type_id);
-        const examples = childExamples.length > 0 ? childExamples : fallbackExamples;
-        if (examples.length > 0) {
-          writingStyleContext = "\n\nWRITING STYLE EXAMPLES:\n";
-          examples.slice(0, 3).forEach((ex: any, i: number) => {
-            if (ex.content) writingStyleContext += `\n--- Example ${i + 1} ---\n${ex.content.substring(0, 800)}\n`;
-          });
-        }
-      }
-
-      let businessContext = "";
-      if (profile.business_name || profile.business_description || profile.target_audience) {
-        businessContext = "\n\nBUSINESS CONTEXT:\n";
-        if (profile.business_name) businessContext += `Business: ${profile.business_name}\n`;
-        if (profile.business_description) businessContext += `About: ${profile.business_description}\n`;
-        if (profile.target_audience) businessContext += `Audience: ${profile.target_audience}\n`;
-      }
-
-      const prompt = `Generate a ${scheduleEntry.child_content_type_id} post that resurfaces this existing piece of content from a fresh angle.
-
-PARENT CONTENT:
+RESURFACE THIS PUBLISHED PIECE FROM A NEW ANGLE
 Title: ${reuseParent.title}
-Body: ${(reuseParent.body || "").substring(0, 3000)}
+Body: ${(reuseParent.body || "").slice(0, 3000)}
 
-ANGLES ALREADY USED (do not repeat these):
-${anglesUsed.length > 0 ? anglesUsed.join("\n") : "None yet — this is the first reuse."}
+Angles already used (do not repeat):
+${anglesUsed.length ? anglesUsed.map((x) => `- ${x}`).join("\n") : "None yet; this is the first reuse."}
 
-${childTemplate?.prompt ? `CONTENT TYPE GUIDELINES:\n${childTemplate.prompt}` : ""}
-${profile.brand_voice ? `Brand Voice: ${profile.brand_voice}` : ""}
-${writingStyleContext}
-${businessContext}
+Write a new post in the format and nature above that makes a distinct point from the same source. State the angle you chose in "angle_used".
 
-Choose a distinct angle not already covered above. State the angle you chose in a field called "angle_used".
-${profile.target_audience ? `Write specifically for: ${profile.target_audience}` : ""}
+Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sentence"}`;
 
-Respond ONLY with valid JSON: {"title": "...", "content": "...", "angle_used": "one sentence describing the angle"}`;
+      const res = await callAI(aiProfile, [{ role: "user", content: prompt }], system);
+      const result = parseJSON(res.text);
 
-      const aiProfile = { ai_provider: profile.ai_provider, ai_model: profile.ai_model, ai_api_key: profile.ai_api_key, ai_endpoint: profile.ai_endpoint };
-      const response = await callAI(aiProfile, [{ role: "user", content: prompt }], "You are a professional content writer. Always respond with valid JSON only.");
-      const result = parseJSON(response.text);
-
-      // Save child draft
-      const { data: childDraft, error: childError } = await supabase.from("drafts").insert({
+      const { data: child } = await supabase.from("drafts").insert({
         title: result.title,
-        body: result.content,
+        body: result.body,
         status: "draft",
-        user_id: user.id,
-        content_type: scheduleEntry.child_content_type_id,
-        parent_draft_id: reuseParent.id,
         approval_status: "pending",
+        user_id: user.id,
+        parent_draft_id: reuseParent.id,
+        schedule_id: slot.id,
+        format_id: childFormatId,
+        nature_id: childNatureId,
+        job_id: slot.job_id,
+        lane_id: slot.lane_id,
+        reader_id: reader?.id ?? null,
+        content_type: cf.key,
         revision_count: 0,
-        seed_insight: `Reuse ${reuseParent.reuse_count + 1} of ${reuseParent.max_reuse_count} — angle: ${result.angle_used || "unspecified"}`,
+        seed_insight: `Reuse ${(reuseParent.reuse_count ?? 0) + 1} of ${reuseParent.max_reuse_count}. Angle: ${result.angle_used || "unspecified"}`,
       }).select().single();
 
-      if (!childError && childDraft) {
-        // Update parent reuse tracking
-        const updatedAngles = [...anglesUsed, result.angle_used || `Reuse ${reuseParent.reuse_count + 1}`];
-        await supabase.from("drafts").update({
-          reuse_count: reuseParent.reuse_count + 1,
-          reuse_angles_used: updatedAngles,
-        }).eq("id", reuseParent.id);
-
-        createdDrafts.push(childDraft);
-
-        // Notify
-        await supabase.functions.invoke("send-draft-notification", {
-          body: { draftId: childDraft.id },
-          headers: { Authorization: authHeader },
-        });
+      if (child) {
+        if (!isTestRun) {
+          await supabase.from("drafts").update({
+            reuse_count: (reuseParent.reuse_count ?? 0) + 1,
+            reuse_angles_used: [...anglesUsed, result.angle_used || `Reuse ${(reuseParent.reuse_count ?? 0) + 1}`],
+          }).eq("id", reuseParent.id);
+        }
+        createdDrafts.push(child);
       }
-
     } else {
-      // ─── PATH B: GENERATE FRESH CONTENT FROM REFERENCE CARDS ────────────────
-      const { data: referenceCards } = await supabase
-        .from("reference_cards")
-        .select("id, title, ai_summary")
-        .eq("user_id", user.id)
-        .eq("status", "active")
-        .order("created_at", { ascending: false })
-        .limit(3);
+      // PATH B: fresh parent from strategy, audience, and the seed.
+      const seedBlock = seed
+        ? `\n\nSEED (build the post on this premise)\n${seed.premise}${seed.category ? `\nCategory: ${seed.category}` : ""}`
+        : "\n\nNo seed supplied; choose a premise that fits the job and nature above.";
+      const prompt = `${contextBlock}${seedBlock}
 
-      if (!referenceCards || referenceCards.length === 0) {
-        return new Response(JSON.stringify({ success: true, message: "No reference cards available for fresh generation", draftsCreated: 0 }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
+Write one post that does the job, argues in the nature, fits the format and its length, speaks to the lane and reader, and answers the reader's questions where natural. Use the audience's preferred language and avoid the language to avoid.
 
-      let contentTemplate = null;
-      if (scheduleEntry.content_type_id) {
-        const { data: tmpl } = await supabase
-          .from("content_templates")
-          .select("*")
-          .eq("content_type", scheduleEntry.content_type_id)
-          .eq("is_active", true)
-          .or(`user_id.eq.${user.id},is_system_template.eq.true`)
-          .order("is_system_template", { ascending: false })
-          .limit(1)
-          .single();
-        contentTemplate = tmpl;
-      }
+Respond ONLY with JSON: {"title": "...", "body": "..."}`;
 
-      for (const card of referenceCards) {
-        try {
-          const { data: generatedContent, error: aiError } = await supabase.functions.invoke("generate-content-from-card", {
-            body: {
-              cardId: card.id,
-              templateId: contentTemplate?.id,
-              outputFormat: scheduleEntry.content_type_id,
-            },
-            headers: { Authorization: authHeader },
-          });
+      const res = await callAI(aiProfile, [{ role: "user", content: prompt }], system);
+      const result = parseJSON(res.text);
 
-          if (aiError) { console.error(`Generation failed for card ${card.id}:`, aiError); continue; }
+      const { data: parent } = await supabase.from("drafts").insert({
+        title: result.title,
+        body: result.body,
+        status: "draft",
+        approval_status: "pending",
+        user_id: user.id,
+        schedule_id: slot.id,
+        format_id: slot.format_id,
+        nature_id: slot.nature_id,
+        job_id: slot.job_id,
+        lane_id: slot.lane_id,
+        reader_id: reader?.id ?? null,
+        seed_id: seed?.id ?? null,
+        content_type: format.key,
+        revision_count: 0,
+        max_reuse_count: slot.max_reuse_count ?? 0,
+        reuse_window_days: slot.reuse_window_days ?? 90,
+        reuse_count: 0,
+        reuse_angles_used: [],
+      }).select().single();
 
-          const { data: draftData, error: draftError } = await supabase.from("drafts").insert({
-            title: generatedContent?.title || `Draft from ${card.title}`,
-            body: generatedContent?.content || "",
-            status: "draft",
-            user_id: user.id,
-            seed_insight: card.ai_summary,
-            content_type: scheduleEntry.content_type_id,
-            approval_status: "pending",
-            revision_count: 0,
-            // Reuse config inherited from schedule entry
-            max_reuse_count: scheduleEntry.max_reuse_count || 0,
-            reuse_window_days: scheduleEntry.reuse_window_days || 90,
-            reuse_count: 0,
-            reuse_angles_used: [],
-          }).select().single();
+      if (parent) {
+        createdDrafts.push(parent);
 
-          if (draftError) { console.error("Draft creation failed:", draftError); continue; }
+        // Mark the seed as used so rotation moves on.
+        if (seed && !isTestRun) {
+          await supabase.from("seeds").update({
+            times_used: (seed.times_used ?? 0) + 1,
+            last_used_at: new Date().toISOString(),
+          }).eq("id", seed.id);
+        }
 
-          await supabase.functions.invoke("send-draft-notification", {
-            body: { draftId: draftData.id },
-            headers: { Authorization: authHeader },
-          });
+        // Companion child in the child format, if the slot pairs them.
+        if (slot.requires_child) {
+          const { cf, cn } = await loadChildLibs();
+          if (cf && cn) {
+            const childCtx: SlotContext = { ...baseCtx, format: cf, nature: cn };
+            const childPrompt = `${buildContextBlock(childCtx)}
 
-          createdDrafts.push(draftData);
-        } catch (error) {
-          console.error(`Error processing card ${card.id}:`, error);
+COMPANION TO THIS NEW POST (adapt it into the format and nature above, do not just summarize)
+Title: ${parent.title}
+Body: ${(parent.body || "").slice(0, 3000)}
+
+Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sentence"}`;
+            const childRes = await callAI(aiProfile, [{ role: "user", content: childPrompt }], system);
+            const childResult = parseJSON(childRes.text);
+            const { data: child } = await supabase.from("drafts").insert({
+              title: childResult.title,
+              body: childResult.body,
+              status: "draft",
+              approval_status: "pending",
+              user_id: user.id,
+              parent_draft_id: parent.id,
+              schedule_id: slot.id,
+              format_id: childFormatId,
+              nature_id: childNatureId,
+              job_id: slot.job_id,
+              lane_id: slot.lane_id,
+              reader_id: reader?.id ?? null,
+              content_type: cf.key,
+              revision_count: 0,
+              seed_insight: `Companion to "${parent.title}". Angle: ${childResult.angle_used || "unspecified"}`,
+            }).select().single();
+            if (child) createdDrafts.push(child);
+          }
         }
       }
-
-      // If this content type requires a child, also queue a child for the first fresh draft
-      if (scheduleEntry.requires_child && scheduleEntry.child_content_type_id && createdDrafts.length > 0) {
-        const parentDraft = createdDrafts[0];
-        await supabase.functions.invoke("execute-autopilot-template", {
-          body: {
-            scheduleEntryId,
-            isTestRun,
-            _forceChildOf: parentDraft.id,
-          },
-          headers: { Authorization: authHeader },
-        });
-      }
     }
 
-    if (!isTestRun) {
-      await supabase.from("content_schedules").update({
-        updated_at: new Date().toISOString(),
-      }).eq("id", scheduleEntryId);
+    // Notify on each created draft (best-effort).
+    for (const d of createdDrafts) {
+      await supabase.functions.invoke("send-draft-notification", {
+        body: { draftId: d.id },
+        headers: { Authorization: authHeader },
+      }).catch(() => {});
     }
 
-    return new Response(
-      JSON.stringify({ success: true, draftsCreated: createdDrafts.length, draftIds: createdDrafts.map(d => d.id), isTestRun }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-
+    return json({ success: true, draftsCreated: createdDrafts.length, draftIds: createdDrafts.map((d) => d.id), isTestRun });
   } catch (error) {
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
   }
 });

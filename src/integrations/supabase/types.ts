@@ -10,10 +10,55 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "13.0.5"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
+      audience_profile: {
+        Row: {
+          asset_range: string | null
+          channels: string[]
+          core_systems: string | null
+          created_at: string
+          fit_criteria: string[]
+          id: string
+          institution_type: string | null
+          language_avoid: string[]
+          language_use: string[]
+          thesis: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          asset_range?: string | null
+          channels?: string[]
+          core_systems?: string | null
+          created_at?: string
+          fit_criteria?: string[]
+          id?: string
+          institution_type?: string | null
+          language_avoid?: string[]
+          language_use?: string[]
+          thesis?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          asset_range?: string | null
+          channels?: string[]
+          core_systems?: string | null
+          created_at?: string
+          fit_criteria?: string[]
+          id?: string
+          institution_type?: string | null
+          language_avoid?: string[]
+          language_use?: string[]
+          thesis?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       autopilot_templates: {
         Row: {
           approval_required: boolean | null
@@ -126,6 +171,119 @@ export type Database = {
           },
         ]
       }
+      content_schedules: {
+        Row: {
+          anchor: number | null
+          child_format_id: string | null
+          child_nature_id: string | null
+          created_at: string
+          day_of_week: number
+          format_id: string
+          frequency: string
+          id: string
+          is_active: boolean
+          job_id: string
+          lane_id: string | null
+          max_reuse_count: number
+          nature_id: string
+          reader_id: string | null
+          requires_child: boolean
+          reuse_window_days: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          anchor?: number | null
+          child_format_id?: string | null
+          child_nature_id?: string | null
+          created_at?: string
+          day_of_week: number
+          format_id: string
+          frequency?: string
+          id?: string
+          is_active?: boolean
+          job_id: string
+          lane_id?: string | null
+          max_reuse_count?: number
+          nature_id: string
+          reader_id?: string | null
+          requires_child?: boolean
+          reuse_window_days?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          anchor?: number | null
+          child_format_id?: string | null
+          child_nature_id?: string | null
+          created_at?: string
+          day_of_week?: number
+          format_id?: string
+          frequency?: string
+          id?: string
+          is_active?: boolean
+          job_id?: string
+          lane_id?: string | null
+          max_reuse_count?: number
+          nature_id?: string
+          reader_id?: string | null
+          requires_child?: boolean
+          reuse_window_days?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "content_schedules_child_format_id_fkey"
+            columns: ["child_format_id"]
+            isOneToOne: false
+            referencedRelation: "formats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "content_schedules_child_nature_id_fkey"
+            columns: ["child_nature_id"]
+            isOneToOne: false
+            referencedRelation: "natures"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "content_schedules_format_id_fkey"
+            columns: ["format_id"]
+            isOneToOne: false
+            referencedRelation: "formats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "content_schedules_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "content_schedules_lane_id_fkey"
+            columns: ["lane_id"]
+            isOneToOne: false
+            referencedRelation: "lanes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "content_schedules_nature_id_fkey"
+            columns: ["nature_id"]
+            isOneToOne: false
+            referencedRelation: "natures"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "content_schedules_reader_id_fkey"
+            columns: ["reader_id"]
+            isOneToOne: false
+            referencedRelation: "readers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       content_templates: {
         Row: {
           content_type: string
@@ -200,6 +358,50 @@ export type Database = {
           },
         ]
       }
+      draft_visuals: {
+        Row: {
+          created_at: string | null
+          draft_id: string
+          error_message: string | null
+          html_content: string
+          id: string
+          status: string | null
+          updated_at: string | null
+          user_id: string
+          visual_type: string
+        }
+        Insert: {
+          created_at?: string | null
+          draft_id: string
+          error_message?: string | null
+          html_content: string
+          id?: string
+          status?: string | null
+          updated_at?: string | null
+          user_id: string
+          visual_type: string
+        }
+        Update: {
+          created_at?: string | null
+          draft_id?: string
+          error_message?: string | null
+          html_content?: string
+          id?: string
+          status?: string | null
+          updated_at?: string | null
+          user_id?: string
+          visual_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "draft_visuals_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "drafts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       drafts: {
         Row: {
           approval_status: string | null
@@ -208,17 +410,30 @@ export type Database = {
           body: string | null
           content_type: string | null
           created_at: string | null
+          format_id: string | null
           id: string
           insights_summary: string[] | null
+          job_id: string | null
+          lane_id: string | null
           manual_revision_notes: string | null
+          max_reuse_count: number | null
+          nature_id: string | null
+          parent_draft_id: string | null
+          published_at: string | null
+          reader_id: string | null
           reference_card_ids: string[] | null
+          reuse_angles_used: Json
+          reuse_count: number
+          reuse_window_days: number | null
           review_notes: string | null
           reviewed_at: string | null
           revised_from: string | null
           revision_count: number | null
           revision_feedback: string | null
+          schedule_id: string | null
           scheduled_publish_date: string | null
           seed_category: string | null
+          seed_id: string | null
           seed_insight: string | null
           selected_direction: string | null
           status: string | null
@@ -235,17 +450,30 @@ export type Database = {
           body?: string | null
           content_type?: string | null
           created_at?: string | null
+          format_id?: string | null
           id?: string
           insights_summary?: string[] | null
+          job_id?: string | null
+          lane_id?: string | null
           manual_revision_notes?: string | null
+          max_reuse_count?: number | null
+          nature_id?: string | null
+          parent_draft_id?: string | null
+          published_at?: string | null
+          reader_id?: string | null
           reference_card_ids?: string[] | null
+          reuse_angles_used?: Json
+          reuse_count?: number
+          reuse_window_days?: number | null
           review_notes?: string | null
           reviewed_at?: string | null
           revised_from?: string | null
           revision_count?: number | null
           revision_feedback?: string | null
+          schedule_id?: string | null
           scheduled_publish_date?: string | null
           seed_category?: string | null
+          seed_id?: string | null
           seed_insight?: string | null
           selected_direction?: string | null
           status?: string | null
@@ -262,17 +490,30 @@ export type Database = {
           body?: string | null
           content_type?: string | null
           created_at?: string | null
+          format_id?: string | null
           id?: string
           insights_summary?: string[] | null
+          job_id?: string | null
+          lane_id?: string | null
           manual_revision_notes?: string | null
+          max_reuse_count?: number | null
+          nature_id?: string | null
+          parent_draft_id?: string | null
+          published_at?: string | null
+          reader_id?: string | null
           reference_card_ids?: string[] | null
+          reuse_angles_used?: Json
+          reuse_count?: number
+          reuse_window_days?: number | null
           review_notes?: string | null
           reviewed_at?: string | null
           revised_from?: string | null
           revision_count?: number | null
           revision_feedback?: string | null
+          schedule_id?: string | null
           scheduled_publish_date?: string | null
           seed_category?: string | null
+          seed_id?: string | null
           seed_insight?: string | null
           selected_direction?: string | null
           status?: string | null
@@ -291,10 +532,66 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "drafts_format_id_fkey"
+            columns: ["format_id"]
+            isOneToOne: false
+            referencedRelation: "formats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drafts_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drafts_lane_id_fkey"
+            columns: ["lane_id"]
+            isOneToOne: false
+            referencedRelation: "lanes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drafts_nature_id_fkey"
+            columns: ["nature_id"]
+            isOneToOne: false
+            referencedRelation: "natures"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drafts_parent_draft_id_fkey"
+            columns: ["parent_draft_id"]
+            isOneToOne: false
+            referencedRelation: "drafts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drafts_reader_id_fkey"
+            columns: ["reader_id"]
+            isOneToOne: false
+            referencedRelation: "readers"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "drafts_revised_from_fkey"
             columns: ["revised_from"]
             isOneToOne: false
             referencedRelation: "drafts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drafts_schedule_id_fkey"
+            columns: ["schedule_id"]
+            isOneToOne: false
+            referencedRelation: "content_schedules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drafts_seed_id_fkey"
+            columns: ["seed_id"]
+            isOneToOne: false
+            referencedRelation: "seeds"
             referencedColumns: ["id"]
           },
           {
@@ -349,6 +646,54 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      formats: {
+        Row: {
+          created_at: string
+          definition: string | null
+          id: string
+          is_active: boolean
+          key: string
+          max_words: number | null
+          min_words: number | null
+          name: string
+          platform: string
+          sort_order: number
+          updated_at: string
+          user_id: string
+          writing_samples: Json
+        }
+        Insert: {
+          created_at?: string
+          definition?: string | null
+          id?: string
+          is_active?: boolean
+          key: string
+          max_words?: number | null
+          min_words?: number | null
+          name: string
+          platform?: string
+          sort_order?: number
+          updated_at?: string
+          user_id: string
+          writing_samples?: Json
+        }
+        Update: {
+          created_at?: string
+          definition?: string | null
+          id?: string
+          is_active?: boolean
+          key?: string
+          max_words?: number | null
+          min_words?: number | null
+          name?: string
+          platform?: string
+          sort_order?: number
+          updated_at?: string
+          user_id?: string
+          writing_samples?: Json
+        }
+        Relationships: []
       }
       insight_cards: {
         Row: {
@@ -442,9 +787,145 @@ export type Database = {
           },
         ]
       }
+      jobs: {
+        Row: {
+          created_at: string
+          description: string | null
+          funnel_stage: string
+          id: string
+          is_active: boolean
+          key: string
+          kind: string
+          name: string
+          sort_order: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          funnel_stage?: string
+          id?: string
+          is_active?: boolean
+          key: string
+          kind?: string
+          name: string
+          sort_order?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          funnel_stage?: string
+          id?: string
+          is_active?: boolean
+          key?: string
+          kind?: string
+          name?: string
+          sort_order?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      lanes: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          is_active: boolean
+          is_wedge: boolean
+          key: string
+          name: string
+          sort_order: number
+          updated_at: string
+          user_id: string
+          vocabulary: string[]
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          is_wedge?: boolean
+          key: string
+          name: string
+          sort_order?: number
+          updated_at?: string
+          user_id: string
+          vocabulary?: string[]
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          is_wedge?: boolean
+          key?: string
+          name?: string
+          sort_order?: number
+          updated_at?: string
+          user_id?: string
+          vocabulary?: string[]
+        }
+        Relationships: []
+      }
+      natures: {
+        Row: {
+          absorbs: string[]
+          created_at: string
+          evidence_type: string | null
+          fit: string
+          id: string
+          is_active: boolean
+          key: string
+          move: string | null
+          name: string
+          rotation_mode: string
+          sort_order: number
+          updated_at: string
+          user_id: string
+          writing_samples: Json
+        }
+        Insert: {
+          absorbs?: string[]
+          created_at?: string
+          evidence_type?: string | null
+          fit?: string
+          id?: string
+          is_active?: boolean
+          key: string
+          move?: string | null
+          name: string
+          rotation_mode?: string
+          sort_order?: number
+          updated_at?: string
+          user_id: string
+          writing_samples?: Json
+        }
+        Update: {
+          absorbs?: string[]
+          created_at?: string
+          evidence_type?: string | null
+          fit?: string
+          id?: string
+          is_active?: boolean
+          key?: string
+          move?: string | null
+          name?: string
+          rotation_mode?: string
+          sort_order?: number
+          updated_at?: string
+          user_id?: string
+          writing_samples?: Json
+        }
+        Relationships: []
+      }
       newsletter_emails: {
         Row: {
           from_address: string | null
+          gmail_message_id: string | null
           id: string
           processing_status: string | null
           received_at: string | null
@@ -454,6 +935,7 @@ export type Database = {
         }
         Insert: {
           from_address?: string | null
+          gmail_message_id?: string | null
           id?: string
           processing_status?: string | null
           received_at?: string | null
@@ -463,6 +945,7 @@ export type Database = {
         }
         Update: {
           from_address?: string | null
+          gmail_message_id?: string | null
           id?: string
           processing_status?: string | null
           received_at?: string | null
@@ -483,6 +966,7 @@ export type Database = {
       profiles: {
         Row: {
           accent_color: string | null
+          active_question_indices: number[] | null
           ai_model: string | null
           ai_provider: string | null
           brand_voice: string | null
@@ -505,6 +989,7 @@ export type Database = {
         }
         Insert: {
           accent_color?: string | null
+          active_question_indices?: number[] | null
           ai_model?: string | null
           ai_provider?: string | null
           brand_voice?: string | null
@@ -527,6 +1012,7 @@ export type Database = {
         }
         Update: {
           accent_color?: string | null
+          active_question_indices?: number[] | null
           ai_model?: string | null
           ai_provider?: string | null
           brand_voice?: string | null
@@ -602,6 +1088,103 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      reader_questions: {
+        Row: {
+          created_at: string
+          id: string
+          question: string
+          reader_id: string
+          sort_order: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          question: string
+          reader_id: string
+          sort_order?: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          question?: string
+          reader_id?: string
+          sort_order?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reader_questions_reader_id_fkey"
+            columns: ["reader_id"]
+            isOneToOne: false
+            referencedRelation: "readers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      readers: {
+        Row: {
+          activation_trigger: string | null
+          avatar_initials: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          is_published_to: boolean
+          key: string
+          lane_scope: string
+          role: string
+          side: string
+          sort_order: number
+          threat_item_id: string | null
+          updated_at: string
+          user_id: string
+          who: string | null
+        }
+        Insert: {
+          activation_trigger?: string | null
+          avatar_initials?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          is_published_to?: boolean
+          key: string
+          lane_scope?: string
+          role: string
+          side?: string
+          sort_order?: number
+          threat_item_id?: string | null
+          updated_at?: string
+          user_id: string
+          who?: string | null
+        }
+        Update: {
+          activation_trigger?: string | null
+          avatar_initials?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          is_published_to?: boolean
+          key?: string
+          lane_scope?: string
+          role?: string
+          side?: string
+          sort_order?: number
+          threat_item_id?: string | null
+          updated_at?: string
+          user_id?: string
+          who?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "readers_threat_item_id_fkey"
+            columns: ["threat_item_id"]
+            isOneToOne: false
+            referencedRelation: "swot_items"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       reference_card_templates: {
         Row: {
@@ -717,6 +1300,51 @@ export type Database = {
           },
         ]
       }
+      seeds: {
+        Row: {
+          category: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          lane_scope: string
+          last_used_at: string | null
+          premise: string
+          sort_order: number
+          suggested_nature_key: string | null
+          times_used: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          lane_scope?: string
+          last_used_at?: string | null
+          premise: string
+          sort_order?: number
+          suggested_nature_key?: string | null
+          times_used?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          category?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          lane_scope?: string
+          last_used_at?: string | null
+          premise?: string
+          sort_order?: number
+          suggested_nature_key?: string | null
+          times_used?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       source_feeds: {
         Row: {
           created_at: string | null
@@ -772,6 +1400,50 @@ export type Database = {
             columns: ["default_template_id"]
             isOneToOne: false
             referencedRelation: "reference_card_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      swot_items: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          lane_id: string | null
+          quadrant: string
+          sort_order: number
+          threat_class: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          id?: string
+          lane_id?: string | null
+          quadrant: string
+          sort_order?: number
+          threat_class?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          lane_id?: string | null
+          quadrant?: string
+          sort_order?: number
+          threat_class?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "swot_items_lane_id_fkey"
+            columns: ["lane_id"]
+            isOneToOne: false
+            referencedRelation: "lanes"
             referencedColumns: ["id"]
           },
         ]

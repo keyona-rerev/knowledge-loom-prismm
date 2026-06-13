@@ -175,6 +175,22 @@ const DraftDetail = () => {
           body: { draftId: draft.id, userId: session.user.id }
         }).catch(err => console.error("Visual generation error:", err));
       }
+      // Hand the approved draft to the scheduler for publishing at its slot time.
+      supabase.functions.invoke("publish-to-zernio", { body: { draftId: draft.id } })
+        .then(({ data }) => {
+          if (data?.status === "scheduled") {
+            const when = new Date(data.scheduledFor).toLocaleString();
+            toast.success(data.basis === "rescheduled"
+              ? `Slot time had passed; rescheduled to publish ${when}`
+              : `Scheduled to publish ${when}`);
+          } else if (data?.status === "needs_attention") {
+            toast.warning(`Not scheduled: ${data.error}`);
+          } else if (data?.error) {
+            toast.error(`Publish failed: ${data.error}`);
+          }
+          loadDraft();
+        })
+        .catch((err) => console.error("Publish error:", err));
     }
   };
 

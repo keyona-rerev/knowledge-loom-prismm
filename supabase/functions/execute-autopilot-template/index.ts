@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAI } from "../_shared/ai-caller.ts";
+import { resolveNext, type Frequency } from "../_shared/schedule-resolver.ts";
 
 // Knowledge Loom autopilot. A schedule slot is a standing instruction: produce a post
 // of this format and nature, doing this job, for this lane and reader. Generation reads
@@ -157,6 +158,16 @@ serve(async (req) => {
       .single();
     if (!slot) return json({ error: "Slot not found, inactive, or access denied" }, 404);
 
+    // The intended publish instant for drafts from this slot, stamped now so a
+    // late approval can be detected later (resolveForApproval compares against it).
+    const intendedScheduledFor = resolveNext({
+      day_of_week: slot.day_of_week,
+      frequency: slot.frequency as Frequency,
+      anchor: slot.anchor,
+      time_of_day: slot.time_of_day,
+      timezone: slot.timezone,
+    }).scheduledFor;
+
     // 2. Brand and AI provider.
     const { data: profile } = await supabase
       .from("profiles")
@@ -299,6 +310,7 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
         user_id: userId,
         parent_draft_id: reuseParent.id,
         schedule_id: slot.id,
+        scheduled_for: intendedScheduledFor,
         format_id: childFormatId,
         nature_id: childNatureId,
         job_id: slot.job_id,
@@ -339,6 +351,7 @@ Respond ONLY with JSON: {"title": "...", "body": "..."}`;
         approval_status: "pending",
         user_id: userId,
         schedule_id: slot.id,
+        scheduled_for: intendedScheduledFor,
         format_id: slot.format_id,
         nature_id: slot.nature_id,
         job_id: slot.job_id,
@@ -386,6 +399,7 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
               user_id: userId,
               parent_draft_id: parent.id,
               schedule_id: slot.id,
+              scheduled_for: intendedScheduledFor,
               format_id: childFormatId,
               nature_id: childNatureId,
               job_id: slot.job_id,

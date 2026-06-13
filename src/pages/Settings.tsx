@@ -8,8 +8,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Trash2, Moon, Sun, AlertTriangle, Mail, Shield, Loader2 } from "lucide-react";
+import { ArrowLeft, Trash2, Moon, Sun, AlertTriangle, Mail, Shield, Loader2, Linkedin, CheckCircle2 } from "lucide-react";
 import { useTheme } from "next-themes";
 
 // Settings is now appearance plus the AI provider only. Brand, voice, audience, and
@@ -31,6 +32,8 @@ const Settings = () => {
   const { theme, setTheme } = useTheme();
   const [loading, setLoading] = useState(false);
   const [deletingData, setDeletingData] = useState(false);
+  const [liConn, setLiConn] = useState<any>(null);
+  const [liBusy, setLiBusy] = useState(false);
   const [profile, setProfile] = useState({
     ai_provider: "anthropic",
     ai_model: "claude-sonnet-4-20250514",
@@ -58,6 +61,44 @@ const Settings = () => {
     };
     loadProfile();
   }, [navigate]);
+
+  // LinkedIn-via-provider connection. start -> OAuth redirect; sync -> read back
+  // the connected account on return; status -> show current connection.
+  const callConnect = async (action: "status" | "start" | "sync") => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    if (action === "start") {
+      const redirectUrl = `${window.location.origin}${import.meta.env.BASE_URL}settings?zernio=connected`;
+      const { data, error } = await supabase.functions.invoke("zernio-connect", { body: { action: "start", redirectUrl } });
+      if (error || !data?.authorizationUrl) {
+        toast.error("Could not start LinkedIn connect: " + (error?.message || data?.error || "unknown"));
+        return;
+      }
+      window.location.href = data.authorizationUrl;
+      return;
+    }
+    const { data, error } = await supabase.functions.invoke("zernio-connect", { body: { action } });
+    if (error) { if (action === "sync") toast.error("Sync failed: " + error.message); return; }
+    if (action === "sync") {
+      if (data?.connected) toast.success("LinkedIn connected");
+      else toast.warning(data?.error || "No LinkedIn account found yet");
+    }
+    setLiConn(data?.connection ?? null);
+  };
+
+  useEffect(() => {
+    const run = async () => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("zernio") === "connected") {
+        await callConnect("sync");
+        window.history.replaceState({}, "", window.location.pathname);
+      } else {
+        await callConnect("status");
+      }
+    };
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSave = async () => {
     setLoading(true);
@@ -148,6 +189,37 @@ const Settings = () => {
                 <p className="text-sm text-muted-foreground">Must be an OpenAI-compatible chat completions endpoint.</p>
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Publishing destination — LinkedIn company page via the provider */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Linkedin className="h-5 w-5" />Publishing — LinkedIn
+            </CardTitle>
+            <CardDescription>
+              Approved posts are scheduled to your LinkedIn company page at each slot's time. Connect the page once here.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {liConn?.external_account_id ? (
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div className="flex items-center gap-2 text-sm">
+                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  <span>Connected{liConn.account_label ? `: ${liConn.account_label}` : ""}</span>
+                  <Badge variant="outline">{liConn.status}</Badge>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => callConnect("sync")}>Refresh</Button>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No LinkedIn account connected yet.</p>
+            )}
+            <Button onClick={async () => { setLiBusy(true); await callConnect("start"); setLiBusy(false); }} disabled={liBusy}>
+              {liBusy
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Connecting...</>
+                : (liConn?.external_account_id ? "Reconnect LinkedIn" : "Connect LinkedIn")}
+            </Button>
           </CardContent>
         </Card>
 

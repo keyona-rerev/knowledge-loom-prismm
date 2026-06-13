@@ -408,6 +408,48 @@ export type Database = {
           },
         ]
       }
+      social_connections: {
+        Row: {
+          account_label: string | null
+          connected_at: string
+          created_at: string
+          external_account_id: string | null
+          external_profile_id: string | null
+          id: string
+          platform: string
+          provider: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_label?: string | null
+          connected_at?: string
+          created_at?: string
+          external_account_id?: string | null
+          external_profile_id?: string | null
+          id?: string
+          platform: string
+          provider?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_label?: string | null
+          connected_at?: string
+          created_at?: string
+          external_account_id?: string | null
+          external_profile_id?: string | null
+          id?: string
+          platform?: string
+          provider?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       drafts: {
         Row: {
           approval_status: string | null
@@ -437,6 +479,11 @@ export type Database = {
           revision_count: number | null
           revision_feedback: string | null
           schedule_id: string | null
+          external_post_id: string | null
+          publish_basis: string | null
+          publish_error: string | null
+          publish_status: string | null
+          scheduled_for: string | null
           scheduled_publish_date: string | null
           seed_category: string | null
           seed_id: string | null
@@ -477,6 +524,11 @@ export type Database = {
           revision_count?: number | null
           revision_feedback?: string | null
           schedule_id?: string | null
+          external_post_id?: string | null
+          publish_basis?: string | null
+          publish_error?: string | null
+          publish_status?: string | null
+          scheduled_for?: string | null
           scheduled_publish_date?: string | null
           seed_category?: string | null
           seed_id?: string | null
@@ -517,6 +569,11 @@ export type Database = {
           revision_count?: number | null
           revision_feedback?: string | null
           schedule_id?: string | null
+          external_post_id?: string | null
+          publish_basis?: string | null
+          publish_error?: string | null
+          publish_status?: string | null
+          scheduled_for?: string | null
           scheduled_publish_date?: string | null
           seed_category?: string | null
           seed_id?: string | null

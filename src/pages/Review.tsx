@@ -90,6 +90,22 @@ const Review = () => {
           body: { draftId, userId: session.user.id }
         }).catch(err => console.error("Visual generation error:", err));
       }
+      // Hand the approved draft to the scheduler for publishing at its slot time.
+      supabase.functions.invoke("publish-to-zernio", { body: { draftId } })
+        .then(({ data }) => {
+          if (data?.status === "scheduled") {
+            const when = new Date(data.scheduledFor).toLocaleString();
+            toast.success(data.basis === "rescheduled"
+              ? `Slot time had passed; rescheduled to publish ${when}`
+              : `Scheduled to publish ${when}`);
+          } else if (data?.status === "needs_attention") {
+            toast.warning(`Not scheduled: ${data.error}`);
+          } else if (data?.error) {
+            toast.error(`Publish failed: ${data.error}`);
+          }
+          loadDrafts();
+        })
+        .catch((err) => console.error("Publish error:", err));
     }
   };
 
@@ -161,6 +177,11 @@ const Review = () => {
         .update({ approval_status: bulkAction, review_notes: bulkAction === "reject" ? rejectNote : null, reviewed_at: new Date().toISOString() })
         .eq("id", draftId);
       if (error) { toast.error(`Failed to update draft ${draftId}`); return; }
+      // On bulk approve, hand each draft to the scheduler (fire and forget).
+      if (bulkAction === "approve") {
+        supabase.functions.invoke("publish-to-zernio", { body: { draftId } })
+          .catch((err) => console.error("Publish error:", err));
+      }
     }
     toast.success(`${selectedDrafts.length} drafts ${bulkAction}ed`);
     setSelectedDrafts([]);

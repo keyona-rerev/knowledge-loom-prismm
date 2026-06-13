@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prismm Audience</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f4f6f9; --card:#ffffff; --line:#e6e8ef; --line2:#d4d8e2;
+  --ink:#1b2b45; --body:#3d4759; --muted:#7a8398; --faint:#9aa1b2;
+  --coral:#f9655b; --coral-s:#fdeae7; --coral-d:#b83b34;
+  --purple:#6658ea; --purple-s:#ecebfb; --purple-d:#4338b0;
+  --gold:#e7a23c; --gold-s:#fbf0dc; --gold-d:#8a5d12;
+  --green:#2ea878; --green-s:#e3f4ec; --green-d:#1d6e4e;
+  --radius:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--body);font-family:'Inter',system-ui,sans-serif;line-height:1.55;padding-bottom:64px}
+.wrap{max-width:880px;margin:0 auto;padding:24px 22px}
+.back{display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:14px;text-decoration:none;font-weight:500}
+.back:hover{color:var(--ink)}
+.title{display:flex;align-items:center;gap:12px;margin:16px 0 4px}
+h1{font-size:30px;font-weight:800;color:var(--ink);letter-spacing:-0.01em}
+.pill{font-size:11px;font-weight:600;color:var(--purple-d);background:var(--purple-s);padding:4px 11px;border-radius:999px}
+.lead{font-size:14px;color:var(--muted);margin-bottom:24px;max-width:74ch}
+.lead b{color:var(--body);font-weight:600}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:24px 26px;margin-bottom:20px}
+.card>h2{font-size:18px;font-weight:700;color:var(--ink);margin-bottom:3px;letter-spacing:-0.01em}
+.card>.sub{font-size:13px;color:var(--muted);margin-bottom:18px;max-width:80ch}
+label{display:block;font-size:12px;font-weight:600;color:#5a6378;margin-bottom:6px}
+input[type=text],textarea{width:100%;background:#fbfcfe;border:1px solid var(--line2);border-radius:10px;color:var(--ink);font-family:inherit;font-size:14px;padding:11px 13px}
+input:focus,textarea:focus{outline:none;border-color:var(--coral)}
+textarea{resize:vertical;min-height:64px;line-height:1.55}
+
+/* thesis */
+.thesis{background:var(--coral-s);border:1px solid #f6cfc9;border-left:4px solid var(--coral);border-radius:0 12px 12px 0;padding:16px 18px}
+.thesis textarea{background:transparent;border:none;padding:0;font-size:15.5px;color:var(--ink);font-weight:500;line-height:1.6;min-height:52px}
+.thesis textarea:focus{outline:none}
+
+/* fit gate */
+.gatehead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:3px}
+.gateflag{margin-left:auto;font-size:11px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:#fff;background:var(--ink);border-radius:999px;padding:5px 12px}
+.gatelist{display:grid;grid-template-columns:1fr 1fr;gap:0 30px;margin:4px 0 18px}
+.gatelist .g{font-size:13.5px;color:var(--body);padding:9px 0 9px 22px;position:relative;border-top:1px solid var(--line)}
+.gatelist .g::before{content:"";position:absolute;left:2px;top:16px;width:8px;height:8px;border-radius:2px;background:var(--ink)}
+.firmo{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:13px;padding-top:16px;border-top:1px solid var(--line)}
+
+/* lanes */
+.lanesref{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.lref{border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.lref.cu{background:rgba(249,101,91,0.05);border-color:rgba(249,101,91,0.32)}
+.lref.cb{background:rgba(102,88,234,0.05);border-color:rgba(102,88,234,0.32)}
+.lref .lh{display:flex;align-items:center;gap:9px;margin-bottom:7px}
+.lref .lh .d{width:9px;height:9px;border-radius:50%}
+.lref.cu .d{background:var(--coral)} .lref.cb .d{background:var(--purple)}
+.lref .lh .nm{font-size:14.5px;font-weight:700;color:var(--ink)}
+.lref .lh .wedge{font-size:9px;letter-spacing:0.07em;text-transform:uppercase;font-weight:700;color:#fff;background:var(--coral);padding:3px 7px;border-radius:999px}
+.lref .ld{font-size:12.5px;color:var(--body);margin-bottom:10px;line-height:1.45}
+.minitags{display:flex;flex-wrap:wrap;gap:6px}
+.minitag{font-size:11.5px;padding:3px 9px;border-radius:999px;background:#fff;border:1px solid var(--line2);color:var(--body)}
+.lref.cu .minitag{border-color:rgba(249,101,91,0.35)} .lref.cb .minitag{border-color:rgba(102,88,234,0.35)}
+
+/* SWOT landscape */
+.swotnote{font-size:12.5px;color:var(--body);background:#fbfcfe;border:1px dashed var(--line2);border-radius:10px;padding:11px 14px;margin-bottom:16px;line-height:1.5}
+.swotnote b{color:var(--ink);font-weight:600}
+.swotrow{display:flex;align-items:center;gap:10px;margin:0 0 10px}
+.swotrow .rl{font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--faint)}
+.swotrow .ln{flex:1;height:1px;background:var(--line)}
+.swot{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
+.quad{border:1px solid var(--line);border-radius:13px;padding:15px 17px}
+.quad.s{background:var(--green-s);border-color:#cde8db}
+.quad.w{background:var(--coral-s);border-color:#f6cfc9}
+.quad.o{background:var(--gold-s);border-color:#f0dcb6}
+.quad.t{background:var(--purple-s);border-color:#d8d4f7}
+.quad h3{font-size:13px;font-weight:700;margin-bottom:11px;display:flex;align-items:center;gap:8px}
+.quad.s h3{color:var(--green-d)} .quad.w h3{color:var(--coral-d)}
+.quad.o h3{color:var(--gold-d)} .quad.t h3{color:var(--purple-d)}
+.quad h3 .ico{width:20px;height:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff}
+.quad.s .ico{background:var(--green)} .quad.w .ico{background:var(--coral)}
+.quad.o .ico{background:var(--gold)} .quad.t .ico{background:var(--purple)}
+.qi{font-size:12.5px;color:var(--body);padding:7px 0;border-top:1px solid rgba(27,43,69,0.08);line-height:1.4;display:flex;gap:8px;align-items:flex-start}
+.qi:first-of-type{border-top:none}
+.qi .stag{flex:0 0 auto;font-size:8.5px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;border-radius:5px;padding:2px 6px;margin-top:1px}
+.stag.std{background:#e3def8;color:var(--purple-d)}
+.stag.trg{background:#fff;border:1px solid #d8d4f7;color:var(--purple-d)}
+.stag.cu{background:var(--coral-s);color:var(--coral-d)}
+.stag.cb{background:#fff;border:1px solid #d8d4f7;color:var(--purple-d)}
+
+/* audience types */
+.grouphead{font-size:12px;font-weight:700;letter-spacing:0.03em;text-transform:uppercase;color:var(--ink);margin:4px 0 13px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.grouphead .gt{font-size:10px;font-weight:600;letter-spacing:0.02em;color:var(--muted);background:#f1f3f8;border:1px solid var(--line);border-radius:999px;padding:3px 9px;text-transform:none}
+.atype{border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:13px;background:#fcfdff}
+.atype.eu{background:#f9faf6;border-color:#e4e7da}
+.ahead{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.ahead .av{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12.5px;flex:0 0 auto}
+.ahead .role{font-size:15.5px;font-weight:700;color:var(--ink);line-height:1.2}
+.ahead .who{font-size:12px;color:var(--muted)}
+.ahead .lane{margin-left:auto;font-size:9.5px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;border-radius:999px;padding:4px 9px;flex:0 0 auto}
+.lane.cu{background:var(--coral-s);color:var(--coral-d)}
+.lane.cb{background:var(--purple-s);color:var(--purple-d)}
+.lane.both{background:#eef1f6;color:var(--muted)}
+.trig{font-size:11.5px;color:var(--muted);margin-bottom:11px;display:flex;align-items:center;gap:7px}
+.trig .tk{font-size:9.5px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--gold-d);background:var(--gold-s);border:1px solid #f0dcb6;border-radius:6px;padding:2px 7px}
+
+/* questions */
+.qblock{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.atype.eu .qblock{background:#fff}
+.qh{font-size:11px;font-weight:700;color:var(--gold-d);letter-spacing:0.03em;text-transform:uppercase;margin-bottom:9px}
+.atype.eu .qh{color:var(--green-d)}
+.qrow{display:flex;align-items:center;gap:9px;margin-bottom:7px}
+.qrow .qmark{flex:0 0 auto;font-size:13px;font-weight:700;width:14px;text-align:center;color:var(--gold-d)}
+.atype.eu .qrow .qmark{color:var(--green-d)}
+.qrow input{font-size:13.5px}
+.addq{font-size:11.5px;font-weight:600;color:var(--muted);background:transparent;border:1.5px dashed var(--line2);border-radius:8px;padding:6px 12px;cursor:pointer;margin-top:3px}
+.addq:hover{border-color:var(--coral);color:var(--coral)}
+
+/* language + channels */
+.lang{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.langbox{border:1px solid var(--line);border-radius:12px;padding:15px 16px}
+.langbox.use{background:var(--green-s);border-color:#cde8db}
+.langbox.avoid{background:var(--coral-s);border-color:#f6cfc9}
+.langbox h3{font-size:13px;font-weight:700;margin-bottom:11px;display:flex;align-items:center;gap:7px}
+.langbox.use h3{color:var(--green-d)} .langbox.avoid h3{color:var(--coral-d)}
+.tags{display:flex;flex-wrap:wrap;gap:7px}
+.tag{font-size:12.5px;padding:4px 11px;border-radius:999px;background:#fff;border:1px solid var(--line2);color:var(--body)}
+.langbox.use .tag{border-color:#bfe3d2} .langbox.avoid .tag{border-color:#f3c3bc}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font-size:13px;padding:6px 13px;border-radius:999px;background:var(--purple-s);color:var(--purple-d);font-weight:500}
+
+.add{font-size:12.5px;font-weight:600;color:var(--muted);background:transparent;border:1.5px dashed var(--line2);border-radius:9px;padding:9px 14px;cursor:pointer;margin-top:8px}
+.add:hover{border-color:var(--coral);color:var(--coral)}
+.savebar{max-width:880px;margin:6px auto 0;padding:0 22px}
+.save{background:var(--coral);color:#fff;border:none;border-radius:11px;font-family:inherit;font-size:15px;font-weight:600;padding:13px 30px;cursor:pointer}
+.save:hover{filter:brightness(1.05)}
+@media(max-width:680px){.lang,.lanesref,.gatelist,.firmo,.swot{grid-template-columns:1fr}.ahead .lane{margin-left:0}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a href="#" class="back">&larr; Back to Dashboard</a>
+  <div class="title"><h1>Target Audience</h1><span class="pill">Onboarding</span></div>
+  <p class="lead">Fill this in once, during onboarding. It reads top to bottom: <b>the landscape they live in</b>, then <b>the people who read the content</b>, and the questions each one is asking. The landscape carries the analysis so the cards can stay light.</p>
+
+  <!-- THESIS -->
+  <div class="card">
+    <h2>Audience thesis</h2>
+    <p class="sub">One paragraph the whole engine reads first. The short version of everything below.</p>
+    <div class="thesis"><textarea>Community bank and credit union leaders at institutions under ten billion in assets, with the one billion plus tier holding the budget, watching the $84 trillion generational wealth transfer move through their deposit base. They know that when an account holder passes, the money usually leaves with the heirs, and they have no relationship with the next generation to stop it.</textarea></div>
+  </div>
+
+  <!-- FIT GATE -->
+  <div class="card">
+    <div class="gatehead">
+      <h2>Who is in, who is out</h2>
+      <span class="gateflag">If not this, no conversation</span>
+    </div>
+    <p class="sub">The boundary. Content never speaks to anyone outside this.</p>
+    <div class="gatelist">
+      <div class="g">Under ten billion in assets, the one billion plus tier holds the budget</div>
+      <div class="g">Aging depositor base, elder-dense footprint</div>
+      <div class="g">Deposit-funded balance sheet, real exposure to death runoff</div>
+      <div class="g">Community or regional, not a top fifty institution</div>
+    </div>
+    <div class="firmo">
+      <div><label>Institution type</label><input type="text" value="Community banks &amp; credit unions"></div>
+      <div><label>Asset range</label><input type="text" value="$250M to $10B"></div>
+      <div><label>Core systems</label><input type="text" value="Jack Henry Symitar / Silverlake"></div>
+    </div>
+  </div>
+
+  <!-- LANES -->
+  <div class="card">
+    <h2>The two lanes</h2>
+    <p class="sub">The same product, felt as two different problems. The lane sets the vocabulary a post runs in.</p>
+    <div class="lanesref">
+      <div class="lref cu">
+        <div class="lh"><span class="d"></span><span class="nm">Credit unions</span><span class="wedge">Initial wedge</span></div>
+        <div class="ld">Members are the owners, and younger members are not joining. The pitch is next-generation deposit retention, a growth budget not an ops line.</div>
+        <div class="minitags"><span class="minitag">members</span><span class="minitag">family loyalty</span><span class="minitag">generational continuity</span></div>
+      </div>
+      <div class="lref cb">
+        <div class="lh"><span class="d"></span><span class="nm">Community banks</span></div>
+        <div class="ld">Answer to shareholders, paid on deposit economics. The pitch is a balance-sheet and escheatment liability number a CFO can put on a page.</div>
+        <div class="minitags"><span class="minitag">escheatment</span><span class="minitag">deposit liability</span><span class="minitag">household deepening</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SWOT LANDSCAPE -->
+  <div class="card">
+    <h2>The landscape</h2>
+    <p class="sub">The institution's position against the wealth transfer. Strengths and weaknesses are theirs. Opportunities and threats are the forces bearing down on them.</p>
+    <div class="swotnote"><b>This is the analytical backbone of the page.</b> The external row, opportunities and threats, is what content speaks to most. The standing threats are the shared pressure everyone feels. The triggered threats become the moment on each audience card below.</div>
+
+    <div class="swotrow"><span class="rl">Internal, theirs to work with or fix</span><span class="ln"></span></div>
+    <div class="swot">
+      <div class="quad s">
+        <h3><span class="ico">&#43;</span>Strengths</h3>
+        <div class="qi">Decades-deep relationships with current account holders</div>
+        <div class="qi">Local trust and presence a neobank cannot fake</div>
+        <div class="qi">An existing wealth or trust arm in many institutions</div>
+        <div class="qi">A community and member ethos that makes serving families natural</div>
+      </div>
+      <div class="quad w">
+        <h3><span class="ico">&#8722;</span>Weaknesses</h3>
+        <div class="qi">Nobody owns the fact that an account holder died, no fix, no budget line</div>
+        <div class="qi">No relationship with the heirs, the next generation banks elsewhere</div>
+        <div class="qi">Beneficiary data is fragmented and manual</div>
+        <div class="qi">Runoff is invisible until the quarterly report, too late to act</div>
+        <div class="qi">Core-contract lock-in, only a year-five or six change window</div>
+      </div>
+    </div>
+
+    <div class="swotrow"><span class="rl">External, the forces content speaks to</span><span class="ln"></span></div>
+    <div class="swot">
+      <div class="quad o">
+        <h3><span class="ico">&#9650;</span>Opportunities</h3>
+        <div class="qi">The $84T transfer is a one-time chance to win the next generation</div>
+        <div class="qi">Tools now exist to make the death-to-heir handoff a moment of care</div>
+        <div class="qi">Differentiate on care while everyone else competes on rate</div>
+        <div class="qi">Peer and league reference, one visible success lights up a cluster</div>
+        <div class="qi">A new leader's six-to-twelve-month mandate window</div>
+      </div>
+      <div class="quad t">
+        <h3><span class="ico">&#9660;</span>Threats</h3>
+        <div class="qi"><span class="stag std">Standing</span>The transfer itself, deposits leave with the heirs, now, at scale</div>
+        <div class="qi"><span class="stag std">Standing</span>Fintechs and neobanks already own the younger account holder</div>
+        <div class="qi"><span class="stag std">Standing</span>Bigger institutions and wealth managers courting the same heirs</div>
+        <div class="qi"><span class="stag trg">Triggered</span>M&amp;A and core conversions exhume the dormant and deceased backlog</div>
+        <div class="qi"><span class="stag trg">Triggered</span>Consent orders and CFPB complaints, public and dated</div>
+        <div class="qi"><span class="stag trg">Triggered</span>Crossing ten billion brings CFPB and Durbin scrutiny</div>
+        <div class="qi"><span class="stag trg">Triggered</span>Escheat deadline on a fixed seasonal calendar</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AUDIENCE TYPES -->
+  <div class="card">
+    <h2>Who reads the content</h2>
+    <p class="sub">Each card is just who they are, the moment that activates them, and the questions they are asking. The why behind it all lives in the landscape above.</p>
+
+    <div class="grouphead">Decision side <span class="gt">they decide and pay, content is published to them</span></div>
+
+    <div class="atype">
+      <div class="ahead">
+        <div class="av" style="background:var(--coral-s);color:var(--coral-d)">CE</div>
+        <div><div class="role">President / CEO</div><div class="who">Owns the franchise. The buyer who signs.</div></div>
+        <span class="lane both">Both lanes</span>
+      </div>
+      <div class="trig"><span class="tk">Activates on</span>The board asks what we are doing about generational retention</div>
+      <div class="qblock">
+        <div class="qh">Questions they are asking</div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="How much of our deposit base leaves when an account holder dies?"></div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="Is this a strategic risk worth board time, or a rounding error?"></div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="What are institutions our size already doing about the wealth transfer?"></div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="Can I walk into the board with a number and a plan, not just a worry?"></div>
+        <button class="addq">+ Add question</button>
+      </div>
+    </div>
+
+    <div class="atype">
+      <div class="ahead">
+        <div class="av" style="background:var(--purple-s);color:var(--purple-d)">DO</div>
+        <div><div class="role">Chief Retail / Deposit Officer</div><div class="who">Owns deposit growth. Buyer and daily owner of the pain.</div></div>
+        <span class="lane both">Both lanes</span>
+      </div>
+      <div class="trig"><span class="tk">Activates on</span>The quarterly runoff report lands</div>
+      <div class="qblock">
+        <div class="qh">Questions they are asking</div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="Why does runoff spike around account-holder deaths, and why can't I see it coming?"></div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="How do I keep the money when it moves to the heirs?"></div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="Does this sit on my core, or is it a six-month integration project?"></div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="How fast would this show up in the retention number?"></div>
+        <button class="addq">+ Add question</button>
+      </div>
+    </div>
+
+    <div class="atype">
+      <div class="ahead">
+        <div class="av" style="background:var(--gold-s);color:var(--gold-d)">BD</div>
+        <div><div class="role">Business Development Officer</div><div class="who">Owns relationships. The champion who carries it upstairs.</div></div>
+        <span class="lane both">Both lanes</span>
+      </div>
+      <div class="trig"><span class="tk">Activates on</span>A major client has an estate event</div>
+      <div class="qblock">
+        <div class="qh">Questions they are asking</div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="How do I meet my best clients' kids before the money moves?"></div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="When a client passes, how do I show up for the family instead of going quiet?"></div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="What gives me a real reason to call the next generation?"></div>
+        <button class="addq">+ Add question</button>
+      </div>
+    </div>
+
+    <div class="atype">
+      <div class="ahead">
+        <div class="av" style="background:var(--green-s);color:var(--green-d)">WM</div>
+        <div><div class="role">Wealth / Trust leader</div><div class="who">Owns estate services. Champion with the data problem.</div></div>
+        <span class="lane both">Both lanes</span>
+      </div>
+      <div class="trig"><span class="tk">Activates on</span>An heir moves inherited assets out of the institution</div>
+      <div class="qblock">
+        <div class="qh">Questions they are asking</div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="Where does our beneficiary data live, and is any of it current?"></div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="Doesn't our trust department already handle this? Where is the actual gap?"></div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="How do we keep inherited assets in house instead of watching them walk?"></div>
+        <button class="addq">+ Add question</button>
+      </div>
+    </div>
+
+    <div class="grouphead" style="margin-top:22px">End-user perspective <span class="gt">we do not publish to them, their view makes the content above truer</span></div>
+
+    <div class="atype eu">
+      <div class="ahead">
+        <div class="av" style="background:#e3f4ec;color:var(--green-d)">HF</div>
+        <div><div class="role">The heir &amp; family</div><div class="who">Who the product is ultimately for. The next-generation relationship.</div></div>
+      </div>
+      <div class="qblock">
+        <div class="qh">Questions they are asking</div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="What did my parent actually leave, and where is it?"></div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="Do I have to move this money to deal with it, or can I keep it here?"></div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="Who at the institution can I even talk to about this?"></div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="Why is this so hard to sort out while I am grieving?"></div>
+        <button class="addq">+ Add question</button>
+      </div>
+    </div>
+
+    <div class="atype eu">
+      <div class="ahead">
+        <div class="av" style="background:#eef1f6;color:var(--muted)">FS</div>
+        <div><div class="role">Frontline staff</div><div class="who">Opens the tool when a death is reported. The champion's evidence.</div></div>
+      </div>
+      <div class="qblock">
+        <div class="qh">Questions they are asking</div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="A family just told me their father died. What do I do right now?"></div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="Where do I log this, and who needs to know?"></div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="How do I help without making a grieving family fill out more forms?"></div>
+        <div class="qrow"><span class="qmark">?</span><input type="text" value="Why does every death feel like starting from scratch?"></div>
+        <button class="addq">+ Add question</button>
+      </div>
+    </div>
+
+    <button class="add">+ Add audience type</button>
+  </div>
+
+  <!-- LANGUAGE -->
+  <div class="card">
+    <h2>Language &amp; framing</h2>
+    <p class="sub">Vocabulary that earns trust with this audience, and the words that lose it.</p>
+    <div class="lang">
+      <div class="langbox use">
+        <h3>&#10003; Use these</h3>
+        <div class="tags"><span class="tag">inheritance infrastructure</span><span class="tag">deposit retention</span><span class="tag">generational handoff</span><span class="tag">beneficiary relationships</span><span class="tag">account holder / member</span><span class="tag">the next generation</span></div>
+      </div>
+      <div class="langbox avoid">
+        <h3>&#10007; Never use</h3>
+        <div class="tags"><span class="tag">digital vault</span><span class="tag">probate</span><span class="tag">em-dashes</span><span class="tag">cold death language</span><span class="tag">sentimental framing</span><span class="tag">disruptive / bold</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHANNELS -->
+  <div class="card">
+    <h2>Where we reach them</h2>
+    <p class="sub">The channels this audience actually uses, in priority order.</p>
+    <div class="chips"><span class="chip">LinkedIn (primary)</span><span class="chip">Targeted email outreach</span><span class="chip">EMERGE &amp; industry events</span><span class="chip">State banking &amp; CU leagues</span><span class="chip">Core / fintech partner referral</span></div>
+  </div>
+
+</div>
+<div class="savebar"><button class="save">Save audience</button></div>
+</body>
+</html>

@@ -1,1 +1,6 @@
--- VOIDED: this migration was created in error and has been nullified
+-- VOIDED: created in error and nullified. Intentionally a no-op.
+--
+-- This migration never ran on the target project and adds nothing. It is kept as a
+-- timestamp tombstone so the migration history stays stable and a fresh `db reset` or
+-- fresh-project deploy replays cleanly (this slot does nothing). There is no content_dossier
+-- column anywhere in the live database.

@@ -10,6 +10,7 @@ import NotFound from "./pages/NotFound";
 import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
 import Strategy from "./pages/Strategy";
+import Audience from "./pages/Audience";
 import Feeds from "./pages/Feeds";
 import ReferenceCards from "./pages/ReferenceCards";
 import CardDetail from "./pages/CardDetail";
@@ -44,6 +45,7 @@ const App = () => (
               <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
               <Route path="/strategy" element={<ProtectedRoute><Strategy /></ProtectedRoute>} />
+              <Route path="/audience" element={<ProtectedRoute><Audience /></ProtectedRoute>} />
               <Route path="/feeds" element={<ProtectedRoute><Feeds /></ProtectedRoute>} />
               <Route path="/cards" element={<ProtectedRoute><ReferenceCards /></ProtectedRoute>} />
               <Route path="/cards/:id" element={<ProtectedRoute><CardDetail /></ProtectedRoute>} />

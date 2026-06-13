@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, FileText, Sparkles, Rss, Database, FileEdit, Settings, Plus, MessageCircleQuestion, LogOut, CheckCheck, Clock, Ban, Lightbulb } from "lucide-react";import { InstructionsToggle } from "@/components/InstructionsToggle";
+import { Calendar, FileText, Sparkles, Rss, Database, FileEdit, Settings, Plus, MessageCircleQuestion, LogOut, CheckCheck, Clock, Ban, Lightbulb, Target, Users, CalendarClock } from "lucide-react";import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
@@ -134,6 +134,30 @@ const Dashboard = () => {
       badgeVariant: "outline" as const,
       badgeClass: "bg-red-50 text-red-700 border-red-200"
     }
+  ];
+
+  const knowledgeLoom = [
+    {
+      title: "Strategy",
+      description: "Brand, formats, natures, and the jobs library that drive every post",
+      icon: Target,
+      path: "/strategy",
+      color: "text-rose-500",
+    },
+    {
+      title: "Audience",
+      description: "Thesis, lanes, SWOT, and the readers each post must answer to",
+      icon: Users,
+      path: "/audience",
+      color: "text-indigo-500",
+    },
+    {
+      title: "Schedule",
+      description: "Standing slots the engine fills on a recurring cadence",
+      icon: CalendarClock,
+      path: "/schedule",
+      color: "text-amber-500",
+    },
   ];
 
   const gettingStarted = [
@@ -340,6 +364,33 @@ The dashboard shows your content pipeline and quick access to all features.`}
                   </Button>
                 </CardContent>
               </Card>
+            </div>
+          </section>
+
+          {/* Knowledge Loom Section */}
+          <section>
+            <div className="flex items-center gap-2 mb-4">
+              <Target className="h-5 w-5 text-primary" />
+              <h3 className="text-xl font-semibold">Knowledge Loom</h3>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {knowledgeLoom.map((item) => (
+                <Card
+                  key={item.path}
+                  className="cursor-pointer hover:shadow-lg transition-shadow border-2 border-primary/20"
+                  onClick={() => navigate(item.path)}
+                >
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <item.icon className={`h-8 w-8 ${item.color}`} />
+                      <CardTitle className="text-lg">{item.title}</CardTitle>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <CardDescription>{item.description}</CardDescription>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           </section>
 

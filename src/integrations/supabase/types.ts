@@ -967,6 +967,8 @@ export type Database = {
         Row: {
           accent_color: string | null
           active_question_indices: number[] | null
+          ai_api_key: string | null
+          ai_endpoint: string | null
           ai_model: string | null
           ai_provider: string | null
           brand_voice: string | null
@@ -977,7 +979,6 @@ export type Database = {
           custom_ai_endpoint: string | null
           custom_ai_model_name: string | null
           email: string | null
-          google_ai_api_key: string | null
           id: string
           newsletter_domain: string | null
           primary_color: string | null
@@ -990,6 +991,8 @@ export type Database = {
         Insert: {
           accent_color?: string | null
           active_question_indices?: number[] | null
+          ai_api_key?: string | null
+          ai_endpoint?: string | null
           ai_model?: string | null
           ai_provider?: string | null
           brand_voice?: string | null
@@ -1000,7 +1003,6 @@ export type Database = {
           custom_ai_endpoint?: string | null
           custom_ai_model_name?: string | null
           email?: string | null
-          google_ai_api_key?: string | null
           id?: string
           newsletter_domain?: string | null
           primary_color?: string | null
@@ -1013,6 +1015,8 @@ export type Database = {
         Update: {
           accent_color?: string | null
           active_question_indices?: number[] | null
+          ai_api_key?: string | null
+          ai_endpoint?: string | null
           ai_model?: string | null
           ai_provider?: string | null
           brand_voice?: string | null
@@ -1023,7 +1027,6 @@ export type Database = {
           custom_ai_endpoint?: string | null
           custom_ai_model_name?: string | null
           email?: string | null
-          google_ai_api_key?: string | null
           id?: string
           newsletter_domain?: string | null
           primary_color?: string | null

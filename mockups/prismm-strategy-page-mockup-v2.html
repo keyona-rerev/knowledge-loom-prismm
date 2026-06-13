@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prismm Strategy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f4f6f9; --card:#ffffff; --line:#e6e8ef; --line2:#d4d8e2;
+  --ink:#1b2b45; --body:#3d4759; --muted:#7a8398; --faint:#9aa1b2;
+  --coral:#f9655b; --coral-s:#fdeae7; --coral-d:#b83b34;
+  --purple:#6658ea; --purple-s:#ecebfb; --purple-d:#4338b0;
+  --gold:#e7a23c; --gold-s:#fbf0dc; --gold-d:#8a5d12;
+  --green:#2ea878; --green-s:#e3f4ec; --green-d:#1d6e4e;
+  --radius:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--body);font-family:'Inter',system-ui,sans-serif;line-height:1.55;padding-bottom:60px}
+.wrap{max-width:920px;margin:0 auto;padding:24px 22px}
+.back{display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:14px;text-decoration:none;font-weight:500}
+h1{font-size:30px;font-weight:700;color:var(--ink);margin:16px 0 4px}
+.sub{font-size:13.5px;color:var(--muted);margin-bottom:18px}
+.flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-radius:13px;padding:14px 16px;margin-bottom:10px}
+.flowgrp{display:flex;gap:6px;flex-wrap:wrap}
+.fchip{font-size:12px;font-weight:600;padding:5px 11px;border-radius:8px;background:var(--purple-s);color:var(--purple-d)}
+.farrow{color:var(--faint);font-size:15px}
+.fnode{font-size:12px;font-weight:600;padding:5px 11px;border-radius:8px;background:#f1f3f7;color:#5a6378}
+.flowcap{font-size:12px;color:var(--muted);margin-bottom:22px}
+.nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px}
+.nav a{font-size:12.5px;font-weight:600;color:var(--body);text-decoration:none;background:#fff;border:1px solid var(--line2);border-radius:999px;padding:7px 14px}
+.nav a:hover{border-color:var(--coral);color:var(--coral)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px 24px;margin-bottom:22px}
+.chead{display:flex;align-items:center;gap:10px;margin-bottom:3px}
+.chead h2{font-size:18px;font-weight:600;color:var(--ink)}
+.count{font-size:11px;font-weight:600;color:var(--muted);background:#f1f3f7;border-radius:999px;padding:2px 9px}
+.cs{font-size:13px;color:var(--muted);margin-bottom:16px}
+.accent{width:4px;align-self:stretch;border-radius:3px;flex:0 0 auto}
+.field{margin-bottom:16px}
+.field:last-child{margin-bottom:0}
+label{display:block;font-size:12px;font-weight:600;color:#5a6378;margin-bottom:6px}
+input[type=text],textarea{width:100%;background:#fbfcfe;border:1px solid var(--line2);border-radius:10px;color:var(--ink);font-family:inherit;font-size:14px;padding:11px 13px}
+input:focus,textarea:focus{outline:none;border-color:var(--coral)}
+textarea{resize:vertical;min-height:70px;line-height:1.55}
+.colorrow{display:flex;align-items:center;gap:11px}
+.cswatch{width:48px;height:38px;border-radius:9px;border:1px solid var(--line2);flex:0 0 auto}
+.colorgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}
+.mrow{display:flex;gap:13px;align-items:flex-start;padding:12px 0;border-top:1px solid var(--line)}
+.mrow:first-of-type{border-top:none}
+.mmain{flex:1;min-width:0}
+.mname{font-size:14px;font-weight:600;color:var(--ink)}
+.mdesc{font-size:12.5px;color:var(--muted);margin-top:2px}
+.rt{display:flex;gap:7px;align-items:center;flex:0 0 auto;flex-wrap:wrap;justify-content:flex-end}
+.tag{font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.tag.job{background:var(--coral-s);color:var(--coral-d)}
+.tag.ref{background:#f1f3f7;color:#5a6378}
+.tag.ev{background:#eef0f4;color:#5a6378}
+.fit{font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.fit.high{background:var(--green-s);color:var(--green-d)}
+.fit.med{background:var(--gold-s);color:var(--gold-d)}
+.fit.low{background:#f5e9ec;color:var(--coral-d)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+.jcard{border:1px solid var(--line);border-left:4px solid var(--coral);border-radius:0 12px 12px 0;padding:14px 16px;background:#fffdfc}
+.jcard h3{font-size:14px;font-weight:600;color:var(--ink)}
+.jcard p{font-size:12.5px;color:var(--body);margin-top:5px;line-height:1.5}
+.fcard{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:#fcfdff}
+.fcard h3{font-size:14px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:8px}
+.fdot{width:10px;height:10px;border-radius:3px}
+.fcard .meta{font-size:12px;color:var(--muted);margin-top:6px}
+.fcard .ed{font-size:12px;font-weight:600;color:var(--coral-d);margin-top:9px;display:inline-block;cursor:pointer}
+.softnote{font-size:12px;color:var(--muted);background:#f7f8fb;border-radius:9px;padding:9px 12px;margin-top:14px;line-height:1.5}
+.ghost{opacity:.5}
+.add{font-size:12.5px;font-weight:600;color:var(--muted);background:transparent;border:1.5px dashed var(--line2);border-radius:9px;padding:9px 14px;cursor:pointer;margin-top:14px}
+.add:hover{border-color:var(--coral);color:var(--coral)}
+@media(max-width:660px){.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a href="#" class="back">&larr; Back to Dashboard</a>
+  <h1>Strategy</h1>
+  <p class="sub">The source of truth for who Prismm is and what its content does. The schedule and the generator both read from here.</p>
+
+  <div class="flow">
+    <div class="flowgrp"><span class="fchip">Brand</span><span class="fchip">Formats</span><span class="fchip">Natures</span><span class="fchip">Jobs</span></div>
+    <span class="farrow">&rsaquo;</span><span class="fnode">Schedule slot</span>
+    <span class="farrow">&rsaquo;</span><span class="fnode">Generated post</span>
+  </div>
+  <p class="flowcap">Defined here, chosen on the schedule, assembled at generation.</p>
+
+  <div class="nav">
+    <a href="#brand">Brand</a><a href="#funnel">Funnel strategy</a><a href="#jobs">Jobs</a><a href="#natures">Natures</a><a href="#formats">Formats</a>
+  </div>
+
+  <div class="card" id="brand">
+    <div class="chead"><span class="accent" style="background:var(--ink)"></span><h2>Brand</h2></div>
+    <p class="cs">Who Prismm is and how it sounds. The first context the generator reads, before anything else.</p>
+    <div class="field"><label>Business name</label><input type="text" value="Prismm"></div>
+    <div class="field"><label>Business description</label><textarea>Prismm is inheritance infrastructure for community banks and credit unions. A secure digital vault that organizes documents, assets, and trusted people so wealth transfers smoothly when a customer passes. We help institutions retain beneficiary relationships and deposits across generations instead of losing them at the moment of transfer.</textarea></div>
+    <div class="field"><label>Brand voice</label><textarea>Calm authority. Trusted financial software with a human pulse. Direct, trustworthy, and human. Serious where it counts, warm where it matters. Never soft or sentimental. Never bold or disruptive. Clarity earns confidence. No em-dashes. No probate mentions. Emotional care around death and loss.</textarea></div>
+    <div class="field"><label>Brand colors</label>
+      <div class="colorgrid">
+        <div class="colorrow"><span class="cswatch" style="background:#f9655b"></span><input type="text" value="#f9655b"></div>
+        <div class="colorrow"><span class="cswatch" style="background:#6658ea"></span><input type="text" value="#6658ea"></div>
+        <div class="colorrow"><span class="cswatch" style="background:#f5c070"></span><input type="text" value="#f5c070"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="funnel">
+    <div class="chead"><span class="accent" style="background:var(--gold)"></span><h2>Funnel strategy</h2><span class="count">TOFU</span></div>
+    <p class="cs">The top-of-funnel motions. The ones the engine produces become jobs below; the rest are reference, run by hand.</p>
+    <div class="mrow"><div class="mmain"><div class="mname">Symptom-awareness content</div><div class="mdesc">Stop the scroll and make a problem-unaware buyer feel a gap they had no words for.</div></div><div class="rt"><span class="tag job">Engine job</span></div></div>
+    <div class="mrow"><div class="mmain"><div class="mname">Awareness-oriented social posts</div><div class="mdesc">Keep the brand visible to a lurking audience and surface capsule pieces.</div></div><div class="rt"><span class="tag job">Engine job</span></div></div>
+    <div class="mrow"><div class="mmain"><div class="mname">Earned media</div><div class="mdesc">Podcasts, trade pubs, association newsletters, speaking. Borrow a trusted outlet's credibility.</div></div><div class="rt"><span class="tag ref">Reference motion</span></div></div>
+    <div class="mrow"><div class="mmain"><div class="mname">Community / influencer partnership</div><div class="mdesc">Build trust fast in a vertical where you are not yet the known authority.</div></div><div class="rt"><span class="tag ref">Reference motion</span></div></div>
+    <div class="mrow"><div class="mmain"><div class="mname">Community-led growth</div><div class="mdesc">Let users champion you inside their own organizations.</div></div><div class="rt"><span class="tag ref">Reference motion</span></div></div>
+    <div class="mrow"><div class="mmain"><div class="mname">Problem-surfacing events</div><div class="mdesc">Move interested-but-not-ready people forward in a live setting.</div></div><div class="rt"><span class="tag ref">Reference motion</span></div></div>
+    <div class="softnote">Middle-of-funnel needs more primary material than we have right now. It layers on here later without changing the structure.</div>
+  </div>
+
+  <div class="card" id="jobs">
+    <div class="chead"><span class="accent" style="background:var(--coral)"></span><h2>Jobs</h2><span class="count">2 active</span></div>
+    <p class="cs">The funnel role a post performs. Each scheduled slot picks one of these. Generation writes the post to do that job.</p>
+    <div class="grid2">
+      <div class="jcard"><h3>Symptom-awareness</h3><p>Stop the scroll and make a problem-unaware buyer feel a gap they had no words for.</p></div>
+      <div class="jcard"><h3>Awareness-social</h3><p>Keep the brand visible to a lurking audience and surface capsule pieces.</p></div>
+    </div>
+    <div class="softnote ghost">MOFU jobs (nurture, objection-handling, proof) appear here once we have the primary material to feed them.</div>
+  </div>
+
+  <div class="card" id="natures">
+    <div class="chead"><span class="accent" style="background:var(--purple)"></span><h2>Natures</h2><span class="count">9 evergreen</span></div>
+    <p class="cs">The rhetorical angle: how a post argues and what evidence it leans on. Fit is how well each lands with a banking committee.</p>
+    <div class="mrow"><div class="mmain"><div class="mname">Stat or data point</div><div class="mdesc">Lead with one number that reframes the problem.</div></div><div class="rt"><span class="tag ev">a statistic</span><span class="fit high">High fit</span></div></div>
+    <div class="mrow"><div class="mmain"><div class="mname">Field note</div><div class="mdesc">Name a pattern you are seeing across institutions.</div></div><div class="rt"><span class="tag ev">observed trend</span><span class="fit high">High fit</span></div></div>
+    <div class="mrow"><div class="mmain"><div class="mname">Framework</div><div class="mdesc">Hand over a reusable model or checklist.</div></div><div class="rt"><span class="tag ev">synthesized expertise</span><span class="fit high">High fit</span></div></div>
+    <div class="mrow"><div class="mmain"><div class="mname">Contrarian</div><div class="mdesc">Challenge an industry consensus. Absorbs myth-buster.</div></div><div class="rt"><span class="tag ev">reasoning + counter-evidence</span><span class="fit high">High fit</span></div></div>
+    <div class="mrow"><div class="mmain"><div class="mname">Case study</div><div class="mdesc">Prove an outcome with the institution as hero. Absorbs data story.</div></div><div class="rt"><span class="tag ev">named result</span><span class="fit high">High fit</span></div></div>
+    <div class="mrow"><div class="mmain"><div class="mname">Trend take</div><div class="mdesc">Interpret a current development for the audience. Absorbs prediction.</div></div><div class="rt"><span class="tag ev">event + your read</span><span class="fit med">Medium fit</span></div></div>
+    <div class="mrow"><div class="mmain"><div class="mname">Explainer</div><div class="mdesc">Clarify a concept the buyer half-understands. Absorbs FAQ.</div></div><div class="rt"><span class="tag ev">domain expertise</span><span class="fit med">Medium fit</span></div></div>
+    <div class="mrow"><div class="mmain"><div class="mname">Behind the build</div><div class="mdesc">The founder and company POV on building Prismm.</div></div><div class="rt"><span class="tag ev">process transparency</span><span class="fit low">Low fit</span></div></div>
+    <div class="mrow"><div class="mmain"><div class="mname">Story</div><div class="mdesc">A human moment that makes the problem felt. Absorbs lesson learned and failure.</div></div><div class="rt"><span class="tag ev">lived experience</span><span class="fit low">Low fit</span></div></div>
+    <div class="softnote">Triggered, kept out of the rotation: Announcement and News reaction. Each nature also holds writing samples that teach the model the angle.</div>
+    <button class="add">+ Add nature</button>
+  </div>
+
+  <div class="card" id="formats">
+    <div class="chead"><span class="accent" style="background:#5a6378"></span><h2>Formats</h2><span class="count">LinkedIn</span></div>
+    <p class="cs">The platform-native artifact and how it is written. The schedule page checks these on; the definitions live here.</p>
+    <div class="grid2">
+      <div class="fcard"><h3><span class="fdot" style="background:var(--coral)"></span>Feed post</h3><div class="meta">Short native posts. Target 120 to 220 words.</div><span class="ed">Edit writing samples</span></div>
+      <div class="fcard"><h3><span class="fdot" style="background:var(--purple)"></span>Article</h3><div class="meta">Long-form published articles. Target 700 to 1100 words.</div><span class="ed">Edit writing samples</span></div>
+    </div>
+    <button class="add">+ Add format</button>
+  </div>
+
+</div>
+</body>
+</html>

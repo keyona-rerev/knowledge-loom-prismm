@@ -189,6 +189,8 @@ export type Database = {
           reader_id: string | null
           requires_child: boolean
           reuse_window_days: number
+          time_of_day: string
+          timezone: string
           updated_at: string
           user_id: string
         }
@@ -209,6 +211,8 @@ export type Database = {
           reader_id?: string | null
           requires_child?: boolean
           reuse_window_days?: number
+          time_of_day?: string
+          timezone?: string
           updated_at?: string
           user_id: string
         }
@@ -229,6 +233,8 @@ export type Database = {
           reader_id?: string | null
           requires_child?: boolean
           reuse_window_days?: number
+          time_of_day?: string
+          timezone?: string
           updated_at?: string
           user_id?: string
         }

@@ -10,8 +10,9 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Plus, Trash2, Loader2, Play, RefreshCw, Calendar, Clock, RotateCcw
+  ArrowLeft, Plus, Trash2, Loader2, Play, RefreshCw, Calendar, Clock, RotateCcw, CalendarClock
 } from "lucide-react";
+import { resolveNext } from "@/lib/scheduleResolver";
 
 // The schedule is a set of slots. Each slot is a standing instruction to the engine:
 // on this day, at this frequency, produce a post of this format and nature for this
@@ -33,6 +34,18 @@ const ANCHOR_OPTIONS = [
   { value: "3", label: "3rd" },
   { value: "4", label: "4th" },
 ];
+// Timezones the slot's time_of_day can be expressed in. IANA strings, which is
+// also the format Zernio's scheduler expects.
+const TIMEZONES = [
+  { value: "America/New_York", label: "Eastern (New York)" },
+  { value: "America/Chicago", label: "Central (Chicago)" },
+  { value: "America/Denver", label: "Mountain (Denver)" },
+  { value: "America/Phoenix", label: "Mountain, no DST (Phoenix)" },
+  { value: "America/Los_Angeles", label: "Pacific (Los Angeles)" },
+  { value: "America/Anchorage", label: "Alaska (Anchorage)" },
+  { value: "Pacific/Honolulu", label: "Hawaii (Honolulu)" },
+  { value: "UTC", label: "UTC" },
+];
 const NONE = "__none__";
 const ANY = "__any__";
 
@@ -46,6 +59,8 @@ interface Slot {
   day_of_week: number;
   frequency: string;
   anchor: number | null;
+  time_of_day: string; // "HH:MM" wall-clock in `timezone`
+  timezone: string; // IANA
   is_active: boolean;
   requires_child: boolean;
   child_format_id: string | null;
@@ -126,7 +141,10 @@ const Schedule = () => {
     setSlots((sched.data || []).map((s) => ({
       id: s.id, format_id: s.format_id, nature_id: s.nature_id, job_id: s.job_id,
       lane_id: s.lane_id, reader_id: s.reader_id, day_of_week: s.day_of_week,
-      frequency: s.frequency, anchor: s.anchor, is_active: s.is_active,
+      frequency: s.frequency, anchor: s.anchor,
+      time_of_day: (s.time_of_day || "09:00:00").slice(0, 5),
+      timezone: s.timezone || "America/New_York",
+      is_active: s.is_active,
       requires_child: s.requires_child, child_format_id: s.child_format_id,
       child_nature_id: s.child_nature_id, max_reuse_count: s.max_reuse_count,
       reuse_window_days: s.reuse_window_days,
@@ -175,6 +193,7 @@ const Schedule = () => {
       id: `new_${Date.now()}_${prev.length}`,
       format_id: formats[0].id, nature_id: natures[0].id, job_id: jobs[0].id,
       lane_id: null, reader_id: null, day_of_week: 1, frequency: "weekly", anchor: null,
+      time_of_day: "09:00", timezone: "America/New_York",
       is_active: true, requires_child: false, child_format_id: null, child_nature_id: null,
       max_reuse_count: 0, reuse_window_days: 90, _isNew: true,
     }]);
@@ -200,6 +219,7 @@ const Schedule = () => {
           format_id: s.format_id, nature_id: s.nature_id, job_id: s.job_id,
           lane_id: s.lane_id, reader_id: s.reader_id, day_of_week: s.day_of_week,
           frequency: s.frequency, anchor: isWeekly ? null : s.anchor,
+          time_of_day: s.time_of_day, timezone: s.timezone,
           is_active: s.is_active, requires_child: s.requires_child,
           child_format_id: s.requires_child ? s.child_format_id : null,
           child_nature_id: s.requires_child ? s.child_nature_id : null,
@@ -409,6 +429,17 @@ const Schedule = () => {
                                   </Select>
                                 </div>
                               )}
+                              <div className="w-[110px]">
+                                <Label className="text-xs">Time</Label>
+                                <Input type="time" value={slot.time_of_day} onChange={(e) => updateSlot(slot.id, { time_of_day: e.target.value })} className="h-9" />
+                              </div>
+                              <div className="w-[200px]">
+                                <Label className="text-xs">Timezone</Label>
+                                <Select value={slot.timezone} onValueChange={(v) => updateSlot(slot.id, { timezone: v })}>
+                                  <SelectTrigger><SelectValue /></SelectTrigger>
+                                  <SelectContent>{TIMEZONES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
+                                </Select>
+                              </div>
                               <div className="flex items-center gap-2 pb-1">
                                 <Label className="text-xs">Active</Label>
                                 <Switch checked={slot.is_active} onCheckedChange={(v) => updateSlot(slot.id, { is_active: v })} />
@@ -469,6 +500,27 @@ const Schedule = () => {
                               {slot.lane_id ? `, ${nameOf(lanes, slot.lane_id)} lane` : ", both lanes"}
                               {slot.reader_id ? `, aimed at ${nameOf(readers, slot.reader_id)}` : ", reader rotates"}.
                             </p>
+
+                            {/* Next publish preview: the concrete instant this slot resolves to. */}
+                            {(() => {
+                              const r = resolveNext({
+                                day_of_week: slot.day_of_week,
+                                frequency: slot.frequency as never,
+                                anchor: slot.anchor,
+                                time_of_day: slot.time_of_day,
+                                timezone: slot.timezone,
+                              });
+                              return (
+                                <p className="text-xs flex items-center gap-1.5 text-foreground/80">
+                                  <CalendarClock className="h-3.5 w-3.5 shrink-0 text-primary" />
+                                  {r.basis === "as_needed"
+                                    ? <span><span className="font-medium">As needed</span> — no fixed publish time; set on approval.</span>
+                                    : r.localDisplay
+                                      ? <span>Next publish: <span className="font-medium">{r.localDisplay}</span> <span className="text-muted-foreground">({r.scheduledFor})</span></span>
+                                      : <span className="text-muted-foreground">No upcoming occurrence found.</span>}
+                                </p>
+                              );
+                            })()}
                           </CardContent>
                         </Card>
                       );

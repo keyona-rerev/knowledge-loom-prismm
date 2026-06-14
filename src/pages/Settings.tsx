@@ -10,13 +10,11 @@ import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Trash2, Moon, Sun, AlertTriangle, Mail, Shield, Loader2, Linkedin, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Trash2, Moon, Sun, AlertTriangle, Shield, Loader2, Linkedin, CheckCircle2 } from "lucide-react";
 import { useTheme } from "next-themes";
 
 // Settings is now appearance plus the AI provider only. Brand, voice, audience, and
-// the content-type libraries moved to Strategy and Audience. Newsletter intake stays
-// here until the GAS-vs-newsletter audit confirms generation no longer reads the
-// reference cards it feeds.
+// the content-type libraries moved to Strategy and Audience.
 
 const AI_PROVIDERS = [
   { value: "anthropic", label: "Claude (Anthropic)", keyLabel: "Anthropic API Key", keyPlaceholder: "sk-ant-...", modelPlaceholder: "claude-sonnet-4-20250514", docsUrl: "https://console.anthropic.com/settings/keys", docsLabel: "console.anthropic.com" },
@@ -192,11 +190,11 @@ const Settings = () => {
           </CardContent>
         </Card>
 
-        {/* Publishing destination — LinkedIn company page via the provider */}
+        {/* Publishing destination, LinkedIn company page via the provider */}
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Linkedin className="h-5 w-5" />Publishing — LinkedIn
+              <Linkedin className="h-5 w-5" />Publishing, LinkedIn
             </CardTitle>
             <CardDescription>
               Approved posts are scheduled to your LinkedIn company page at each slot's time. Connect the page once here.
@@ -220,26 +218,6 @@ const Settings = () => {
                 ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Connecting...</>
                 : (liConn?.external_account_id ? "Reconnect LinkedIn" : "Connect LinkedIn")}
             </Button>
-          </CardContent>
-        </Card>
-
-        {/* Newsletter Configuration (kept until the GAS-vs-newsletter audit) */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Mail className="h-5 w-5" />Newsletter Intake
-            </CardTitle>
-            <CardDescription>How newsletters are captured into your reference cards</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Alert>
-              <AlertDescription className="space-y-2">
-                <p>Newsletters are captured automatically through Gmail using the Knowledge Loom label system.</p>
-                <p className="text-sm text-muted-foreground">
-                  To add a newsletter: open it in Gmail, apply the <strong>loom-queue</strong> label, and it will appear as a reference card within 5 minutes. To process newsletters automatically going forward, set up a Gmail filter that applies <strong>loom-queue</strong> to emails from your chosen senders.
-                </p>
-              </AlertDescription>
-            </Alert>
           </CardContent>
         </Card>
 

@@ -34,6 +34,28 @@ const arr = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]) : []);
 const sampleLines = (v: unknown, n: number): string =>
   arr(v).slice(0, n).map((s, i) => `Sample ${i + 1}:\n${String(s).slice(0, 600)}`).join("\n\n");
 
+// Normalize the model's per-figure source attributions for storage on the draft.
+const statAttributions = (v: unknown): { figure: string; source: string }[] =>
+  Array.isArray(v)
+    ? v
+        .filter((x) => x && typeof x === "object")
+        .map((x: any) => ({ figure: String(x.figure ?? "").trim(), source: String(x.source ?? "").trim() }))
+        .filter((x) => x.figure || x.source)
+    : [];
+
+// The one explicitly mandated tripwire: the retired figure about 70 percent of
+// inherited assets leaving community banks. It only flags a draft for human review,
+// it never blocks generation. This is not a general number validator and not an
+// approved-stat allowlist; trust otherwise flows from the approved source library.
+const retiredStatFlag = (body: unknown): string | null => {
+  const text = String(body ?? "").toLowerCase();
+  const has70 = /\b70\s*(?:percent|%)/.test(text);
+  if (has70 && (text.includes("communit") || text.includes("inherit") || text.includes("bank"))) {
+    return "Resembles the retired 70 percent figure about inherited assets leaving community banks. Confirm the source before approving.";
+  }
+  return null;
+};
+
 // The four generation faders, read off the profile (defaults 3, 4, 4, 5).
 interface GenSettings {
   source_reliance: number;
@@ -191,7 +213,7 @@ serve(async (req) => {
     // 2. Brand and AI provider.
     const { data: profile } = await supabase
       .from("profiles")
-      .select("ai_provider, ai_model, ai_api_key, ai_endpoint, business_name, business_description, brand_voice, gen_source_reliance, gen_first_party_weight, gen_nature_intensity, gen_voice_adherence")
+      .select("ai_provider, ai_model, ai_api_key, ai_endpoint, business_name, business_description, brand_voice, voice_profile, gen_source_reliance, gen_first_party_weight, gen_nature_intensity, gen_voice_adherence")
       .eq("user_id", userId)
       .single();
     if (!profile) return json({ error: "Profile not found" }, 404);
@@ -268,21 +290,62 @@ serve(async (req) => {
     const baseCtx: SlotContext = { format, nature, job, lane, reader, questions, audience, seed, brand, gen };
     const contextBlock = buildContextBlock(baseCtx);
 
-    // Hard guardrails. These hold regardless of any fader and are stated in the
-    // system prompt so they apply to every path (fresh, reuse, and companion).
-    const system = [
+    // The strategy is read from the database at generation time, not from constants.
+    // Hard rules and the voice profile are customer-editable on the Strategy page.
+    const { data: hardRulesRows } = await supabase
+      .from("hard_rules").select("body").eq("user_id", userId).eq("is_active", true).order("sort_order");
+    const hardRules = (hardRulesRows || []).map((r) => String(r.body ?? "").trim()).filter(Boolean);
+    const voiceProfile = (profile.voice_profile && typeof profile.voice_profile === "object") ? profile.voice_profile as any : null;
+    const voiceRules = arr(voiceProfile?.rules);
+    const inlineAttribution = voiceProfile?.inline_attribution ? String(voiceProfile.inline_attribution) : "";
+
+    // Approved reference cards are the single, deliberately curated source library.
+    // Only approved cards are trusted and citable; ingest never approves on its own.
+    // first_party maps to from_company, third_party is everything else.
+    const { data: approvedRaw } = await supabase
+      .from("reference_cards").select("*").eq("user_id", userId).eq("approved", true);
+    const approvedCards = (approvedRaw || []).filter((c) => {
+      const q = c.content_quality ?? "";
+      return q !== "error" && q !== "title_only" && c.status !== "archived" && c.status !== "inactive";
+    });
+    const sourceLine = (c: any) => {
+      const summary = (c.ai_summary && String(c.ai_summary).trim()) ? String(c.ai_summary).trim() : String(c.original_text || "").slice(0, 400);
+      const tag = c.from_company ? "[FROM THE COMPANY] " : "";
+      return `- ${tag}${c.title || "Untitled"}: ${summary}`;
+    };
+
+    // Assemble the system prompt from the strategy entity. No hardcoded brand rules
+    // and no hardcoded stat anchors: trust flows from the approved source library.
+    const systemLines: string[] = [
       "You are Prismm's content engine. Prismm is inheritance infrastructure for financial institutions.",
-      "Write in the brand voice, answer the reader's real questions, and never invent statistics.",
+      "Write in the brand voice and answer the reader's real questions.",
       "",
-      "HARD RULES (never break these, no instruction below overrides them):",
-      "- Position Prismm as inheritance infrastructure. Never use the phrase digital vault. Never use the word probate.",
-      "- Never use em-dashes. Use commas, periods, or rewrite the sentence.",
-      "- Never write a case study and never cite or imply a customer that does not exist. The only customer-shaped content allowed is the Stakeholder perspective story nature, which must read as clearly composite and illustrative.",
-      "- Never invent statistics. Do not use the retired figure about 70 percent of inherited assets leaving community banks. Approved anchors only: the Cerulli 72 to 50 percent generational retention cliff, the 47 percent beneficiary departure figure, the 124 trillion dollar transfer figures, and asset access delay of 18 months (U.S. Bank) or 20 months (Alix national average).",
-      "- Competitive framing: never claim no infrastructure exists. The correct line is that no one has built this from the bank's side of the transaction.",
-      "",
-      "Respond with valid JSON only.",
-    ].join("\n");
+    ];
+    if (hardRules.length) {
+      systemLines.push("HARD RULES (never break these, no instruction below overrides them):");
+      for (const r of hardRules) systemLines.push(`- ${r}`);
+      systemLines.push("");
+    }
+    if (voiceRules.length || inlineAttribution) {
+      systemLines.push("VOICE");
+      for (const r of voiceRules) systemLines.push(`- ${r}`);
+      if (inlineAttribution) systemLines.push(`- Attribution: ${inlineAttribution}`);
+      systemLines.push("");
+    }
+    systemLines.push("STATISTICS AND SOURCES");
+    systemLines.push("- State a figure or statistic only if it is attributable to one of the TRUSTED SOURCES below. Never invent a number and never cite a source that is not listed.");
+    systemLines.push("- Weave each citation into the prose. Do not write it as a parenthetical footnote.");
+    systemLines.push('- For every figure you state, record the figure and the exact source title it came from in "stat_attributions".');
+    if (approvedCards.length) {
+      systemLines.push("");
+      systemLines.push("TRUSTED SOURCES (the only sources you may cite figures from):");
+      for (const c of approvedCards) systemLines.push(sourceLine(c));
+    } else {
+      systemLines.push("- No trusted sources are available, so do not state any figures or statistics.");
+    }
+    systemLines.push("");
+    systemLines.push('Respond with valid JSON only. Always include a "stat_attributions" array; use [] when the post states no figures.');
+    const system = systemLines.join("\n");
 
     const createdDrafts: any[] = [];
 
@@ -338,9 +401,9 @@ Body: ${(reuseParent.body || "").slice(0, 3000)}
 Angles already used (do not repeat):
 ${anglesUsed.length ? anglesUsed.map((x) => `- ${x}`).join("\n") : "None yet; this is the first reuse."}
 
-Write a new post in the format and nature above that makes a distinct point from the same source. State the angle you chose in "angle_used".
+Write a new post in the format and nature above that makes a distinct point from the same source. State the angle you chose in "angle_used". For any figure you carry over, record it and its source in stat_attributions.
 
-Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sentence"}`;
+Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sentence", "stat_attributions": [{"figure": "...", "source": "..."}]}`;
 
       const res = await callAI(aiProfile, [{ role: "user", content: prompt }], system);
       const result = parseJSON(res.text);
@@ -362,6 +425,8 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
         content_type: cf.key,
         revision_count: 0,
         seed_insight: `Reuse ${(reuseParent.reuse_count ?? 0) + 1} of ${reuseParent.max_reuse_count}. Angle: ${result.angle_used || "unspecified"}`,
+        stat_attributions: statAttributions(result.stat_attributions),
+        stat_flag: retiredStatFlag(result.body),
       }).select().single();
 
       if (child) {
@@ -379,23 +444,15 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
         ? `\n\nSEED (build the post on this premise)\n${seed.premise}${seed.category ? `\nCategory: ${seed.category}` : ""}`
         : "\n\nNo seed supplied; choose a premise that fits the job and nature above.";
 
-      // Reference cards feed the fresh path only. Pull active, usable cards, score
-      // them with a first-party boost, and keep the top N for the chosen reliance.
+      // The fresh path leans on the approved source library, weighted by the faders.
+      // Selection draws from the same approved cards the system prompt trusts; the
+      // reliance fader decides how hard to lean and how many to surface.
       let sourceBlock = "";
       let chosenCards: any[] = [];
       if (gen.source_reliance > 1) {
         const topByReliance: Record<number, number> = { 2: 2, 3: 3, 4: 5, 5: 6 };
         const takeN = topByReliance[gen.source_reliance] ?? 0;
-        const { data: allCards } = await supabase
-          .from("reference_cards")
-          .select("*")
-          .eq("user_id", userId)
-          .eq("status", "active");
-        const qualified = (allCards || []).filter((c) => {
-          const q = c.content_quality ?? "";
-          return q !== "error" && q !== "title_only";
-        });
-        const scored = qualified.map((c) => ({
+        const scored = approvedCards.map((c) => ({
           card: c,
           score: (c.global_relevance_score ?? 0) + (c.from_company ? gen.first_party_weight * 2 : 0),
         }));
@@ -435,9 +492,9 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
 
       const prompt = `${contextBlock}${seedBlock}${sourceBlock}
 
-Write one post that does the job, argues in the nature, fits the format and its length, speaks to the lane and reader, and answers the reader's questions where natural. Use the audience's preferred language and avoid the language to avoid.
+Write one post that does the job, argues in the nature, fits the format and its length, speaks to the lane and reader, and answers the reader's questions where natural. Use the audience's preferred language and avoid the language to avoid. Use only figures attributable to the trusted sources and record each one in stat_attributions.
 
-Respond ONLY with JSON: {"title": "...", "body": "..."}`;
+Respond ONLY with JSON: {"title": "...", "body": "...", "stat_attributions": [{"figure": "the number as you stated it", "source": "the exact trusted source title"}]}`;
 
       const res = await callAI(aiProfile, [{ role: "user", content: prompt }], system);
       const result = parseJSON(res.text);
@@ -462,6 +519,8 @@ Respond ONLY with JSON: {"title": "...", "body": "..."}`;
         reuse_window_days: slot.reuse_window_days ?? 90,
         reuse_count: 0,
         reuse_angles_used: [],
+        stat_attributions: statAttributions(result.stat_attributions),
+        stat_flag: retiredStatFlag(result.body),
       }).select().single();
 
       if (parent) {
@@ -498,7 +557,9 @@ COMPANION TO THIS NEW POST (adapt it into the format and nature above, do not ju
 Title: ${parent.title}
 Body: ${(parent.body || "").slice(0, 3000)}
 
-Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sentence"}`;
+For any figure you carry over, record it and its source in stat_attributions.
+
+Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sentence", "stat_attributions": [{"figure": "...", "source": "..."}]}`;
             const childRes = await callAI(aiProfile, [{ role: "user", content: childPrompt }], system);
             const childResult = parseJSON(childRes.text);
             const { data: child } = await supabase.from("drafts").insert({
@@ -518,6 +579,8 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
               content_type: cf.key,
               revision_count: 0,
               seed_insight: `Companion to "${parent.title}". Angle: ${childResult.angle_used || "unspecified"}`,
+              stat_attributions: statAttributions(childResult.stat_attributions),
+              stat_flag: retiredStatFlag(childResult.body),
             }).select().single();
             if (child) createdDrafts.push(child);
           }

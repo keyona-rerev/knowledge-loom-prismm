@@ -5,8 +5,10 @@ import { resolveNext, type Frequency } from "../_shared/schedule-resolver.ts";
 
 // Knowledge Loom autopilot. A schedule slot is a standing instruction: produce a post
 // of this format and nature, doing this job, for this lane and reader. Generation reads
-// the strategy and audience libraries plus the seed bank, not reference cards. Newsletter
-// intake still feeds reference cards in parallel and is untouched here.
+// the strategy and audience libraries plus the seed bank, and the fresh path also pulls
+// from the reference-card library, ranked by rotation first and then a first-party-weighted
+// relevance, governed by the source faders. Newsletter intake still feeds reference cards
+// in parallel and is untouched here.
 //
 // Per run a slot either resurfaces an eligible parent (reuse) or generates fresh. When the
 // slot requires a child, fresh runs also produce a companion post in the child format.
@@ -380,6 +382,7 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
       // Reference cards feed the fresh path only. Pull active, usable cards, score
       // them with a first-party boost, and keep the top N for the chosen reliance.
       let sourceBlock = "";
+      let chosenCards: any[] = [];
       if (gen.source_reliance > 1) {
         const topByReliance: Record<number, number> = { 2: 2, 3: 3, 4: 5, 5: 6 };
         const takeN = topByReliance[gen.source_reliance] ?? 0;
@@ -396,11 +399,18 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
           card: c,
           score: (c.global_relevance_score ?? 0) + (c.from_company ? gen.first_party_weight * 2 : 0),
         }));
+        // Rotation leads: least-used first (null times_used as 0), then longest-unused
+        // (null last_used_at first so never-used cards lead), then within a usage tier the
+        // higher first-party-weighted score wins, then newest by created_at.
+        const lastUsedMs = (c: any) => (c.last_used_at ? new Date(c.last_used_at).getTime() : -Infinity);
         scored.sort((a, b) =>
-          b.score - a.score ||
-          new Date(b.card.created_at).getTime() - new Date(a.card.created_at).getTime()
+          ((a.card.times_used ?? 0) - (b.card.times_used ?? 0)) ||
+          (lastUsedMs(a.card) - lastUsedMs(b.card)) ||
+          (b.score - a.score) ||
+          (new Date(b.card.created_at).getTime() - new Date(a.card.created_at).getTime())
         );
         const chosen = scored.slice(0, takeN).map((s) => s.card);
+        chosenCards = chosen;
         if (chosen.length) {
           const cardLines = chosen.map((c) => {
             const summary = (c.ai_summary && String(c.ai_summary).trim())
@@ -463,6 +473,18 @@ Respond ONLY with JSON: {"title": "...", "body": "..."}`;
             times_used: (seed.times_used ?? 0) + 1,
             last_used_at: new Date().toISOString(),
           }).eq("id", seed.id);
+        }
+
+        // Mark the chosen reference cards as used so rotation cycles the whole library.
+        if (chosenCards.length && !isTestRun) {
+          const now = new Date().toISOString();
+          for (const c of chosenCards) {
+            await supabase.from("reference_cards").update({
+              times_used: (c.times_used ?? 0) + 1,
+              last_used_at: now,
+              is_used: true,
+            }).eq("id", c.id);
+          }
         }
 
         // Companion child in the child format, if the slot pairs them.

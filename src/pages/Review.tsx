@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ArrowLeft, Check, X, Clock, Filter, CheckCheck, Ban, MessageCircle } from "lucide-react";
+import { ArrowLeft, Check, X, Clock, Filter, CheckCheck, Ban, MessageCircle, AlertTriangle, RefreshCw, ExternalLink } from "lucide-react";
 
 interface Draft {
   id: string;
@@ -28,6 +28,10 @@ interface Draft {
   autopilot_templates?: {
     name: string;
   };
+  publish_status?: string | null;
+  publish_error?: string | null;
+  external_post_id?: string | null;
+  scheduled_for?: string | null;
 }
 
 const Review = () => {
@@ -107,6 +111,30 @@ const Review = () => {
         })
         .catch((err) => console.error("Publish error:", err));
     }
+  };
+
+  // Re-run the scheduler for a draft that previously landed in needs_attention or failed.
+  // The function is idempotent and only acts on approved drafts with no external_post_id yet.
+  const handleRetrySchedule = async (draftId: string) => {
+    toast.info("Retrying schedule...");
+    const { data, error } = await supabase.functions.invoke("publish-to-zernio", { body: { draftId } });
+    if (error) {
+      toast.error("Retry could not reach the scheduler");
+      return;
+    }
+    if (data?.status === "scheduled") {
+      const when = new Date(data.scheduledFor).toLocaleString();
+      toast.success(data.basis === "rescheduled"
+        ? `Slot time had passed; rescheduled to publish ${when}`
+        : `Scheduled to publish ${when}`);
+    } else if (data?.status === "needs_attention") {
+      toast.warning(`Still needs attention: ${data.error}`);
+    } else if (data?.status === "failed" || data?.error) {
+      toast.error(`Still failing: ${data.error}`);
+    } else if (data?.alreadyScheduled) {
+      toast.info("This draft is already scheduled.");
+    }
+    loadDrafts();
   };
 
   const handleSmartReject = (draft: Draft) => {
@@ -213,6 +241,7 @@ const Review = () => {
   const approvedCount = drafts.filter(d => d.approval_status === "approved").length;
   const rejectedCount = drafts.filter(d => d.approval_status === "rejected").length;
   const revisionCount = drafts.filter(d => d.approval_status === "needs_revision").length;
+  const attentionDrafts = drafts.filter(d => d.publish_status === "needs_attention" || d.publish_status === "failed");
 
   if (loading) {
     return (
@@ -243,9 +272,49 @@ const Review = () => {
               <span className="text-green-600 font-medium">{approvedCount} approved</span>{" • "}
               <span className="text-red-600 font-medium">{rejectedCount} rejected</span>
               {revisionCount > 0 && (<>{" • "}<span className="text-blue-600 font-medium">{revisionCount} needs revision</span></>)}
+              {attentionDrafts.length > 0 && (<>{" • "}<span className="text-amber-700 font-medium">{attentionDrafts.length} needs attention</span></>)}
             </div>
           </div>
         </div>
+
+        {attentionDrafts.length > 0 && (
+          <Card className="mb-6 border-amber-300 bg-amber-50">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-amber-900 text-lg">
+                <AlertTriangle className="h-5 w-5" />
+                Needs attention ({attentionDrafts.length})
+              </CardTitle>
+              <CardDescription className="text-amber-800">
+                These drafts were approved but did not schedule. Fix the cause, then retry. Nothing here has posted.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {attentionDrafts.map((draft) => (
+                <div key={draft.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-md border border-amber-200 bg-white p-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge variant="outline" className={draft.publish_status === "failed"
+                        ? "bg-red-50 text-red-700 border-red-200"
+                        : "bg-amber-100 text-amber-800 border-amber-300"}>
+                        {draft.publish_status === "failed" ? "Provider error" : "Not scheduled"}
+                      </Badge>
+                      <span className="font-medium truncate">{draft.title || draft.seed_insight}</span>
+                    </div>
+                    <p className="text-sm text-amber-900">{draft.publish_error || "No reason recorded."}</p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <Button size="sm" variant="outline" onClick={() => navigate(`/drafts/${draft.id}`)}>
+                      <ExternalLink className="h-4 w-4 mr-1" />View
+                    </Button>
+                    <Button size="sm" onClick={() => handleRetrySchedule(draft.id)}>
+                      <RefreshCw className="h-4 w-4 mr-1" />Retry
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
         {selectedDrafts.length > 0 && (
           <Card className="mb-6 border-blue-200 bg-blue-50">

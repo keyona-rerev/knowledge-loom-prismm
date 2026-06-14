@@ -53,6 +53,16 @@ interface JobRow {
   _isNew?: boolean;
 }
 
+// Hard rules: the editable do-not-say and framing rules the generator and the
+// stat trust both read at generation time. They live in the Brand section.
+interface HardRuleRow {
+  id: string;
+  body: string;
+  is_active: boolean;
+  sort_order: number;
+  _isNew?: boolean;
+}
+
 const FIT_OPTIONS = [
   { value: "high", label: "High fit" },
   { value: "medium", label: "Medium fit" },
@@ -101,10 +111,12 @@ const Strategy = () => {
     gen_voice_adherence: 5,
   });
 
+  const [hardRules, setHardRules] = useState<HardRuleRow[]>([]);
   const [formats, setFormats] = useState<FormatRow[]>([]);
   const [natures, setNatures] = useState<NatureRow[]>([]);
   const [jobs, setJobs] = useState<JobRow[]>([]);
 
+  const [deletedHardRules, setDeletedHardRules] = useState<string[]>([]);
   const [deletedFormats, setDeletedFormats] = useState<string[]>([]);
   const [deletedNatures, setDeletedNatures] = useState<string[]>([]);
   const [deletedJobs, setDeletedJobs] = useState<string[]>([]);
@@ -135,6 +147,12 @@ const Strategy = () => {
         });
       }
 
+      const { data: hr } = await supabase
+        .from("hard_rules").select("*").eq("user_id", session.user.id).order("sort_order");
+      setHardRules((hr || []).map((r) => ({
+        id: r.id, body: r.body || "", is_active: r.is_active ?? true, sort_order: r.sort_order,
+      })));
+
       const { data: fmt } = await supabase
         .from("formats").select("*").eq("user_id", session.user.id).order("sort_order");
       setFormats((fmt || []).map((f) => ({
@@ -160,6 +178,17 @@ const Strategy = () => {
     };
     load();
   }, [navigate]);
+
+  const setHardRule = (i: number, patch: Partial<HardRuleRow>) =>
+    setHardRules((p) => p.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const removeHardRule = (i: number) => {
+    const row = hardRules[i];
+    if (!row._isNew) setDeletedHardRules((d) => [...d, row.id]);
+    setHardRules((p) => p.filter((_, idx) => idx !== i));
+  };
+  const addHardRule = () => setHardRules((p) => [...p, {
+    id: `new_${Date.now()}`, body: "", is_active: true, sort_order: p.length, _isNew: true,
+  }]);
 
   const setFormat = (i: number, patch: Partial<FormatRow>) =>
     setFormats((p) => p.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -213,9 +242,24 @@ const Strategy = () => {
       }
 
       // Deletes
+      if (deletedHardRules.length) await supabase.from("hard_rules").delete().in("id", deletedHardRules);
       if (deletedFormats.length) await supabase.from("formats").delete().in("id", deletedFormats);
       if (deletedNatures.length) await supabase.from("natures").delete().in("id", deletedNatures);
       if (deletedJobs.length) await supabase.from("jobs").delete().in("id", deletedJobs);
+
+      // Hard rules
+      for (let i = 0; i < hardRules.length; i++) {
+        const r = hardRules[i];
+        if (!r.body.trim()) continue;
+        const payload = { body: r.body.trim(), is_active: r.is_active, sort_order: i };
+        if (r._isNew) {
+          const { error } = await supabase.from("hard_rules").insert([{ ...payload, user_id: userId }]);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.from("hard_rules").update(payload).eq("id", r.id);
+          if (error) throw error;
+        }
+      }
 
       // Formats
       for (let i = 0; i < formats.length; i++) {
@@ -267,7 +311,7 @@ const Strategy = () => {
         }
       }
 
-      setDeletedFormats([]); setDeletedNatures([]); setDeletedJobs([]);
+      setDeletedHardRules([]); setDeletedFormats([]); setDeletedNatures([]); setDeletedJobs([]);
       toast.success("Strategy saved");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
@@ -312,6 +356,33 @@ const Strategy = () => {
               <Label>Brand voice</Label>
               <Textarea rows={4} value={brand.brand_voice} onChange={(e) => setBrand((b) => ({ ...b, brand_voice: e.target.value }))} />
             </div>
+
+            {/* Hard rules: edited here, read by the generator and the stat trust on every run. */}
+            <div className="space-y-3 rounded-lg border p-4">
+              <div>
+                <Label className="text-base">Hard rules</Label>
+                <p className="text-sm text-muted-foreground">
+                  The non-negotiable do-not-say and framing rules. The generator holds these on every run, no fader overrides them.
+                </p>
+              </div>
+              {hardRules.map((r, i) => (
+                <div key={r.id} className="flex items-start gap-2">
+                  <Textarea
+                    rows={2}
+                    className="flex-1"
+                    placeholder={'e.g. Never say "digital vault."'}
+                    value={r.body}
+                    onChange={(e) => setHardRule(i, { body: e.target.value })}
+                  />
+                  <Button variant="ghost" size="icon" onClick={() => removeHardRule(i)}><Trash2 className="h-4 w-4" /></Button>
+                </div>
+              ))}
+              {hardRules.length === 0 && (
+                <p className="text-sm text-muted-foreground">No hard rules yet. Add the do-not-say and framing rules the writer must always hold.</p>
+              )}
+              <Button variant="outline" className="w-full" onClick={addHardRule}><Plus className="h-4 w-4 mr-2" />Add rule</Button>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {(["primary", "secondary", "accent"] as const).map((k) => (
                 <div key={k}>

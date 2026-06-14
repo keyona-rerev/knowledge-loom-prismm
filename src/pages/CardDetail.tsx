@@ -21,6 +21,7 @@ const CardDetail = () => {
   const [editedTitle, setEditedTitle] = useState("");
   const [editedText, setEditedText] = useState("");
   const [editedFromCompany, setEditedFromCompany] = useState(false);
+  const [editedApproved, setEditedApproved] = useState(false);
   const [questions, setQuestions] = useState<string[]>([]);
   const [processing, setProcessing] = useState(false);
   const [questionSets, setQuestionSets] = useState<any[]>([]);
@@ -51,6 +52,7 @@ const CardDetail = () => {
       setEditedTitle(data.title || "");
       setEditedText(data.original_text || "");
       setEditedFromCompany(data.from_company ?? false);
+      setEditedApproved(data.approved ?? false);
       await loadQuestions(data);
     }
     setLoading(false);
@@ -113,6 +115,7 @@ const CardDetail = () => {
         title: editedTitle,
         original_text: editedText,
         from_company: editedFromCompany,
+        approved: editedApproved,
         modified_by_user: true,
       })
       .eq("id", id);
@@ -288,6 +291,9 @@ const CardDetail = () => {
                   {card.content_quality === "error" && (
                     <Badge variant="destructive">Error</Badge>
                   )}
+                  <Badge variant={card.approved ? "default" : "outline"}>
+                    {card.approved ? "Approved source" : "Not approved"}
+                  </Badge>
                   {card.from_company && <Badge variant="default">From the company</Badge>}
                   {card.modified_by_user && <Badge variant="secondary">User Modified</Badge>}
                   {card.source_feeds?.name && (
@@ -340,14 +346,25 @@ const CardDetail = () => {
             </div>
 
             {editing && (
-              <div className="mb-6 flex items-center justify-between rounded-lg border p-3">
-                <div className="space-y-0.5 pr-3">
-                  <Label>From the company (first-party)</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Mark this as Prismm's own material so the writer can weight and anchor on it.
-                  </p>
+              <div className="mb-6 space-y-3">
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <div className="space-y-0.5 pr-3">
+                    <Label>Approved source</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Only approved cards are trusted, citable sources for generation. Approval is deliberate and never set automatically on ingest.
+                    </p>
+                  </div>
+                  <Switch checked={editedApproved} onCheckedChange={setEditedApproved} />
                 </div>
-                <Switch checked={editedFromCompany} onCheckedChange={setEditedFromCompany} />
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <div className="space-y-0.5 pr-3">
+                    <Label>From the company (first-party)</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Mark this as Prismm's own material so the writer can weight and anchor on it.
+                    </p>
+                  </div>
+                  <Switch checked={editedFromCompany} onCheckedChange={setEditedFromCompany} />
+                </div>
               </div>
             )}
 

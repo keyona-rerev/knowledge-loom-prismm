@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { ArrowLeft, Search, Edit2, ExternalLink, Trash2, ChevronDown, Sparkles, AlertCircle, Plus } from "lucide-react";
+import { ArrowLeft, Search, Edit2, ExternalLink, Trash2, ChevronDown, Sparkles, AlertCircle, Plus, CheckCircle2 } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 
 const ReferenceCards = () => {
@@ -85,6 +85,22 @@ const ReferenceCards = () => {
       toast.error("AI processing failed: " + data.error);
     } else {
       toast.success("Card processed successfully!");
+      loadCards();
+    }
+  };
+
+  // Deliberate approval. Only approved cards are trusted, citable sources for
+  // generation. Toggled here for quick management; never set automatically on ingest.
+  const toggleApproved = async (card: any) => {
+    const next = !card.approved;
+    const { error } = await supabase
+      .from("reference_cards")
+      .update({ approved: next })
+      .eq("id", card.id);
+    if (error) {
+      toast.error("Failed to update approval");
+    } else {
+      toast.success(next ? "Source approved" : "Approval removed");
       loadCards();
     }
   };
@@ -289,6 +305,9 @@ const ReferenceCards = () => {
                       </Badge>
                       <Badge variant="outline">{card.source_type}</Badge>
                       <Badge variant="outline">Score: {card.global_relevance_score}/10</Badge>
+                      <Badge variant={card.approved ? "default" : "outline"}>
+                        {card.approved ? "Approved source" : "Not approved"}
+                      </Badge>
                       {card.content_quality === "title_only" && (
                         <Badge variant="destructive">Title Only</Badge>
                       )}
@@ -314,10 +333,18 @@ const ReferenceCards = () => {
                     )}
                   </div>
                   <div className="flex gap-2">
+                    <Button
+                      variant={card.approved ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => toggleApproved(card)}
+                    >
+                      <CheckCircle2 className="h-4 w-4 mr-1" />
+                      {card.approved ? "Approved" : "Approve"}
+                    </Button>
                     {!card.ai_summary && (
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => processCard(card.id)}
                         disabled={processingCards.has(card.id)}
                       >

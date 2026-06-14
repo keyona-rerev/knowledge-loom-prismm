@@ -32,6 +32,8 @@ interface Draft {
   publish_error?: string | null;
   external_post_id?: string | null;
   scheduled_for?: string | null;
+  stat_attributions?: { figure: string; source: string }[] | null;
+  stat_flag?: string | null;
 }
 
 const Review = () => {
@@ -88,7 +90,7 @@ const Review = () => {
       loadDrafts();
       setSelectedDrafts(prev => prev.filter(id => id !== draftId));
 
-      // Trigger visual generation in background — fire and forget
+      // Trigger visual generation in background, fire and forget
       if (session?.user?.id) {
         supabase.functions.invoke("generate-draft-visual", {
           body: { draftId, userId: session.user.id }
@@ -399,9 +401,28 @@ const Review = () => {
                           </div>
                         )}
                       </div>
+                      {draft.stat_flag && (
+                        <div className="flex items-start gap-2 mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
+                          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                          <span>{draft.stat_flag}</span>
+                        </div>
+                      )}
                       <div className="prose prose-sm max-w-none mb-4">
                         <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize((draft.body || '').replace(/\n/g, '<br/>'), { ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'b', 'i', 'u', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'blockquote', 'code', 'pre', 'span', 'div'], ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'id'], FORBID_ATTR: ['style', 'onclick', 'onload', 'onerror', 'onmouseover'] }) }} />
                       </div>
+                      {Array.isArray(draft.stat_attributions) && draft.stat_attributions.length > 0 && (
+                        <div className="text-sm border-t pt-3 mb-1">
+                          <p className="font-medium mb-2">Figures and their sources</p>
+                          <ul className="space-y-1">
+                            {draft.stat_attributions.map((a, i) => (
+                              <li key={i} className="text-muted-foreground">
+                                <span className="font-medium text-foreground">{a.figure || "(figure)"}</span>
+                                {" "}from {a.source || "(no source given)"}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                       {draft.selected_direction && (
                         <div className="text-sm text-muted-foreground border-t pt-3">
                           <strong>Direction:</strong> {draft.selected_direction.angle}

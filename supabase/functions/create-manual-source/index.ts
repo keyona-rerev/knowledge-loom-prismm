@@ -81,7 +81,7 @@ serve(async (req) => {
     const requestBody = await req.json();
     console.log("📦 Request body:", requestBody);
 
-    const { type, url, pdf_text, pdf_title, question_set_id } = requestBody;
+    const { type, url, pdf_text, pdf_title, question_set_id, from_company } = requestBody;
 
     if (!type || (type === "url" && !url) || (type === "pdf" && !pdf_text)) {
       console.log("❌ Invalid parameters:", { type, url, has_pdf_text: !!pdf_text });
@@ -216,6 +216,7 @@ serve(async (req) => {
       user_id: user_id,
       content_quality: contentQuality,
       content_warning: contentWarning,
+      from_company: from_company === true,
     };
 
     if (question_set_id && question_set_id.trim() !== "") {

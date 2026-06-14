@@ -36,6 +36,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { parsePDF } from "@/lib/pdf-parser";
 
@@ -48,6 +49,7 @@ const Feeds = () => {
   const [manualSourceType, setManualSourceType] = useState<"url" | "pdf">("url");
   const [manualUrl, setManualUrl] = useState("");
   const [manualPdfFile, setManualPdfFile] = useState<File | null>(null);
+  const [manualFromCompany, setManualFromCompany] = useState(false);
   const [creatingManualSource, setCreatingManualSource] = useState(false);
 
   const [activeTab, setActiveTab] = useState<"newsletter" | "manual">("newsletter");
@@ -304,6 +306,7 @@ const Feeds = () => {
           pdf_title: manualSourceType === "pdf" ? pdfTitle : undefined,
           user_id: session.user.id,
           question_set_id: selectedQuestionSet,
+          from_company: manualFromCompany,
         },
       });
 
@@ -318,6 +321,7 @@ const Feeds = () => {
         setManualSourceDialogOpen(false);
         setManualUrl("");
         setManualPdfFile(null);
+        setManualFromCompany(false);
         setTimeout(() => {
           loadFeeds();
           navigate("/cards");
@@ -425,6 +429,16 @@ const Feeds = () => {
                     </p>
                   </div>
                 )}
+
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <div className="space-y-0.5 pr-3">
+                    <Label>From the company (first-party)</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Mark this as Prismm's own material so the writer can weight and anchor on it.
+                    </p>
+                  </div>
+                  <Switch checked={manualFromCompany} onCheckedChange={setManualFromCompany} />
+                </div>
 
                 <Button
                   onClick={createManualSource}

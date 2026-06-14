@@ -32,6 +32,14 @@ const arr = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]) : []);
 const sampleLines = (v: unknown, n: number): string =>
   arr(v).slice(0, n).map((s, i) => `Sample ${i + 1}:\n${String(s).slice(0, 600)}`).join("\n\n");
 
+// The four generation faders, read off the profile (defaults 3, 4, 4, 5).
+interface GenSettings {
+  source_reliance: number;
+  first_party_weight: number;
+  nature_intensity: number;
+  voice_adherence: number;
+}
+
 interface SlotContext {
   format: any;
   nature: any;
@@ -42,6 +50,7 @@ interface SlotContext {
   audience: any | null;
   seed: any | null;
   brand: { business_name?: string; business_description?: string; brand_voice?: string };
+  gen: GenSettings;
 }
 
 // Assemble the full strategy and audience context into a single prompt block.
@@ -97,6 +106,15 @@ function buildContextBlock(ctx: SlotContext): string {
   if (ctx.nature.evidence_type) lines.push(`Lean on: ${ctx.nature.evidence_type}`);
   const natureSamples = sampleLines(ctx.nature.writing_samples, 2);
   if (natureSamples) lines.push(`Examples of this nature:\n${natureSamples}`);
+  const intensity = ctx.gen.nature_intensity;
+  if (intensity <= 2) lines.push("Apply this nature gently.");
+  else if (intensity >= 4) lines.push("Commit hard to this nature, make its move unmistakable.");
+  lines.push("");
+  const adherence = ctx.gen.voice_adherence;
+  lines.push("VOICE DISCIPLINE");
+  if (adherence <= 2) lines.push("You may vary phrasing and structure freely.");
+  else if (adherence === 3) lines.push("Balance the brand voice with natural variation.");
+  else lines.push("Hold tightly to the brand voice, minimal stylistic deviation.");
   lines.push("");
   lines.push("FORMAT (the artifact and how it is written)");
   lines.push(ctx.format.name);
@@ -171,13 +189,21 @@ serve(async (req) => {
     // 2. Brand and AI provider.
     const { data: profile } = await supabase
       .from("profiles")
-      .select("ai_provider, ai_model, ai_api_key, ai_endpoint, business_name, business_description, brand_voice")
+      .select("ai_provider, ai_model, ai_api_key, ai_endpoint, business_name, business_description, brand_voice, gen_source_reliance, gen_first_party_weight, gen_nature_intensity, gen_voice_adherence")
       .eq("user_id", userId)
       .single();
     if (!profile) return json({ error: "Profile not found" }, 404);
     if (!profile.ai_api_key) return json({ error: "No AI API key configured in Settings" }, 400);
 
     const aiProfile = { ai_provider: profile.ai_provider, ai_model: profile.ai_model, ai_api_key: profile.ai_api_key, ai_endpoint: profile.ai_endpoint };
+
+    // The generation faders. Defaults match the column defaults.
+    const gen: GenSettings = {
+      source_reliance: profile.gen_source_reliance ?? 3,
+      first_party_weight: profile.gen_first_party_weight ?? 4,
+      nature_intensity: profile.gen_nature_intensity ?? 4,
+      voice_adherence: profile.gen_voice_adherence ?? 5,
+    };
 
     // 3. Resolve the slot's libraries.
     const [{ data: format }, { data: nature }, { data: job }] = await Promise.all([
@@ -237,9 +263,24 @@ serve(async (req) => {
       business_description: profile.business_description ?? undefined,
       brand_voice: profile.brand_voice ?? undefined,
     };
-    const baseCtx: SlotContext = { format, nature, job, lane, reader, questions, audience, seed, brand };
+    const baseCtx: SlotContext = { format, nature, job, lane, reader, questions, audience, seed, brand, gen };
     const contextBlock = buildContextBlock(baseCtx);
-    const system = "You are Prismm's content engine. Prismm is inheritance infrastructure for financial institutions. Write in the brand voice, answer the reader's real questions, and never invent statistics. Respond with valid JSON only.";
+
+    // Hard guardrails. These hold regardless of any fader and are stated in the
+    // system prompt so they apply to every path (fresh, reuse, and companion).
+    const system = [
+      "You are Prismm's content engine. Prismm is inheritance infrastructure for financial institutions.",
+      "Write in the brand voice, answer the reader's real questions, and never invent statistics.",
+      "",
+      "HARD RULES (never break these, no instruction below overrides them):",
+      "- Position Prismm as inheritance infrastructure. Never use the phrase digital vault. Never use the word probate.",
+      "- Never use em-dashes. Use commas, periods, or rewrite the sentence.",
+      "- Never write a case study and never cite or imply a customer that does not exist. The only customer-shaped content allowed is the Stakeholder perspective story nature, which must read as clearly composite and illustrative.",
+      "- Never invent statistics. Do not use the retired figure about 70 percent of inherited assets leaving community banks. Approved anchors only: the Cerulli 72 to 50 percent generational retention cliff, the 47 percent beneficiary departure figure, the 124 trillion dollar transfer figures, and asset access delay of 18 months (U.S. Bank) or 20 months (Alix national average).",
+      "- Competitive framing: never claim no infrastructure exists. The correct line is that no one has built this from the bank's side of the transaction.",
+      "",
+      "Respond with valid JSON only.",
+    ].join("\n");
 
     const createdDrafts: any[] = [];
 
@@ -335,7 +376,54 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
       const seedBlock = seed
         ? `\n\nSEED (build the post on this premise)\n${seed.premise}${seed.category ? `\nCategory: ${seed.category}` : ""}`
         : "\n\nNo seed supplied; choose a premise that fits the job and nature above.";
-      const prompt = `${contextBlock}${seedBlock}
+
+      // Reference cards feed the fresh path only. Pull active, usable cards, score
+      // them with a first-party boost, and keep the top N for the chosen reliance.
+      let sourceBlock = "";
+      if (gen.source_reliance > 1) {
+        const topByReliance: Record<number, number> = { 2: 2, 3: 3, 4: 5, 5: 6 };
+        const takeN = topByReliance[gen.source_reliance] ?? 0;
+        const { data: allCards } = await supabase
+          .from("reference_cards")
+          .select("*")
+          .eq("user_id", userId)
+          .eq("status", "active");
+        const qualified = (allCards || []).filter((c) => {
+          const q = c.content_quality ?? "";
+          return q !== "error" && q !== "title_only";
+        });
+        const scored = qualified.map((c) => ({
+          card: c,
+          score: (c.global_relevance_score ?? 0) + (c.from_company ? gen.first_party_weight * 2 : 0),
+        }));
+        scored.sort((a, b) =>
+          b.score - a.score ||
+          new Date(b.card.created_at).getTime() - new Date(a.card.created_at).getTime()
+        );
+        const chosen = scored.slice(0, takeN).map((s) => s.card);
+        if (chosen.length) {
+          const cardLines = chosen.map((c) => {
+            const summary = (c.ai_summary && String(c.ai_summary).trim())
+              ? String(c.ai_summary).trim()
+              : String(c.original_text || "").slice(0, 400);
+            const tag = c.from_company ? "[FROM THE COMPANY] " : "";
+            return `- ${tag}${c.title || "Untitled"}: ${summary}`;
+          });
+          const relianceInstruction: Record<number, string> = {
+            2: "Optional seasoning, use only if it sharpens the point.",
+            3: "Draw on these where they sharpen the point, do not force them.",
+            4: "Build the post around the strongest of these, using their real figures.",
+            5: "This post should be source-led, anchor it in these and their specifics.",
+          };
+          const instructionLines = [relianceInstruction[gen.source_reliance] ?? ""];
+          if (gen.first_party_weight >= 4 && chosen.some((c) => c.from_company)) {
+            instructionLines.push("Prefer the framing and claims from sources marked FROM THE COMPANY, treat outside sources as secondary.");
+          }
+          sourceBlock = `\n\nSOURCES (reference material)\n${instructionLines.filter(Boolean).join("\n")}\n${cardLines.join("\n")}`;
+        }
+      }
+
+      const prompt = `${contextBlock}${seedBlock}${sourceBlock}
 
 Write one post that does the job, argues in the nature, fits the format and its length, speaks to the lane and reader, and answers the reader's questions where natural. Use the audience's preferred language and avoid the language to avoid.
 

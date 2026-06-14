@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { ArrowLeft, Save, ExternalLink, AlertCircle, Sparkles, MessageSquare } from "lucide-react";
 
@@ -19,6 +20,7 @@ const CardDetail = () => {
   const [editing, setEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState("");
   const [editedText, setEditedText] = useState("");
+  const [editedFromCompany, setEditedFromCompany] = useState(false);
   const [questions, setQuestions] = useState<string[]>([]);
   const [processing, setProcessing] = useState(false);
   const [questionSets, setQuestionSets] = useState<any[]>([]);
@@ -48,6 +50,7 @@ const CardDetail = () => {
       setCard(data);
       setEditedTitle(data.title || "");
       setEditedText(data.original_text || "");
+      setEditedFromCompany(data.from_company ?? false);
       await loadQuestions(data);
     }
     setLoading(false);
@@ -109,6 +112,7 @@ const CardDetail = () => {
       .update({
         title: editedTitle,
         original_text: editedText,
+        from_company: editedFromCompany,
         modified_by_user: true,
       })
       .eq("id", id);
@@ -284,6 +288,7 @@ const CardDetail = () => {
                   {card.content_quality === "error" && (
                     <Badge variant="destructive">Error</Badge>
                   )}
+                  {card.from_company && <Badge variant="default">From the company</Badge>}
                   {card.modified_by_user && <Badge variant="secondary">User Modified</Badge>}
                   {card.source_feeds?.name && (
                     <Badge variant="outline" className="gap-1">
@@ -333,6 +338,18 @@ const CardDetail = () => {
                 </div>
               )}
             </div>
+
+            {editing && (
+              <div className="mb-6 flex items-center justify-between rounded-lg border p-3">
+                <div className="space-y-0.5 pr-3">
+                  <Label>From the company (first-party)</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Mark this as Prismm's own material so the writer can weight and anchor on it.
+                  </p>
+                </div>
+                <Switch checked={editedFromCompany} onCheckedChange={setEditedFromCompany} />
+              </div>
+            )}
 
             {card.insight_answers && Object.keys(card.insight_answers).length > 0 && (
               <div className="border-t pt-6">

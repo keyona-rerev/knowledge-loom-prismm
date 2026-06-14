@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 
@@ -92,6 +93,14 @@ const Strategy = () => {
     accent_color: "#f5c070",
   });
 
+  // The four generation faders. Defaults match the profiles column defaults.
+  const [gen, setGen] = useState({
+    gen_source_reliance: 3,
+    gen_first_party_weight: 4,
+    gen_nature_intensity: 4,
+    gen_voice_adherence: 5,
+  });
+
   const [formats, setFormats] = useState<FormatRow[]>([]);
   const [natures, setNatures] = useState<NatureRow[]>([]);
   const [jobs, setJobs] = useState<JobRow[]>([]);
@@ -117,6 +126,12 @@ const Strategy = () => {
           primary_color: profile.primary_color || "#f9655b",
           secondary_color: profile.secondary_color || "#6658ea",
           accent_color: profile.accent_color || "#f5c070",
+        });
+        setGen({
+          gen_source_reliance: profile.gen_source_reliance ?? 3,
+          gen_first_party_weight: profile.gen_first_party_weight ?? 4,
+          gen_nature_intensity: profile.gen_nature_intensity ?? 4,
+          gen_voice_adherence: profile.gen_voice_adherence ?? 5,
         });
       }
 
@@ -186,8 +201,8 @@ const Strategy = () => {
     if (!userId) { toast.error("You must be logged in"); return; }
     setLoading(true);
     try {
-      // Brand to profiles
-      const brandPayload = { ...brand, user_id: userId };
+      // Brand and the generation faders to profiles
+      const brandPayload = { ...brand, ...gen, user_id: userId };
       if (profileId) {
         const { error } = await supabase.from("profiles").update(brandPayload).eq("id", profileId);
         if (error) throw error;
@@ -308,6 +323,43 @@ const Strategy = () => {
                 </div>
               ))}
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Generation console */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Generation console</CardTitle>
+            <CardDescription>How the writer leans while it drafts. These shape tone and source use, not the rules.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-8">
+            {([
+              { key: "gen_source_reliance", label: "Source reliance", low: "Strategy only", high: "Source-led" },
+              { key: "gen_first_party_weight", label: "First-party weight", low: "By relevance", high: "Company first" },
+              { key: "gen_nature_intensity", label: "Nature intensity", low: "Gentle", high: "Full commit" },
+              { key: "gen_voice_adherence", label: "Voice adherence", low: "Loose", high: "Locked" },
+            ] as const).map((f) => (
+              <div key={f.key} className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>{f.label}</Label>
+                  <span className="text-sm text-muted-foreground tabular-nums">{gen[f.key]} / 5</span>
+                </div>
+                <Slider
+                  min={1}
+                  max={5}
+                  step={1}
+                  value={[gen[f.key]]}
+                  onValueChange={(v) => setGen((g) => ({ ...g, [f.key]: v[0] }))}
+                />
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{f.low}</span>
+                  <span>{f.high}</span>
+                </div>
+              </div>
+            ))}
+            <p className="text-xs text-muted-foreground">
+              Hard brand rules always apply and are not controlled here.
+            </p>
           </CardContent>
         </Card>
 

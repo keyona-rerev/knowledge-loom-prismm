@@ -12,6 +12,10 @@ import { resolveNext, type Frequency } from "../_shared/schedule-resolver.ts";
 //
 // Per run a slot either resurfaces an eligible parent (reuse) or generates fresh. When the
 // slot requires a child, fresh runs also produce a companion post in the child format.
+//
+// The child post is always a SHORT LinkedIn feed post that teases the parent article
+// and drives readers to it. It is not a summary and not a copy. It opens a loop,
+// surfaces one specific insight or provocation from the parent, and lets the article close it.
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,7 +38,6 @@ const arr = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]) : []);
 const sampleLines = (v: unknown, n: number): string =>
   arr(v).slice(0, n).map((s, i) => `Sample ${i + 1}:\n${String(s).slice(0, 600)}`).join("\n\n");
 
-// Normalize the model's per-figure source attributions for storage on the draft.
 const statAttributions = (v: unknown): { figure: string; source: string }[] =>
   Array.isArray(v)
     ? v
@@ -43,10 +46,6 @@ const statAttributions = (v: unknown): { figure: string; source: string }[] =>
         .filter((x) => x.figure || x.source)
     : [];
 
-// The one explicitly mandated tripwire: the retired figure about 70 percent of
-// inherited assets leaving community banks. It only flags a draft for human review,
-// it never blocks generation. This is not a general number validator and not an
-// approved-stat allowlist; trust otherwise flows from the approved source library.
 const retiredStatFlag = (body: unknown): string | null => {
   const text = String(body ?? "").toLowerCase();
   const has70 = /\b70\s*(?:percent|%)/.test(text);
@@ -56,7 +55,6 @@ const retiredStatFlag = (body: unknown): string | null => {
   return null;
 };
 
-// The four generation faders, read off the profile (defaults 3, 4, 4, 5).
 interface GenSettings {
   source_reliance: number;
   first_party_weight: number;
@@ -77,7 +75,6 @@ interface SlotContext {
   gen: GenSettings;
 }
 
-// Assemble the full strategy and audience context into a single prompt block.
 function buildContextBlock(ctx: SlotContext): string {
   const lines: string[] = [];
   const b = ctx.brand;
@@ -151,7 +148,6 @@ function buildContextBlock(ctx: SlotContext): string {
   return lines.join("\n");
 }
 
-// Pick a reader to rotate into a slot when the slot leaves the reader unset.
 function pickReader(readers: any[], lane: any | null): any | null {
   const published = readers.filter((r) => r.is_published_to);
   if (!published.length) return null;
@@ -176,8 +172,6 @@ serve(async (req) => {
     const { scheduleId, isTestRun = false } = body;
     if (!scheduleId) return json({ error: "scheduleId is required" }, 400);
 
-    // Two ways in: a user's JWT (the Run-now button) or a trusted internal call from
-    // the cron, which presents the service-role key and names the user in the body.
     const token = authHeader.replace("Bearer ", "");
     let userId: string;
     if (token === serviceRoleKey) {
@@ -190,7 +184,6 @@ serve(async (req) => {
       userId = user.id;
     }
 
-    // 1. The slot. Every decision flows from here.
     const { data: slot } = await supabase
       .from("content_schedules")
       .select("*")
@@ -200,8 +193,6 @@ serve(async (req) => {
       .single();
     if (!slot) return json({ error: "Slot not found, inactive, or access denied" }, 404);
 
-    // The intended publish instant for drafts from this slot, stamped now so a
-    // late approval can be detected later (resolveForApproval compares against it).
     const intendedScheduledFor = resolveNext({
       day_of_week: slot.day_of_week,
       frequency: slot.frequency as Frequency,
@@ -210,7 +201,6 @@ serve(async (req) => {
       timezone: slot.timezone,
     }).scheduledFor;
 
-    // 2. Brand and AI provider.
     const { data: profile } = await supabase
       .from("profiles")
       .select("ai_provider, ai_model, ai_api_key, ai_endpoint, business_name, business_description, brand_voice, voice_profile, gen_source_reliance, gen_first_party_weight, gen_nature_intensity, gen_voice_adherence")
@@ -221,7 +211,6 @@ serve(async (req) => {
 
     const aiProfile = { ai_provider: profile.ai_provider, ai_model: profile.ai_model, ai_api_key: profile.ai_api_key, ai_endpoint: profile.ai_endpoint };
 
-    // The generation faders. Defaults match the column defaults.
     const gen: GenSettings = {
       source_reliance: profile.gen_source_reliance ?? 3,
       first_party_weight: profile.gen_first_party_weight ?? 4,
@@ -229,14 +218,12 @@ serve(async (req) => {
       voice_adherence: profile.gen_voice_adherence ?? 5,
     };
 
-    // 3. Resolve the slot's libraries.
     const [{ data: format }, { data: nature }, { data: job }] = await Promise.all([
       supabase.from("formats").select("*").eq("id", slot.format_id).eq("user_id", userId).single(),
       supabase.from("natures").select("*").eq("id", slot.nature_id).eq("user_id", userId).single(),
       supabase.from("jobs").select("*").eq("id", slot.job_id).eq("user_id", userId).single(),
     ]);
     if (!format || !nature || !job) return json({ error: "Slot references a missing format, nature, or job" }, 400);
-    // Enforce: schedules only run engine jobs. Reference motions are run by hand.
     if (job.kind !== "engine_job") return json({ error: "Slot job must be an engine job" }, 400);
 
     let lane: any = null;
@@ -245,7 +232,6 @@ serve(async (req) => {
       lane = data;
     }
 
-    // Reader: the slot fixes one, or we rotate among published readers.
     let reader: any = null;
     if (slot.reader_id) {
       const { data } = await supabase.from("readers").select("*").eq("id", slot.reader_id).eq("user_id", userId).maybeSingle();
@@ -260,10 +246,8 @@ serve(async (req) => {
       questions = (rq || []).map((q) => q.question);
     }
 
-    // 4. Audience profile.
     const { data: audience } = await supabase.from("audience_profile").select("*").eq("user_id", userId).maybeSingle();
 
-    // 5. Seed: prefer the least-used, longest-unused seed that fits this lane and nature.
     const laneScopes = ["both"];
     if (lane?.key === "credit_union" || lane?.key === "community_bank") laneScopes.push(lane.key);
     let seed: any = null;
@@ -290,8 +274,6 @@ serve(async (req) => {
     const baseCtx: SlotContext = { format, nature, job, lane, reader, questions, audience, seed, brand, gen };
     const contextBlock = buildContextBlock(baseCtx);
 
-    // The strategy is read from the database at generation time, not from constants.
-    // Hard rules and the voice profile are customer-editable on the Strategy page.
     const { data: hardRulesRows } = await supabase
       .from("hard_rules").select("body").eq("user_id", userId).eq("is_active", true).order("sort_order");
     const hardRules = (hardRulesRows || []).map((r) => String(r.body ?? "").trim()).filter(Boolean);
@@ -299,9 +281,6 @@ serve(async (req) => {
     const voiceRules = arr(voiceProfile?.rules);
     const inlineAttribution = voiceProfile?.inline_attribution ? String(voiceProfile.inline_attribution) : "";
 
-    // Approved reference cards are the single, deliberately curated source library.
-    // Only approved cards are trusted and citable; ingest never approves on its own.
-    // first_party maps to from_company, third_party is everything else.
     const { data: approvedRaw } = await supabase
       .from("reference_cards").select("*").eq("user_id", userId).eq("approved", true);
     const approvedCards = (approvedRaw || []).filter((c) => {
@@ -314,8 +293,6 @@ serve(async (req) => {
       return `- ${tag}${c.title || "Untitled"}: ${summary}`;
     };
 
-    // Assemble the system prompt from the strategy entity. No hardcoded brand rules
-    // and no hardcoded stat anchors: trust flows from the approved source library.
     const systemLines: string[] = [
       "You are Prismm's content engine. Prismm is inheritance infrastructure for financial institutions.",
       "Write in the brand voice and answer the reader's real questions.",
@@ -349,8 +326,6 @@ serve(async (req) => {
 
     const createdDrafts: any[] = [];
 
-    // 6. Reuse decision: when the slot pairs with a child and an eligible parent exists,
-    // resurface it from a fresh angle rather than generating new fresh content.
     let reuseParent: any = null;
     if (slot.requires_child && (slot.max_reuse_count ?? 0) > 0) {
       const { data: parents } = await supabase
@@ -375,7 +350,6 @@ serve(async (req) => {
       )[0] ?? null;
     }
 
-    // Resolve child format/nature once (used by both reuse and companion paths).
     const childFormatId = slot.child_format_id || slot.format_id;
     const childNatureId = slot.child_nature_id || slot.nature_id;
     const loadChildLibs = async () => {
@@ -394,16 +368,22 @@ serve(async (req) => {
       const anglesUsed = arr(reuseParent.reuse_angles_used);
       const prompt = `${buildContextBlock(childCtx)}
 
-RESURFACE THIS PUBLISHED PIECE FROM A NEW ANGLE
-Title: ${reuseParent.title}
-Body: ${(reuseParent.body || "").slice(0, 3000)}
+TEASER POST FOR THIS PUBLISHED ARTICLE
+The parent article is a long-form piece. Your job is to write a short LinkedIn feed post that:
+1. Opens a loop — surface ONE specific insight, provocation, or tension from the article that the reader wants resolved.
+2. Does NOT summarize or restate the article. The feed post is the door, not the room.
+3. Ends in a way that makes the full article the natural next step.
+4. Stands on its own as a piece of writing — someone who never reads the article should still get value from this post.
 
-Angles already used (do not repeat):
-${anglesUsed.length ? anglesUsed.map((x) => `- ${x}`).join("\n") : "None yet; this is the first reuse."}
+Parent article title: ${reuseParent.title}
+Parent article body: ${(reuseParent.body || "").slice(0, 3000)}
 
-Write a new post in the format and nature above that makes a distinct point from the same source. State the angle you chose in "angle_used". For any figure you carry over, record it and its source in stat_attributions.
+Angles already used as teasers (do not repeat the same hook):
+${anglesUsed.length ? anglesUsed.map((x) => `- ${x}`).join("\n") : "None yet; this is the first teaser."}
 
-Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sentence", "stat_attributions": [{"figure": "...", "source": "..."}]}`;
+State the specific insight or hook you chose in "angle_used". For any figure you use, record it in stat_attributions.
+
+Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sentence describing the hook you chose", "stat_attributions": [{"figure": "...", "source": "..."}]}`;
 
       const res = await callAI(aiProfile, [{ role: "user", content: prompt }], system);
       const result = parseJSON(res.text);
@@ -424,7 +404,7 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
         reader_id: reader?.id ?? null,
         content_type: cf.key,
         revision_count: 0,
-        seed_insight: `Reuse ${(reuseParent.reuse_count ?? 0) + 1} of ${reuseParent.max_reuse_count}. Angle: ${result.angle_used || "unspecified"}`,
+        seed_insight: `Teaser ${(reuseParent.reuse_count ?? 0) + 1} of ${reuseParent.max_reuse_count}. Hook: ${result.angle_used || "unspecified"}`,
         stat_attributions: statAttributions(result.stat_attributions),
         stat_flag: retiredStatFlag(result.body),
       }).select().single();
@@ -433,7 +413,7 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
         if (!isTestRun) {
           await supabase.from("drafts").update({
             reuse_count: (reuseParent.reuse_count ?? 0) + 1,
-            reuse_angles_used: [...anglesUsed, result.angle_used || `Reuse ${(reuseParent.reuse_count ?? 0) + 1}`],
+            reuse_angles_used: [...anglesUsed, result.angle_used || `Teaser ${(reuseParent.reuse_count ?? 0) + 1}`],
           }).eq("id", reuseParent.id);
         }
         createdDrafts.push(child);
@@ -444,9 +424,6 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
         ? `\n\nSEED (build the post on this premise)\n${seed.premise}${seed.category ? `\nCategory: ${seed.category}` : ""}`
         : "\n\nNo seed supplied; choose a premise that fits the job and nature above.";
 
-      // The fresh path leans on the approved source library, weighted by the faders.
-      // Selection draws from the same approved cards the system prompt trusts; the
-      // reliance fader decides how hard to lean and how many to surface.
       let sourceBlock = "";
       let chosenCards: any[] = [];
       if (gen.source_reliance > 1) {
@@ -456,9 +433,6 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
           card: c,
           score: (c.global_relevance_score ?? 0) + (c.from_company ? gen.first_party_weight * 2 : 0),
         }));
-        // Rotation leads: least-used first (null times_used as 0), then longest-unused
-        // (null last_used_at first so never-used cards lead), then within a usage tier the
-        // higher first-party-weighted score wins, then newest by created_at.
         const lastUsedMs = (c: any) => (c.last_used_at ? new Date(c.last_used_at).getTime() : -Infinity);
         scored.sort((a, b) =>
           ((a.card.times_used ?? 0) - (b.card.times_used ?? 0)) ||
@@ -526,7 +500,6 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "stat_attributions": [{"
       if (parent) {
         createdDrafts.push(parent);
 
-        // Mark the seed as used so rotation moves on.
         if (seed && !isTestRun) {
           await supabase.from("seeds").update({
             times_used: (seed.times_used ?? 0) + 1,
@@ -534,7 +507,6 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "stat_attributions": [{"
           }).eq("id", seed.id);
         }
 
-        // Mark the chosen reference cards as used so rotation cycles the whole library.
         if (chosenCards.length && !isTestRun) {
           const now = new Date().toISOString();
           for (const c of chosenCards) {
@@ -546,20 +518,30 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "stat_attributions": [{"
           }
         }
 
-        // Companion child in the child format, if the slot pairs them.
+        // Companion child: a short LinkedIn feed post that teases the parent article.
+        // It opens a loop from one specific insight in the article and drives the reader
+        // to the full piece. It is NOT a summary and NOT a copy of the parent.
         if (slot.requires_child) {
           const { cf, cn } = await loadChildLibs();
           if (cf && cn) {
             const childCtx: SlotContext = { ...baseCtx, format: cf, nature: cn };
             const childPrompt = `${buildContextBlock(childCtx)}
 
-COMPANION TO THIS NEW POST (adapt it into the format and nature above, do not just summarize)
-Title: ${parent.title}
-Body: ${(parent.body || "").slice(0, 3000)}
+TEASER POST FOR THIS NEW ARTICLE
+The parent post above is a long-form article. Your job is to write a short LinkedIn feed post that:
+1. Opens a loop — surface ONE specific insight, provocation, statistic, or tension from the article that the reader wants resolved.
+2. Does NOT summarize the article or restate its structure. The feed post is the door, not the room.
+3. Stands on its own as a piece of writing. Someone who never reads the article should still get value from this post.
+4. Ends naturally in a way that makes the full article the obvious next step — but do not write "link in comments" or any explicit CTA. Let the writing do it.
+5. Keep it short. This is a feed post, not a mini-article. Under 200 words.
 
-For any figure you carry over, record it and its source in stat_attributions.
+Parent article title: ${parent.title}
+Parent article body: ${(parent.body || "").slice(0, 3000)}
 
-Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sentence", "stat_attributions": [{"figure": "...", "source": "..."}]}`;
+State the specific insight or hook you chose in "angle_used". For any figure you use from the article, record it in stat_attributions.
+
+Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sentence describing the hook you chose", "stat_attributions": [{"figure": "...", "source": "..."}]}`;
+
             const childRes = await callAI(aiProfile, [{ role: "user", content: childPrompt }], system);
             const childResult = parseJSON(childRes.text);
             const { data: child } = await supabase.from("drafts").insert({
@@ -578,7 +560,7 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
               reader_id: reader?.id ?? null,
               content_type: cf.key,
               revision_count: 0,
-              seed_insight: `Companion to "${parent.title}". Angle: ${childResult.angle_used || "unspecified"}`,
+              seed_insight: `Teaser for "${parent.title}". Hook: ${childResult.angle_used || "unspecified"}`,
               stat_attributions: statAttributions(childResult.stat_attributions),
               stat_flag: retiredStatFlag(childResult.body),
             }).select().single();
@@ -588,7 +570,6 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
       }
     }
 
-    // Notify on each created draft (best-effort).
     for (const d of createdDrafts) {
       await supabase.functions.invoke("send-draft-notification", {
         body: { draftId: d.id },

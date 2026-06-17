@@ -13,14 +13,10 @@ import {
   ArrowLeft, Plus, Trash2, Loader2, Play, RefreshCw, Calendar, Clock, RotateCcw, CalendarClock
 } from "lucide-react";
 import { resolveNext } from "@/lib/scheduleResolver";
-
-// The schedule is a set of slots. Each slot is a standing instruction to the engine:
-// on this day, at this frequency, produce a post of this format and nature for this
-// job. Lane and reader are optional dials, null means both lanes / rotate the reader.
-// Jobs offered here are engine jobs only; reference motions are run by hand.
+import { ScheduleWeekGrid } from "@/components/ScheduleWeekGrid";
 
 const DAYS_OF_WEEK = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const DAYS_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Monday-first display
+const DAYS_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const FREQUENCIES = [
   { value: "weekly", label: "Weekly" },
   { value: "biweekly", label: "Bi-weekly" },
@@ -34,8 +30,6 @@ const ANCHOR_OPTIONS = [
   { value: "3", label: "3rd" },
   { value: "4", label: "4th" },
 ];
-// Timezones the slot's time_of_day can be expressed in. IANA strings, which is
-// also the format Zernio's scheduler expects.
 const TIMEZONES = [
   { value: "America/New_York", label: "Eastern (New York)" },
   { value: "America/Chicago", label: "Central (Chicago)" },
@@ -59,8 +53,8 @@ interface Slot {
   day_of_week: number;
   frequency: string;
   anchor: number | null;
-  time_of_day: string; // "HH:MM" wall-clock in `timezone`
-  timezone: string; // IANA
+  time_of_day: string;
+  timezone: string;
   is_active: boolean;
   requires_child: boolean;
   child_format_id: string | null;
@@ -105,7 +99,7 @@ const Schedule = () => {
   const [deletedSlots, setDeletedSlots] = useState<string[]>([]);
   const [formats, setFormats] = useState<NamedRow[]>([]);
   const [natures, setNatures] = useState<NamedRow[]>([]);
-  const [jobs, setJobs] = useState<NamedRow[]>([]); // engine jobs only
+  const [jobs, setJobs] = useState<NamedRow[]>([]);
   const [lanes, setLanes] = useState<NamedRow[]>([]);
   const [readers, setReaders] = useState<NamedRow[]>([]);
 
@@ -150,7 +144,6 @@ const Schedule = () => {
       reuse_window_days: s.reuse_window_days,
     })));
 
-    // Eligible parents: published, within window, reuse remaining.
     const { data: parents } = await supabase
       .from("drafts")
       .select("id, title, content_type, published_at, reuse_count, max_reuse_count, reuse_window_days")
@@ -206,7 +199,6 @@ const Schedule = () => {
 
   const saveSchedule = async () => {
     if (!userId) return;
-    // Enforce: every slot needs a format, nature, and engine job.
     const incomplete = slots.find((s) => !s.format_id || !s.nature_id || !s.job_id);
     if (incomplete) { toast.error("Every slot needs a format, nature, and job"); return; }
 
@@ -252,7 +244,7 @@ const Schedule = () => {
       });
       if (error) { toast.error("Run failed: " + error.message); }
       else { toast.success(`Generated ${data?.draftsCreated ?? 0} draft(s)`); await loadAll(); }
-    } catch (e) {
+    } catch {
       toast.error("Run failed");
     }
     setRunning(null);
@@ -292,7 +284,7 @@ const Schedule = () => {
       <main className="container mx-auto px-4 py-8 max-w-4xl">
         {viewMode === "schedule" && (
           <>
-            <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center justify-between mb-6">
               <div>
                 <h1 className="text-3xl font-bold">Schedule</h1>
                 <p className="text-muted-foreground mt-1">Standing slots the engine fills. Each slot picks a format, nature, and job; lane and reader are optional.</p>
@@ -304,6 +296,14 @@ const Schedule = () => {
                 </Button>
               </div>
             </div>
+
+            {/* Week-at-a-glance grid — only renders when there are active slots */}
+            <ScheduleWeekGrid
+              slots={slots}
+              formats={formats}
+              natures={natures}
+              jobs={jobs}
+            />
 
             {eligibleParents.length > 0 && (
               <Card className="mb-6 border-primary/30 bg-primary/5">
@@ -352,7 +352,6 @@ const Schedule = () => {
                       return (
                         <Card key={slot.id} className={`mb-3 ${!slot.is_active ? "opacity-60" : ""}`}>
                           <CardContent className="pt-4 space-y-4">
-                            {/* Core dials */}
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                               <div>
                                 <Label className="text-xs">Format</Label>
@@ -377,7 +376,6 @@ const Schedule = () => {
                               </div>
                             </div>
 
-                            {/* Optional dials */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                               <div>
                                 <Label className="text-xs">Lane</Label>
@@ -401,7 +399,6 @@ const Schedule = () => {
                               </div>
                             </div>
 
-                            {/* Timing + active + actions */}
                             <div className="flex items-end gap-3 flex-wrap pt-1 border-t">
                               <div className="w-[130px]">
                                 <Label className="text-xs">Day</Label>
@@ -452,7 +449,6 @@ const Schedule = () => {
                               </div>
                             </div>
 
-                            {/* Reuse + child */}
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-1 border-t">
                               <div>
                                 <Label className="text-xs">Max reuses</Label>
@@ -494,14 +490,12 @@ const Schedule = () => {
                               )}
                             </div>
 
-                            {/* Plain-language summary */}
                             <p className="text-xs text-muted-foreground">
                               {nameOf(natures, slot.nature_id)} {nameOf(formats, slot.format_id)} for {nameOf(jobs, slot.job_id)}
                               {slot.lane_id ? `, ${nameOf(lanes, slot.lane_id)} lane` : ", both lanes"}
                               {slot.reader_id ? `, aimed at ${nameOf(readers, slot.reader_id)}` : ", reader rotates"}.
                             </p>
 
-                            {/* Next publish preview: the concrete instant this slot resolves to. */}
                             {(() => {
                               const r = resolveNext({
                                 day_of_week: slot.day_of_week,

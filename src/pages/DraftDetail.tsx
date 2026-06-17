@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { ArrowLeft, FileText, Clock, Edit, Save, Sparkles, ImageIcon, RotateCcw, Link2 } from "lucide-react";
+import { ArrowLeft, FileText, Clock, Edit, Save, Sparkles, ImageIcon, RotateCcw, Link2, Copy, Check } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { VisualForge } from "@/components/VisualForge";
 
@@ -36,6 +36,7 @@ const DraftDetail = () => {
   const [regenerating, setRegenerating] = useState(false);
   const [revisions, setRevisions] = useState<any[]>([]);
   const [userId, setUserId] = useState<string>("");
+  const [copied, setCopied] = useState(false);
 
   const getApprovalBadgeVariant = (status?: string) => {
     switch (status) {
@@ -69,7 +70,6 @@ const DraftDetail = () => {
     setSelectedTemplate(data.autopilot_template_id || "");
     setLoading(false);
 
-    // Load parent if this is a child
     if (data.parent_draft_id) {
       const { data: parent } = await supabase
         .from("drafts")
@@ -81,7 +81,6 @@ const DraftDetail = () => {
       setParentDraft(null);
     }
 
-    // Load children if this is a parent
     const { data: children } = await supabase
       .from("drafts")
       .select("id, title, content_type, approval_status, created_at, seed_insight")
@@ -137,6 +136,18 @@ const DraftDetail = () => {
     }
   };
 
+  const handleCopy = async () => {
+    if (!draft?.body) return;
+    try {
+      await navigator.clipboard.writeText(draft.body);
+      setCopied(true);
+      toast.success("Copied to clipboard");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Failed to copy");
+    }
+  };
+
   const handleRegenerate = async () => {
     if (!draft || !selectedTemplate) { toast.error("Please select a template"); return; }
     setRegenerating(true);
@@ -175,7 +186,6 @@ const DraftDetail = () => {
           body: { draftId: draft.id, userId: session.user.id }
         }).catch(err => console.error("Visual generation error:", err));
       }
-      // Hand the approved draft to the scheduler for publishing at its slot time.
       supabase.functions.invoke("publish-to-zernio", { body: { draftId: draft.id } })
         .then(({ data }) => {
           if (data?.status === "scheduled") {
@@ -235,6 +245,10 @@ const DraftDetail = () => {
                     <Sparkles className="mr-2 h-4 w-4" />{regenerating ? "Regenerating..." : "Regenerate"}
                   </Button>
                 )}
+                <Button variant="outline" onClick={handleCopy}>
+                  {copied ? <Check className="mr-2 h-4 w-4 text-green-500" /> : <Copy className="mr-2 h-4 w-4" />}
+                  {copied ? "Copied" : "Copy"}
+                </Button>
                 <Button variant="outline" onClick={handleApprove}>Approve</Button>
                 <Button variant="destructive" onClick={handleReject}>Reject</Button>
                 <Button onClick={() => setIsEditing(true)}><Edit className="mr-2 h-4 w-4" />Edit</Button>
@@ -246,7 +260,6 @@ const DraftDetail = () => {
 
       <main className="container mx-auto px-4 py-8 max-w-4xl space-y-6">
 
-        {/* Parent relationship — shown when this is a child post */}
         {parentDraft && (
           <Card className="border-muted bg-muted/20">
             <CardContent className="pt-4 pb-4">
@@ -273,7 +286,6 @@ const DraftDetail = () => {
           </Card>
         )}
 
-        {/* Main draft card */}
         <Card>
           <CardHeader>
             <div className="flex justify-between items-start">
@@ -345,7 +357,6 @@ const DraftDetail = () => {
               )}
             </div>
 
-            {/* Reuse history — shown when this is a parent with reuses */}
             {reuseAngles.length > 0 && (
               <div>
                 <h3 className="font-semibold mb-2 flex items-center gap-2">
@@ -366,7 +377,6 @@ const DraftDetail = () => {
               </div>
             )}
 
-            {/* Visual */}
             {isApproved && userId && (
               <>
                 <Separator />
@@ -381,7 +391,6 @@ const DraftDetail = () => {
               </>
             )}
 
-            {/* Version history */}
             {revisions.length > 0 && (
               <div>
                 <h3 className="font-semibold mb-2">Version History ({revisions.length + 1} versions)</h3>
@@ -413,7 +422,6 @@ const DraftDetail = () => {
           </CardContent>
         </Card>
 
-        {/* Child posts — shown when this is a parent */}
         {childDrafts.length > 0 && (
           <Card>
             <CardHeader className="pb-3">

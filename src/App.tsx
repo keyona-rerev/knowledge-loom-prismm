@@ -28,6 +28,7 @@ import ContentCalendar from "./pages/ContentCalendar";
 import Schedule from "./pages/Schedule";
 import QuestionSets from "./pages/QuestionSets";
 import QuestionSetEditor from "./pages/QuestionSetEditor";
+import VisualStudio from "./pages/VisualStudio";
 
 const queryClient = new QueryClient();
 
@@ -44,6 +45,7 @@ const App = () => (
               <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
               <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+              <Route path="/visual-studio" element={<ProtectedRoute><VisualStudio /></ProtectedRoute>} />
               <Route path="/strategy" element={<ProtectedRoute><Strategy /></ProtectedRoute>} />
               <Route path="/audience" element={<ProtectedRoute><Audience /></ProtectedRoute>} />
               <Route path="/feeds" element={<ProtectedRoute><Feeds /></ProtectedRoute>} />

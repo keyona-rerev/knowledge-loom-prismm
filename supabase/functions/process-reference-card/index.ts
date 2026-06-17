@@ -90,8 +90,19 @@ async function processCard(supabase: any, userId: string, cardId: string, custom
   }
 
   if (questions.length === 0) {
-    const { data: activeSet } = await supabase.from("question_sets").select("questions").eq("user_id", userId).eq("is_active", true).limit(1).single();
-    questions = activeSet?.questions || ["What is the main argument?", "What evidence supports it?", "How is this relevant to my work?"];
+    // Fallback when the card has no question set assigned. Pick the set marked as
+    // default (is_global) first, then the oldest active set. Deterministic so the
+    // default chosen on the Reference Card Questions page is always the one used.
+    const { data: fallbackSet } = await supabase
+      .from("question_sets")
+      .select("questions")
+      .eq("user_id", userId)
+      .eq("is_active", true)
+      .order("is_global", { ascending: false })
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    questions = fallbackSet?.questions || ["What is the main argument?", "What evidence supports it?", "How is this relevant to my work?"];
   }
 
   const contentLength = card.original_text?.length || 0;

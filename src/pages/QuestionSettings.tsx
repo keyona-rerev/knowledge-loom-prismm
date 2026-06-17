@@ -4,8 +4,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Star } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 
 const QuestionSettings = () => {
@@ -124,6 +125,40 @@ const QuestionSettings = () => {
     }
   };
 
+  // The default set is the fallback used when a source has no set assigned.
+  // is_global marks the default. Set it on the chosen set, clear it on the rest,
+  // so exactly one set is ever the default. The engine reads this in process-reference-card.
+  const setAsDefault = async (templateId: string) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      toast.error("You must be logged in");
+      return;
+    }
+
+    const { error: clearError } = await supabase
+      .from("question_sets")
+      .update({ is_global: false })
+      .eq("user_id", session.user.id);
+
+    if (clearError) {
+      toast.error("Failed to update default");
+      return;
+    }
+
+    const { error: setError } = await supabase
+      .from("question_sets")
+      .update({ is_global: true })
+      .eq("id", templateId);
+
+    if (setError) {
+      toast.error("Failed to set default");
+      return;
+    }
+
+    toast.success("Default question set updated");
+    loadTemplates();
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
@@ -144,6 +179,7 @@ const QuestionSettings = () => {
 1. Create a template with a name
 2. Add questions to each template
 3. Assign templates to feeds or use when creating manual reference cards
+4. Use "Set as default" to choose which set is the fallback when a source has no set assigned
 
 These questions help extract insights from your content automatically.`}
         />
@@ -173,15 +209,32 @@ These questions help extract insights from your content automatically.`}
             <Card key={template.id}>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
-                  {template.name}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => addQuestion(template.id)}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Question
-                  </Button>
+                  <span className="flex items-center gap-2">
+                    {template.name}
+                    {template.is_global && (
+                      <Badge variant="secondary">Default</Badge>
+                    )}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    {!template.is_global && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setAsDefault(template.id)}
+                      >
+                        <Star className="h-4 w-4 mr-2" />
+                        Set as default
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => addQuestion(template.id)}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Question
+                    </Button>
+                  </span>
                 </CardTitle>
               </CardHeader>
               <CardContent>

@@ -28,8 +28,40 @@ const VISUAL_TYPE_LABELS: Record<string, string> = {
   comparison: "Comparison",
   checklist: "Checklist",
   branded_announcement: "Announcement",
-  generating: "Generating..."
+  generating: "Generating...",
 };
+
+// Injects html2canvas into the visual HTML and triggers a capture on load,
+// then posts the PNG data URL back to the parent window.
+function buildCapturePage(html: string): string {
+  const script = `
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"><\/script>
+<script>
+window.addEventListener('load', function() {
+  // Small delay so fonts finish rendering
+  setTimeout(function() {
+    html2canvas(document.body, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: null,
+      logging: false,
+      width: 1200,
+      height: 627
+    }).then(function(canvas) {
+      window.parent.postMessage({ type: 'PRISMM_PNG', dataUrl: canvas.toDataURL('image/png') }, '*');
+    }).catch(function(err) {
+      window.parent.postMessage({ type: 'PRISMM_PNG_ERROR', error: err.message }, '*');
+    });
+  }, 600);
+});
+<\/script>`;
+
+  // Insert before </body> if present, otherwise append
+  if (html.includes("</body>")) {
+    return html.replace("</body>", script + "\n</body>");
+  }
+  return html + "\n" + script;
+}
 
 export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
   const [visual, setVisual] = useState<DraftVisual | null>(null);
@@ -37,6 +69,7 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
   const [regenerating, setRegenerating] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const captureIframeRef = useRef<HTMLIFrameElement | null>(null);
   const pollRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadVisual = async () => {
@@ -50,7 +83,6 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
 
     if (!error && data) {
       setVisual(data as DraftVisual);
-      // Stop polling if ready or error
       if (data.status === "ready" || data.status === "error") {
         if (pollRef.current) clearInterval(pollRef.current);
       }
@@ -65,7 +97,6 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
     };
   }, [draftId]);
 
-  // Poll while generating
   useEffect(() => {
     if (visual?.status === "generating") {
       pollRef.current = setInterval(loadVisual, 3000);
@@ -79,40 +110,79 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
     setRegenerating(true);
     try {
       const { error } = await supabase.functions.invoke("generate-draft-visual", {
-        body: { draftId, userId }
+        body: { draftId, userId },
       });
       if (error) throw error;
       toast.success("Regenerating visual...");
-      // Start polling
-      setVisual(prev => prev ? { ...prev, status: "generating" } : null);
+      setVisual((prev) => (prev ? { ...prev, status: "generating" } : null));
       pollRef.current = setInterval(loadVisual, 3000);
-    } catch (e) {
+    } catch {
       toast.error("Failed to regenerate visual");
     } finally {
       setRegenerating(false);
     }
   };
 
-  const handleDownload = async () => {
-    if (!visual?.html_content || !iframeRef.current) return;
+  // PNG download: inject html2canvas into a hidden off-screen iframe,
+  // listen for the postMessage with the data URL, then trigger the download.
+  const handleDownloadPng = () => {
+    if (!visual?.html_content) return;
     setDownloading(true);
 
-    try {
-      // Open the HTML in a new window and trigger print-to-save
-      // Since html2canvas can't run in iframe, we use a blob URL approach
-      const blob = new Blob([visual.html_content], { type: "text/html" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `prismm-visual-${visual.visual_type}-${visual.id.slice(0, 8)}.html`;
-      link.click();
+    const filename = `prismm-visual-${visual.visual_type}-${visual.id.slice(0, 8)}.png`;
+
+    // Listen for the capture result
+    const onMessage = (evt: MessageEvent) => {
+      if (evt.data?.type === "PRISMM_PNG") {
+        window.removeEventListener("message", onMessage);
+        const link = document.createElement("a");
+        link.download = filename;
+        link.href = evt.data.dataUrl;
+        link.click();
+        // Clean up the hidden iframe
+        if (captureIframeRef.current) {
+          document.body.removeChild(captureIframeRef.current);
+          captureIframeRef.current = null;
+        }
+        setDownloading(false);
+        toast.success("PNG downloaded — check your Downloads folder.");
+      } else if (evt.data?.type === "PRISMM_PNG_ERROR") {
+        window.removeEventListener("message", onMessage);
+        if (captureIframeRef.current) {
+          document.body.removeChild(captureIframeRef.current);
+          captureIframeRef.current = null;
+        }
+        setDownloading(false);
+        toast.error("PNG capture failed: " + (evt.data.error || "unknown error"));
+      }
+    };
+    window.addEventListener("message", onMessage);
+
+    // Build a hidden 1200x627 iframe that captures itself on load
+    const capturePage = buildCapturePage(visual.html_content);
+    const blob = new Blob([capturePage], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+
+    const frame = document.createElement("iframe");
+    frame.style.cssText =
+      "position:fixed;left:-9999px;top:-9999px;width:1200px;height:627px;border:none;visibility:hidden;";
+    frame.src = url;
+    captureIframeRef.current = frame;
+    document.body.appendChild(frame);
+
+    // Safety timeout in case the iframe never posts back
+    setTimeout(() => {
+      if (downloading) {
+        window.removeEventListener("message", onMessage);
+        if (captureIframeRef.current) {
+          document.body.removeChild(captureIframeRef.current);
+          captureIframeRef.current = null;
+        }
+        setDownloading(false);
+        toast.error("PNG capture timed out. Try regenerating the visual.");
+      }
       URL.revokeObjectURL(url);
-      toast.success("Downloaded as HTML — open in browser to screenshot or print.");
-    } catch (e) {
-      toast.error("Download failed");
-    } finally {
-      setDownloading(false);
-    }
+    }, 15000);
   };
 
   if (loading) {
@@ -130,7 +200,11 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
         <ImageIcon className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
         <p className="text-sm text-muted-foreground mb-3">No visual generated yet</p>
         <Button size="sm" variant="outline" onClick={handleRegenerate} disabled={regenerating}>
-          {regenerating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+          {regenerating ? (
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+          ) : (
+            <RefreshCw className="h-4 w-4 mr-2" />
+          )}
           Generate Visual
         </Button>
       </div>
@@ -144,7 +218,9 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
           <Loader2 className="h-5 w-5 animate-spin text-[#f9655b]" />
           <div>
             <p className="text-sm font-medium">Generating visual...</p>
-            <p className="text-xs text-muted-foreground">AI is designing a branded card for this draft</p>
+            <p className="text-xs text-muted-foreground">
+              AI is designing a branded graphic for this draft
+            </p>
           </div>
         </div>
       </div>
@@ -158,7 +234,11 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
           Visual generation failed: {visual.error_message || "Unknown error"}
         </p>
         <Button size="sm" variant="outline" onClick={handleRegenerate} disabled={regenerating}>
-          {regenerating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+          {regenerating ? (
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+          ) : (
+            <RefreshCw className="h-4 w-4 mr-2" />
+          )}
           Try Again
         </Button>
       </div>
@@ -175,31 +255,29 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
           >
             {VISUAL_TYPE_LABELS[visual.visual_type] || visual.visual_type}
           </Badge>
-          <span className="text-xs text-muted-foreground">
-            LinkedIn 1200x627
-          </span>
+          <span className="text-xs text-muted-foreground">LinkedIn 1200x627</span>
         </div>
         <div className="flex gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleRegenerate}
-            disabled={regenerating}
-          >
-            {regenerating
-              ? <Loader2 className="h-3 w-3 animate-spin mr-1" />
-              : <RefreshCw className="h-3 w-3 mr-1" />
-            }
+          <Button size="sm" variant="outline" onClick={handleRegenerate} disabled={regenerating}>
+            {regenerating ? (
+              <Loader2 className="h-3 w-3 animate-spin mr-1" />
+            ) : (
+              <RefreshCw className="h-3 w-3 mr-1" />
+            )}
             Regenerate
           </Button>
           <Button
             size="sm"
-            onClick={handleDownload}
+            onClick={handleDownloadPng}
             disabled={downloading}
             style={{ backgroundColor: "#f9655b", color: "#ffffff" }}
           >
-            <Download className="h-3 w-3 mr-1" />
-            Download HTML
+            {downloading ? (
+              <Loader2 className="h-3 w-3 animate-spin mr-1" />
+            ) : (
+              <Download className="h-3 w-3 mr-1" />
+            )}
+            {downloading ? "Capturing..." : "Download PNG"}
           </Button>
         </div>
       </div>
@@ -218,10 +296,6 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
           sandbox="allow-same-origin"
         />
       </div>
-
-      <p className="text-xs text-muted-foreground">
-        Download the HTML file, open it in Chrome, and use Cmd+Shift+4 (Mac) or Win+Shift+S (Windows) to screenshot at full resolution.
-      </p>
     </div>
   );
 };

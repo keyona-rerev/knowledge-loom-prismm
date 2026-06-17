@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
   ArrowLeft, Plus, Trash2, RotateCcw, Palette, ListChecks,
-  LayoutGrid, Dimensions, Upload, GripVertical, ExternalLink
+  LayoutGrid, Ruler, Upload, GripVertical, ExternalLink
 } from "lucide-react";
 
 interface DesignRule {
@@ -407,7 +407,7 @@ const VisualStudio = () => {
         {/* CANVAS & LOGO */}
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Dimensions className="h-5 w-5" />Canvas & logo</CardTitle>
+            <CardTitle className="flex items-center gap-2"><Ruler className="h-5 w-5" />Canvas & logo</CardTitle>
             <CardDescription>Output size and logo. Upload a replacement and it is hosted on GitHub Pages automatically.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

@@ -25,7 +25,6 @@ serve(async (req) => {
       });
     }
 
-    // Create client with user's auth token to verify identity
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       console.error("❌ Missing authorization header");
@@ -35,13 +34,12 @@ serve(async (req) => {
       });
     }
 
-    // Use auth client to get user from JWT
     const supabaseAuth = createClient(supabaseUrl, serviceRoleKey, {
       global: { headers: { Authorization: authHeader } },
     });
 
     const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
-    
+
     if (authError || !user) {
       console.error("❌ Authentication failed:", authError);
       return new Response(JSON.stringify({ error: "Invalid or expired authentication token" }), {
@@ -53,39 +51,55 @@ serve(async (req) => {
     const user_id = user.id;
     console.log("✅ Authenticated user:", user_id);
 
-    // Use service role client for database operations
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
     // Rate limiting: 50 manual sources per hour per user
     const windowStart = new Date();
     windowStart.setMinutes(windowStart.getMinutes() - 60);
-    
+
     const { count: rateCount, error: rateError } = await supabase
-      .from('rate_limit_logs')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', user_id)
-      .eq('action', 'manual_source')
-      .gte('created_at', windowStart.toISOString());
-    
+      .from("rate_limit_logs")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user_id)
+      .eq("action", "manual_source")
+      .gte("created_at", windowStart.toISOString());
+
     if (!rateError && (rateCount || 0) >= 50) {
-      console.log('❌ Rate limit exceeded for user:', user_id);
+      console.log("❌ Rate limit exceeded for user:", user_id);
       return new Response(
-        JSON.stringify({ error: 'Rate limit exceeded. Maximum 50 manual sources per hour.' }),
+        JSON.stringify({ error: "Rate limit exceeded. Maximum 50 manual sources per hour." }),
         { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    
-    // Log this rate limit action
-    await supabase.from('rate_limit_logs').insert({ user_id, action: 'manual_source' });
+
+    await supabase.from("rate_limit_logs").insert({ user_id, action: "manual_source" });
 
     const requestBody = await req.json();
-    console.log("📦 Request body:", requestBody);
+    console.log("📦 Request body keys:", Object.keys(requestBody));
 
-    const { type, url, pdf_text, pdf_title, question_set_id, from_company } = requestBody;
+    const { type, url, pdf_text, pdf_title, paste_text, paste_title, question_set_id, from_company } = requestBody;
 
-    if (!type || (type === "url" && !url) || (type === "pdf" && !pdf_text)) {
-      console.log("❌ Invalid parameters:", { type, url, has_pdf_text: !!pdf_text });
-      return new Response(JSON.stringify({ error: "Invalid source type or missing required fields" }), {
+    // Validate required fields per type
+    if (!type) {
+      return new Response(JSON.stringify({ error: "Missing source type" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (type === "url" && !url) {
+      return new Response(JSON.stringify({ error: "URL is required for url type" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (type === "pdf" && !pdf_text) {
+      return new Response(JSON.stringify({ error: "pdf_text is required for pdf type" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (type === "paste" && !paste_text) {
+      return new Response(JSON.stringify({ error: "paste_text is required for paste type" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -98,22 +112,29 @@ serve(async (req) => {
     let sourceUrl = url || "";
     let contentBlocked = false;
 
-    // Handle PDF type
     if (type === "pdf") {
       console.log("📄 Processing PDF source");
       title = pdf_title || "PDF Document";
       textContent = pdf_text;
-      sourceUrl = ""; // PDFs don't have URLs
-      
+      sourceUrl = "";
       if (textContent.length < 100) {
         contentQuality = "partial";
         contentWarning = "PDF content appears incomplete";
       }
+    } else if (type === "paste") {
+      // Pasted text — treat identically to PDF content-wise
+      console.log("📋 Processing pasted text source");
+      title = paste_title?.trim() || "Pasted Article";
+      textContent = paste_text.trim();
+      sourceUrl = "";
+      if (textContent.length < 100) {
+        contentQuality = "partial";
+        contentWarning = "Pasted content is very short — consider adding more text for better insights";
+      }
     } else {
-      // Handle URL type
+      // URL type
       console.log("🌐 Fetching content from:", url);
 
-      // ✅ IMPROVED: Better headers to avoid bot detection
       let articleResponse;
       try {
         articleResponse = await fetch(url, {
@@ -128,7 +149,6 @@ serve(async (req) => {
         });
         console.log("📄 Response status:", articleResponse.status);
 
-        // ✅ IMPROVED: Handle common blocking scenarios gracefully
         if (articleResponse.status === 403 || articleResponse.status === 429) {
           console.log("⚠️ Site blocked automated access");
           contentBlocked = true;
@@ -137,41 +157,36 @@ serve(async (req) => {
         }
       } catch (fetchError) {
         console.error("❌ Fetch failed:", fetchError);
-        return new Response(JSON.stringify({ error: `Failed to fetch URL: ${fetchError instanceof Error ? fetchError.message : 'Unknown error'}` }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({ error: `Failed to fetch URL: ${fetchError instanceof Error ? fetchError.message : "Unknown error"}` }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
       }
 
       if (contentBlocked) {
-        // ✅ IMPROVED: Graceful handling for blocked sites
         console.log("🛡️ Creating card with limited content (site blocked)");
         title = "Site Blocked Access - Manual Review Needed";
         textContent = "This site blocks automated content access. Please add content manually or try a different source.";
         contentQuality = "title_only";
         contentWarning = "Site blocks automated content access - manual review required";
       } else {
-        // Normal content processing
         const articleHtml = await articleResponse.text();
         console.log("📝 HTML content length:", articleHtml.length);
 
-      // Extract title
-      const titleMatch = /<title>(.*?)<\/title>/i.exec(articleHtml);
-      title = titleMatch?.[1]?.trim() || "Untitled Article";
-      console.log("📌 Extracted title:", title);
+        const titleMatch = /<title>(.*?)<\/title>/i.exec(articleHtml);
+        title = titleMatch?.[1]?.trim() || "Untitled Article";
+        console.log("📌 Extracted title:", title);
 
-      // Remove HTML tags for content
-      textContent = articleHtml
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/\s+/g, " ")
-        .trim()
-        .substring(0, 10000);
+        textContent = articleHtml
+          .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+          .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .substring(0, 10000);
 
-      console.log("📄 Clean content length:", textContent.length);
+        console.log("📄 Clean content length:", textContent.length);
 
-        // ✅ IMPROVED: Better content quality assessment
         if (textContent.length < 50) {
           contentQuality = "title_only";
           contentWarning = "Limited content available - only title accessible";
@@ -205,11 +220,12 @@ serve(async (req) => {
 
     // Create reference card
     console.log("💾 Creating reference card...");
+    const sourceType = type === "url" ? "manual" : type === "pdf" ? "pdf" : "paste";
     const insertData: any = {
       title: title.substring(0, 255),
       original_text: textContent,
       source_url: sourceUrl,
-      source_type: type === "pdf" ? "pdf" : "manual",
+      source_type: sourceType,
       source_feed_id: feedData?.id,
       status: (type === "url" && contentBlocked) ? "needs_review" : "processing",
       global_relevance_score: 5,
@@ -233,17 +249,13 @@ serve(async (req) => {
     if (insertError) {
       console.error("❌ Failed to create reference card:", insertError);
       return new Response(
-        JSON.stringify({
-          error: "Failed to create reference card",
-          details: insertError.message,
-        }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        JSON.stringify({ error: "Failed to create reference card", details: insertError.message }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     console.log("✅ Reference card created:", cardData.id);
 
-    // ✅ IMPROVED: Only auto-process if we have decent content
     if (!contentBlocked && textContent.length >= 100) {
       console.log("🚀 Triggering auto-processing for card:", cardData.id);
       try {
@@ -269,12 +281,12 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         cardId: cardData.id,
-        message: contentBlocked 
+        message: contentBlocked
           ? "Reference card created (site blocked full access - manual review needed)"
           : "Reference card created successfully",
-        contentStatus: contentBlocked ? "blocked" : "processed"
+        contentStatus: contentBlocked ? "blocked" : "processed",
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
     console.error("💥 CRITICAL Error in create-manual-source:", error);
@@ -283,7 +295,7 @@ serve(async (req) => {
         error: "Failed to create manual source",
         details: error instanceof Error ? error.message : "Unknown error",
       }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });

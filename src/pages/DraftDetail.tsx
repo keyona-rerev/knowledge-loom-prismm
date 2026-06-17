@@ -37,6 +37,8 @@ const DraftDetail = () => {
   const [revisions, setRevisions] = useState<any[]>([]);
   const [userId, setUserId] = useState<string>("");
   const [copied, setCopied] = useState(false);
+  // Track which child post was just copied by id
+  const [copiedChildId, setCopiedChildId] = useState<string | null>(null);
 
   const getApprovalBadgeVariant = (status?: string) => {
     switch (status) {
@@ -81,9 +83,10 @@ const DraftDetail = () => {
       setParentDraft(null);
     }
 
+    // Fetch body so child posts can be copied directly from this page
     const { data: children } = await supabase
       .from("drafts")
-      .select("id, title, content_type, approval_status, created_at, seed_insight")
+      .select("id, title, body, content_type, approval_status, created_at, seed_insight")
       .eq("parent_draft_id", id)
       .order("created_at", { ascending: true });
     setChildDrafts(children || []);
@@ -143,6 +146,23 @@ const DraftDetail = () => {
       setCopied(true);
       toast.success("Copied to clipboard");
       setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Failed to copy");
+    }
+  };
+
+  const handleCopyChild = async (e: React.MouseEvent, child: any) => {
+    // Stop the row click from navigating to the child page
+    e.stopPropagation();
+    if (!child.body) {
+      toast.error("This post has no content to copy");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(child.body);
+      setCopiedChildId(child.id);
+      toast.success("Child post copied");
+      setTimeout(() => setCopiedChildId(null), 2000);
     } catch {
       toast.error("Failed to copy");
     }
@@ -422,6 +442,7 @@ const DraftDetail = () => {
           </CardContent>
         </Card>
 
+        {/* Child posts — copy button on each row, no navigation required */}
         {childDrafts.length > 0 && (
           <Card>
             <CardHeader className="pb-3">
@@ -429,16 +450,18 @@ const DraftDetail = () => {
                 <Link2 className="h-4 w-4" />
                 Child posts ({childDrafts.length})
               </CardTitle>
-              <CardDescription>Posts generated from this piece of content</CardDescription>
+              <CardDescription>LinkedIn feed posts generated from this article. Copy any post directly.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               {childDrafts.map((child, i) => (
                 <div
                   key={child.id}
-                  className="flex items-center justify-between p-3 border rounded-lg cursor-pointer hover:bg-muted/30"
-                  onClick={() => navigate(`/drafts/${child.id}`)}
+                  className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30"
                 >
-                  <div className="flex-1 min-w-0">
+                  <div
+                    className="flex-1 min-w-0 cursor-pointer"
+                    onClick={() => navigate(`/drafts/${child.id}`)}
+                  >
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-muted-foreground shrink-0">#{i + 1}</span>
                       <p className="text-sm font-medium truncate">{child.title}</p>
@@ -447,9 +470,22 @@ const DraftDetail = () => {
                       <p className="text-xs text-muted-foreground mt-0.5 truncate italic">{child.seed_insight}</p>
                     )}
                   </div>
-                  <Badge variant={getApprovalBadgeVariant(child.approval_status)} className="ml-4 shrink-0 text-xs">
-                    {child.approval_status}
-                  </Badge>
+                  <div className="flex items-center gap-2 ml-4 shrink-0">
+                    <Badge variant={getApprovalBadgeVariant(child.approval_status)} className="text-xs">
+                      {child.approval_status}
+                    </Badge>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2"
+                      onClick={(e) => handleCopyChild(e, child)}
+                    >
+                      {copiedChildId === child.id
+                        ? <><Check className="h-3 w-3 mr-1 text-green-500" />Copied</>
+                        : <><Copy className="h-3 w-3 mr-1" />Copy</>
+                      }
+                    </Button>
+                  </div>
                 </div>
               ))}
             </CardContent>

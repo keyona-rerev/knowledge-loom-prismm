@@ -92,6 +92,7 @@ const Schedule = () => {
   const [viewMode, setViewMode] = useState<ViewMode>("schedule");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
   const [running, setRunning] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
 
@@ -171,11 +172,14 @@ const Schedule = () => {
       .limit(50);
     setCompletedDrafts((completed || []) as CompletedDraft[]);
 
+    setIsDirty(false);
     setLoading(false);
   };
 
-  const updateSlot = (id: string, patch: Partial<Slot>) =>
+  const updateSlot = (id: string, patch: Partial<Slot>) => {
     setSlots((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+    setIsDirty(true);
+  };
 
   const addSlot = () => {
     if (!formats.length || !natures.length || !jobs.length) {
@@ -190,11 +194,13 @@ const Schedule = () => {
       is_active: true, requires_child: false, child_format_id: null, child_nature_id: null,
       max_reuse_count: 0, reuse_window_days: 90, _isNew: true,
     }]);
+    setIsDirty(true);
   };
 
   const deleteSlot = (slot: Slot) => {
     if (!slot._isNew) setDeletedSlots((d) => [...d, slot.id]);
     setSlots((prev) => prev.filter((s) => s.id !== slot.id));
+    setIsDirty(true);
   };
 
   const saveSchedule = async () => {
@@ -226,6 +232,7 @@ const Schedule = () => {
         }
       }
       setDeletedSlots([]);
+      setIsDirty(false);
       toast.success("Schedule saved");
       await loadAll();
     } catch (err) {
@@ -289,10 +296,21 @@ const Schedule = () => {
                 <h1 className="text-3xl font-bold">Schedule</h1>
                 <p className="text-muted-foreground mt-1">Standing slots the engine fills. Each slot picks a format, nature, and job; lane and reader are optional.</p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
                 <Button variant="outline" onClick={loadAll}><RefreshCw className="h-4 w-4 mr-2" />Refresh</Button>
-                <Button onClick={saveSchedule} disabled={saving}>
-                  {saving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : "Save Schedule"}
+                <Button
+                  onClick={saveSchedule}
+                  disabled={saving}
+                  variant={isDirty ? "default" : "outline"}
+                  className={isDirty ? "border-2 border-orange-400 bg-orange-500 hover:bg-orange-600 text-white" : ""}
+                >
+                  {saving ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</>
+                  ) : isDirty ? (
+                    "Unsaved changes — Save now"
+                  ) : (
+                    "Schedule saved"
+                  )}
                 </Button>
               </div>
             </div>
@@ -350,7 +368,7 @@ const Schedule = () => {
                     {daySlots.map((slot) => {
                       const isWeekly = slot.frequency === "weekly" || slot.frequency === "as_needed";
                       return (
-                        <Card key={slot.id} className={`mb-3 ${!slot.is_active ? "opacity-60" : ""}`}>
+                        <Card key={slot.id} className={`mb-3 ${!slot.is_active ? "opacity-60" : ""} ${slot._isNew ? "border-orange-300" : ""}`}>
                           <CardContent className="pt-4 space-y-4">
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                               <div>
@@ -442,7 +460,7 @@ const Schedule = () => {
                                 <Switch checked={slot.is_active} onCheckedChange={(v) => updateSlot(slot.id, { is_active: v })} />
                               </div>
                               <div className="flex gap-1 pb-1 ml-auto">
-                                <Button size="sm" variant="outline" onClick={() => runSlot(slot)} disabled={!!running || slot._isNew} title="Run now">
+                                <Button size="sm" variant="outline" onClick={() => runSlot(slot)} disabled={!!running || slot._isNew} title={slot._isNew ? "Save schedule first to enable run" : "Run now"}>
                                   {running === slot.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
                                 </Button>
                                 <Button size="sm" variant="ghost" onClick={() => deleteSlot(slot)}><Trash2 className="h-3 w-3" /></Button>
@@ -489,6 +507,10 @@ const Schedule = () => {
                                 </>
                               )}
                             </div>
+
+                            {slot._isNew && (
+                              <p className="text-xs text-orange-500 font-medium">New slot — save schedule to activate the run button.</p>
+                            )}
 
                             <p className="text-xs text-muted-foreground">
                               {nameOf(natures, slot.nature_id)} {nameOf(formats, slot.format_id)} for {nameOf(jobs, slot.job_id)}

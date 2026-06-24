@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { ArrowLeft, FileText, Clock, Edit, Save, Sparkles, ImageIcon, RotateCcw, Link2, Copy, Check } from "lucide-react";
+import { ArrowLeft, FileText, Clock, Edit, Save, Sparkles, ImageIcon, RotateCcw, Link2, Copy, Check, Send } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { VisualForge } from "@/components/VisualForge";
 
@@ -37,8 +37,8 @@ const DraftDetail = () => {
   const [revisions, setRevisions] = useState<any[]>([]);
   const [userId, setUserId] = useState<string>("");
   const [copied, setCopied] = useState(false);
-  // Track which child post was just copied by id
   const [copiedChildId, setCopiedChildId] = useState<string | null>(null);
+  const [postingNow, setPostingNow] = useState(false);
 
   const getApprovalBadgeVariant = (status?: string) => {
     switch (status) {
@@ -83,7 +83,6 @@ const DraftDetail = () => {
       setParentDraft(null);
     }
 
-    // Fetch body so child posts can be copied directly from this page
     const { data: children } = await supabase
       .from("drafts")
       .select("id, title, body, content_type, approval_status, created_at, seed_insight")
@@ -152,7 +151,6 @@ const DraftDetail = () => {
   };
 
   const handleCopyChild = async (e: React.MouseEvent, child: any) => {
-    // Stop the row click from navigating to the child page
     e.stopPropagation();
     if (!child.body) {
       toast.error("This post has no content to copy");
@@ -233,6 +231,55 @@ const DraftDetail = () => {
     if (error) { toast.error("Failed to reject draft"); } else { toast.success("Draft rejected"); await loadDraft(); }
   };
 
+  const handlePostNow = async () => {
+    if (!draft) return;
+
+    // If draft isn't approved yet, approve it first
+    if (draft.approval_status !== "approved") {
+      const { data: { session } } = await supabase.auth.getSession();
+      const { error: approveError } = await supabase
+        .from("drafts")
+        .update({
+          approval_status: "approved",
+          reviewed_at: new Date().toISOString(),
+          published_at: new Date().toISOString(),
+        })
+        .eq("id", draft.id);
+      if (approveError) {
+        toast.error("Failed to approve draft before posting");
+        return;
+      }
+      // Kick off visual generation in the background
+      if (session?.user?.id) {
+        supabase.functions.invoke("generate-draft-visual", {
+          body: { draftId: draft.id, userId: session.user.id }
+        }).catch(err => console.error("Visual generation error:", err));
+      }
+    }
+
+    setPostingNow(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("post-now", {
+        body: { draftId: draft.id },
+      });
+      if (error) throw error;
+      if (data?.ok) {
+        if (data.alreadyPosted) {
+          toast.success("This post has already been sent to LinkedIn.");
+        } else {
+          toast.success("Posted to LinkedIn! It will go live within ~60 seconds.");
+        }
+        await loadDraft();
+      } else {
+        toast.error(data?.error || "Post Now failed — check LinkedIn connection in Settings.");
+      }
+    } catch (err) {
+      toast.error("Post Now failed: " + (err as any)?.message);
+    } finally {
+      setPostingNow(false);
+    }
+  };
+
   if (loading) {
     return <div className="min-h-screen bg-background flex items-center justify-center"><div>Loading draft...</div></div>;
   }
@@ -242,6 +289,7 @@ const DraftDetail = () => {
   }
 
   const isApproved = draft.approval_status === "approved";
+  const isPostedNow = draft.publish_status === "published_now";
   const reuseAngles = Array.isArray(draft.reuse_angles_used) ? draft.reuse_angles_used as string[] : [];
   const reuseRemaining = (draft.max_reuse_count || 0) - (draft.reuse_count || 0);
 
@@ -271,6 +319,14 @@ const DraftDetail = () => {
                 </Button>
                 <Button variant="outline" onClick={handleApprove}>Approve</Button>
                 <Button variant="destructive" onClick={handleReject}>Reject</Button>
+                <Button
+                  onClick={handlePostNow}
+                  disabled={postingNow || isPostedNow}
+                  style={{ backgroundColor: "#f9655b", color: "#ffffff" }}
+                >
+                  <Send className="mr-2 h-4 w-4" />
+                  {postingNow ? "Posting..." : isPostedNow ? "Posted" : "Post Now"}
+                </Button>
                 <Button onClick={() => setIsEditing(true)}><Edit className="mr-2 h-4 w-4" />Edit</Button>
               </>
             )}
@@ -347,6 +403,11 @@ const DraftDetail = () => {
               <Badge variant="default">{draft.status?.replace("_", " ") || "draft"}</Badge>
               <Badge variant="outline">{draft.content_type || "ad-hoc"}</Badge>
               {draft.revision_count > 0 && <Badge variant="secondary">v{draft.revision_count + 1}</Badge>}
+              {isPostedNow && (
+                <Badge style={{ backgroundColor: "#f9655b", color: "#ffffff" }}>
+                  Posted to LinkedIn
+                </Badge>
+              )}
               {(draft.max_reuse_count || 0) > 0 && (
                 <Badge variant="secondary" className="flex items-center gap-1">
                   <RotateCcw className="h-3 w-3" />
@@ -397,6 +458,7 @@ const DraftDetail = () => {
               </div>
             )}
 
+            {/* Visual — shown for all approved drafts regardless of post status */}
             {isApproved && userId && (
               <>
                 <Separator />
@@ -442,7 +504,7 @@ const DraftDetail = () => {
           </CardContent>
         </Card>
 
-        {/* Child posts — copy button on each row, no navigation required */}
+        {/* Child posts */}
         {childDrafts.length > 0 && (
           <Card>
             <CardHeader className="pb-3">

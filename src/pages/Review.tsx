@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ArrowLeft, Check, X, Clock, Filter, CheckCheck, Ban, MessageCircle, AlertTriangle, RefreshCw, ExternalLink } from "lucide-react";
+import { ArrowLeft, Check, X, Clock, Filter, CheckCheck, Ban, MessageCircle, AlertTriangle, RefreshCw, ExternalLink, Send } from "lucide-react";
 
 interface Draft {
   id: string;
@@ -25,9 +25,7 @@ interface Draft {
   created_at: string;
   content_type: string;
   autopilot_template_id?: string;
-  autopilot_templates?: {
-    name: string;
-  };
+  autopilot_templates?: { name: string };
   publish_status?: string | null;
   publish_error?: string | null;
   external_post_id?: string | null;
@@ -44,6 +42,7 @@ const Review = () => {
   const [selectedDrafts, setSelectedDrafts] = useState<string[]>([]);
   const [bulkAction, setBulkAction] = useState<string>("");
   const [rejectNote, setRejectNote] = useState("");
+  const [postingNowId, setPostingNowId] = useState<string | null>(null);
 
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [selectedDraft, setSelectedDraft] = useState<Draft | null>(null);
@@ -78,6 +77,12 @@ const Review = () => {
   const handleApprove = async (draftId: string) => {
     const { data: { session } } = await supabase.auth.getSession();
 
+    // Optimistically update the UI so the button becomes moot immediately
+    setDrafts(prev => prev.map(d =>
+      d.id === draftId ? { ...d, approval_status: "approved" } : d
+    ));
+    setSelectedDrafts(prev => prev.filter(id => id !== draftId));
+
     const { error } = await supabase
       .from("drafts")
       .update({ approval_status: "approved", reviewed_at: new Date().toISOString() })
@@ -85,44 +90,66 @@ const Review = () => {
 
     if (error) {
       toast.error("Failed to approve draft");
-    } else {
-      toast.success("Draft approved! Generating visual...");
       loadDrafts();
-      setSelectedDrafts(prev => prev.filter(id => id !== draftId));
+      return;
+    }
 
-      // Trigger visual generation in background, fire and forget
-      if (session?.user?.id) {
-        supabase.functions.invoke("generate-draft-visual", {
-          body: { draftId, userId: session.user.id }
-        }).catch(err => console.error("Visual generation error:", err));
+    toast.success("Draft approved! Generating visual...");
+
+    if (session?.user?.id) {
+      supabase.functions.invoke("generate-draft-visual", {
+        body: { draftId, userId: session.user.id }
+      }).catch(err => console.error("Visual generation error:", err));
+    }
+
+    supabase.functions.invoke("publish-to-zernio", { body: { draftId } })
+      .then(({ data }) => {
+        if (data?.status === "scheduled") {
+          const when = new Date(data.scheduledFor).toLocaleString();
+          toast.success(data.basis === "rescheduled"
+            ? `Slot time had passed; rescheduled to publish ${when}`
+            : `Scheduled to publish ${when}`);
+        } else if (data?.status === "needs_attention") {
+          toast.warning(`Not scheduled: ${data.error}`);
+        } else if (data?.error) {
+          toast.error(`Publish failed: ${data.error}`);
+        }
+        loadDrafts();
+      })
+      .catch((err) => console.error("Publish error:", err));
+  };
+
+  const handlePostNow = async (draft: Draft) => {
+    // If not yet approved, approve first
+    if (draft.approval_status !== "approved") {
+      await handleApprove(draft.id);
+    }
+
+    setPostingNowId(draft.id);
+    try {
+      const { data, error } = await supabase.functions.invoke("post-now", {
+        body: { draftId: draft.id },
+      });
+      if (error) throw error;
+      if (data?.ok || data?.alreadyPosted) {
+        toast.success(data.alreadyPosted
+          ? "Already posted to LinkedIn."
+          : "Posted to LinkedIn! Goes live within ~60 seconds.");
+        loadDrafts();
+      } else {
+        toast.error(data?.error || "Post Now failed — check LinkedIn connection in Settings.");
       }
-      // Hand the approved draft to the scheduler for publishing at its slot time.
-      supabase.functions.invoke("publish-to-zernio", { body: { draftId } })
-        .then(({ data }) => {
-          if (data?.status === "scheduled") {
-            const when = new Date(data.scheduledFor).toLocaleString();
-            toast.success(data.basis === "rescheduled"
-              ? `Slot time had passed; rescheduled to publish ${when}`
-              : `Scheduled to publish ${when}`);
-          } else if (data?.status === "needs_attention") {
-            toast.warning(`Not scheduled: ${data.error}`);
-          } else if (data?.error) {
-            toast.error(`Publish failed: ${data.error}`);
-          }
-          loadDrafts();
-        })
-        .catch((err) => console.error("Publish error:", err));
+    } catch (err) {
+      toast.error("Post Now failed: " + (err as any)?.message);
+    } finally {
+      setPostingNowId(null);
     }
   };
 
-  // Re-run the scheduler for a draft that previously landed in needs_attention or failed.
   const handleRetrySchedule = async (draftId: string) => {
     toast.info("Retrying schedule...");
     const { data, error } = await supabase.functions.invoke("publish-to-zernio", { body: { draftId } });
-    if (error) {
-      toast.error("Retry could not reach the scheduler");
-      return;
-    }
+    if (error) { toast.error("Retry could not reach the scheduler"); return; }
     if (data?.status === "scheduled") {
       const when = new Date(data.scheduledFor).toLocaleString();
       toast.success(data.basis === "rescheduled"
@@ -236,6 +263,17 @@ const Review = () => {
     }
   };
 
+  const getScheduleLabel = (draft: Draft) => {
+    if (draft.publish_status === "published_now") {
+      return <span className="text-xs font-medium" style={{ color: "#f9655b" }}>Posted to LinkedIn</span>;
+    }
+    if (draft.publish_status === "scheduled" && draft.scheduled_for) {
+      const when = new Date(draft.scheduled_for).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+      return <span className="text-xs text-muted-foreground">Scheduled {when}</span>;
+    }
+    return null;
+  };
+
   const filteredDrafts = drafts.filter(draft => filterStatus === "all" ? true : draft.approval_status === filterStatus);
   const pendingCount = drafts.filter(d => d.approval_status === "pending").length;
   const approvedCount = drafts.filter(d => d.approval_status === "approved").length;
@@ -293,9 +331,7 @@ const Review = () => {
                 <div key={draft.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-md border border-amber-200 bg-white p-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <Badge variant="outline" className={draft.publish_status === "failed"
-                        ? "bg-red-50 text-red-700 border-red-200"
-                        : "bg-amber-100 text-amber-800 border-amber-300"}>
+                      <Badge variant="outline" className={draft.publish_status === "failed" ? "bg-red-50 text-red-700 border-red-200" : "bg-amber-100 text-amber-800 border-amber-300"}>
                         {draft.publish_status === "failed" ? "Provider error" : "Not scheduled"}
                       </Badge>
                       <span className="font-medium truncate">{draft.title || draft.seed_insight}</span>
@@ -373,75 +409,112 @@ const Review = () => {
           </Card>
         ) : (
           <div className="space-y-4">
-            {filteredDrafts.map((draft) => (
-              <Card key={draft.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-6">
-                  <div className="flex items-start gap-4">
-                    <Checkbox checked={selectedDrafts.includes(draft.id)} onCheckedChange={() => toggleSelectDraft(draft.id)} className="mt-1" />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex-1">
-                          <h3
-                            className="font-semibold text-lg mb-2 cursor-pointer hover:underline hover:text-[#f9655b] transition-colors"
-                            onClick={() => navigate(`/drafts/${draft.id}`)}
-                          >
-                            {draft.title || draft.seed_insight}
-                          </h3>
-                          <div className="flex flex-wrap gap-2 items-center mb-3">
-                            {getStatusBadge(draft.approval_status)}
-                            {draft.autopilot_templates && (<Badge variant="secondary">From: {draft.autopilot_templates.name}</Badge>)}
-                            <Badge variant="outline">{draft.content_type || "blog_post"}</Badge>
+            {filteredDrafts.map((draft) => {
+              const isApproved = draft.approval_status === "approved";
+              const isPostedNow = draft.publish_status === "published_now";
+              const isPostingNow = postingNowId === draft.id;
+
+              return (
+                <Card key={draft.id} className="hover:shadow-md transition-shadow">
+                  <CardContent className="p-6">
+                    <div className="flex items-start gap-4">
+                      <Checkbox checked={selectedDrafts.includes(draft.id)} onCheckedChange={() => toggleSelectDraft(draft.id)} className="mt-1" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex-1">
+                            <h3
+                              className="font-semibold text-lg mb-2 cursor-pointer hover:underline hover:text-[#f9655b] transition-colors"
+                              onClick={() => navigate(`/drafts/${draft.id}`)}
+                            >
+                              {draft.title || draft.seed_insight}
+                            </h3>
+                            <div className="flex flex-wrap gap-2 items-center mb-1">
+                              {getStatusBadge(draft.approval_status)}
+                              {draft.autopilot_templates && (<Badge variant="secondary">From: {draft.autopilot_templates.name}</Badge>)}
+                              <Badge variant="outline">{draft.content_type || "blog_post"}</Badge>
+                            </div>
+                            {getScheduleLabel(draft) && (
+                              <div className="mt-1 mb-1">{getScheduleLabel(draft)}</div>
+                            )}
+                          </div>
+
+                          {/* Action buttons */}
+                          <div className="flex gap-2 ml-4 shrink-0">
+                            {!isApproved && (
+                              <>
+                                <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => handleSmartReject(draft)}>
+                                  <X className="h-4 w-4 mr-1" />Reject
+                                </Button>
+                                <Button size="sm" onClick={() => handleApprove(draft.id)}>
+                                  <Check className="h-4 w-4 mr-1" />Approve
+                                </Button>
+                              </>
+                            )}
+                            {isApproved && (
+                              <>
+                                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 flex items-center gap-1 px-3">
+                                  <CheckCheck className="h-3 w-3" />Approved
+                                </Badge>
+                                {!isPostedNow && (
+                                  <Button
+                                    size="sm"
+                                    disabled={isPostingNow}
+                                    onClick={() => handlePostNow(draft)}
+                                    style={{ backgroundColor: "#f9655b", color: "#ffffff" }}
+                                  >
+                                    <Send className="h-4 w-4 mr-1" />
+                                    {isPostingNow ? "Posting..." : "Post Now"}
+                                  </Button>
+                                )}
+                                {isPostedNow && (
+                                  <Badge style={{ backgroundColor: "#f9655b", color: "#ffffff" }} className="flex items-center gap-1 px-3">
+                                    <Send className="h-3 w-3" />Posted
+                                  </Badge>
+                                )}
+                              </>
+                            )}
                           </div>
                         </div>
-                        {draft.approval_status === "pending" && (
-                          <div className="flex gap-2 ml-4">
-                            <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => handleSmartReject(draft)}>
-                              <X className="h-4 w-4 mr-1" />Reject
-                            </Button>
-                            <Button size="sm" onClick={() => handleApprove(draft.id)}>
-                              <Check className="h-4 w-4 mr-1" />Approve
-                            </Button>
+
+                        {draft.stat_flag && (
+                          <div className="flex items-start gap-2 mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                            <span>{draft.stat_flag}</span>
                           </div>
                         )}
-                      </div>
-                      {draft.stat_flag && (
-                        <div className="flex items-start gap-2 mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
-                          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                          <span>{draft.stat_flag}</span>
+                        <div className="prose prose-sm max-w-none mb-4">
+                          <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize((draft.body || '').replace(/\n/g, '<br/>'), { ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'b', 'i', 'u', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'blockquote', 'code', 'pre', 'span', 'div'], ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'id'], FORBID_ATTR: ['style', 'onclick', 'onload', 'onerror', 'onmouseover'] }) }} />
                         </div>
-                      )}
-                      <div className="prose prose-sm max-w-none mb-4">
-                        <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize((draft.body || '').replace(/\n/g, '<br/>'), { ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'b', 'i', 'u', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'blockquote', 'code', 'pre', 'span', 'div'], ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'id'], FORBID_ATTR: ['style', 'onclick', 'onload', 'onerror', 'onmouseover'] }) }} />
-                      </div>
-                      {Array.isArray(draft.stat_attributions) && draft.stat_attributions.length > 0 && (
-                        <div className="text-sm border-t pt-3 mb-1">
-                          <p className="font-medium mb-2">Figures and their sources</p>
-                          <ul className="space-y-1">
-                            {draft.stat_attributions.map((a, i) => (
-                              <li key={i} className="text-muted-foreground">
-                                <span className="font-medium text-foreground">{a.figure || "(figure)"}</span>
-                                {" "}from {a.source || "(no source given)"}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {draft.selected_direction && (
-                        <div className="text-sm text-muted-foreground border-t pt-3">
-                          <strong>Direction:</strong> {draft.selected_direction.angle}
-                        </div>
-                      )}
-                      <div className="text-xs text-muted-foreground mt-3">
-                        Created {new Date(draft.created_at).toLocaleDateString()}
-                        {draft.approval_status !== "pending" && (draft as any).reviewed_at && (
-                          <span className="ml-2">• {draft.approval_status} on {new Date((draft as any).reviewed_at).toLocaleDateString()}</span>
+                        {Array.isArray(draft.stat_attributions) && draft.stat_attributions.length > 0 && (
+                          <div className="text-sm border-t pt-3 mb-1">
+                            <p className="font-medium mb-2">Figures and their sources</p>
+                            <ul className="space-y-1">
+                              {draft.stat_attributions.map((a, i) => (
+                                <li key={i} className="text-muted-foreground">
+                                  <span className="font-medium text-foreground">{a.figure || "(figure)"}</span>
+                                  {" "}from {a.source || "(no source given)"}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
                         )}
+                        {draft.selected_direction && (
+                          <div className="text-sm text-muted-foreground border-t pt-3">
+                            <strong>Direction:</strong> {draft.selected_direction.angle}
+                          </div>
+                        )}
+                        <div className="text-xs text-muted-foreground mt-3">
+                          Created {new Date(draft.created_at).toLocaleDateString()}
+                          {draft.approval_status !== "pending" && (draft as any).reviewed_at && (
+                            <span className="ml-2">• {draft.approval_status} on {new Date((draft as any).reviewed_at).toLocaleDateString()}</span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         )}
 

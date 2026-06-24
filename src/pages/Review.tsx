@@ -116,7 +116,6 @@ const Review = () => {
   };
 
   // Re-run the scheduler for a draft that previously landed in needs_attention or failed.
-  // The function is idempotent and only acts on approved drafts with no external_post_id yet.
   const handleRetrySchedule = async (draftId: string) => {
     toast.info("Retrying schedule...");
     const { data, error } = await supabase.functions.invoke("publish-to-zernio", { body: { draftId } });
@@ -207,7 +206,6 @@ const Review = () => {
         .update({ approval_status: bulkAction, review_notes: bulkAction === "reject" ? rejectNote : null, reviewed_at: new Date().toISOString() })
         .eq("id", draftId);
       if (error) { toast.error(`Failed to update draft ${draftId}`); return; }
-      // On bulk approve, hand each draft to the scheduler (fire and forget).
       if (bulkAction === "approve") {
         supabase.functions.invoke("publish-to-zernio", { body: { draftId } })
           .catch((err) => console.error("Publish error:", err));
@@ -383,7 +381,12 @@ const Review = () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-start mb-3">
                         <div className="flex-1">
-                          <h3 className="font-semibold text-lg mb-2">{draft.title || draft.seed_insight}</h3>
+                          <h3
+                            className="font-semibold text-lg mb-2 cursor-pointer hover:underline hover:text-[#f9655b] transition-colors"
+                            onClick={() => navigate(`/drafts/${draft.id}`)}
+                          >
+                            {draft.title || draft.seed_insight}
+                          </h3>
                           <div className="flex flex-wrap gap-2 items-center mb-3">
                             {getStatusBadge(draft.approval_status)}
                             {draft.autopilot_templates && (<Badge variant="secondary">From: {draft.autopilot_templates.name}</Badge>)}

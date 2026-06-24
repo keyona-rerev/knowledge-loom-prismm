@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { ArrowLeft, FileText, Clock, Edit, Save, Sparkles, ImageIcon, RotateCcw, Link2, Copy, Check, Send, CalendarCheck } from "lucide-react";
+import { ArrowLeft, FileText, Clock, Edit, Save, Sparkles, ImageIcon, RotateCcw, Link2, Copy, Check, Send, CalendarCheck, X } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { VisualForge } from "@/components/VisualForge";
 
@@ -39,6 +39,7 @@ const DraftDetail = () => {
   const [copied, setCopied] = useState(false);
   const [copiedChildId, setCopiedChildId] = useState<string | null>(null);
   const [postingNow, setPostingNow] = useState(false);
+  const [cancellingSchedule, setCancellingSchedule] = useState(false);
 
   const getApprovalBadgeVariant = (status?: string) => {
     switch (status) {
@@ -231,6 +232,27 @@ const DraftDetail = () => {
     if (error) { toast.error("Failed to reject draft"); } else { toast.success("Draft rejected"); await loadDraft(); }
   };
 
+  const handleCancelSchedule = async () => {
+    if (!draft) return;
+    setCancellingSchedule(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("cancel-schedule", {
+        body: { draftId: draft.id },
+      });
+      if (error) throw error;
+      if (data?.ok) {
+        toast.success("Schedule cancelled. You can now Post Now.");
+        await loadDraft();
+      } else {
+        toast.error(data?.error || "Failed to cancel schedule.");
+      }
+    } catch (err) {
+      toast.error("Cancel failed: " + (err as any)?.message);
+    } finally {
+      setCancellingSchedule(false);
+    }
+  };
+
   const handlePostNow = async () => {
     if (!draft) return;
 
@@ -377,10 +399,22 @@ const DraftDetail = () => {
                   </p>
                 )}
                 {!isPostedNow && isScheduled && (
-                  <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold text-green-700">
-                    <CalendarCheck className="h-4 w-4" />
-                    Scheduled for {new Date(draft.scheduled_for).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-                  </p>
+                  <div className="mt-2 flex items-center gap-3">
+                    <p className="flex items-center gap-1.5 text-sm font-semibold text-green-700">
+                      <CalendarCheck className="h-4 w-4" />
+                      Scheduled for {new Date(draft.scheduled_for).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2 text-xs text-red-600 border-red-200 hover:bg-red-50"
+                      disabled={cancellingSchedule}
+                      onClick={handleCancelSchedule}
+                    >
+                      <X className="h-3 w-3 mr-1" />
+                      {cancellingSchedule ? "Cancelling..." : "Cancel Schedule"}
+                    </Button>
+                  </div>
                 )}
               </div>
               <FileText className="h-6 w-6 text-muted-foreground" />

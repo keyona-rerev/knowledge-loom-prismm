@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { ArrowLeft, FileText, Clock, Edit, Save, Sparkles, ImageIcon, RotateCcw, Link2, Copy, Check, Send } from "lucide-react";
+import { ArrowLeft, FileText, Clock, Edit, Save, Sparkles, ImageIcon, RotateCcw, Link2, Copy, Check, Send, CalendarCheck } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { VisualForge } from "@/components/VisualForge";
 
@@ -234,7 +234,6 @@ const DraftDetail = () => {
   const handlePostNow = async () => {
     if (!draft) return;
 
-    // If draft isn't approved yet, approve it first
     if (draft.approval_status !== "approved") {
       const { data: { session } } = await supabase.auth.getSession();
       const { error: approveError } = await supabase
@@ -249,7 +248,6 @@ const DraftDetail = () => {
         toast.error("Failed to approve draft before posting");
         return;
       }
-      // Kick off visual generation in the background
       if (session?.user?.id) {
         supabase.functions.invoke("generate-draft-visual", {
           body: { draftId: draft.id, userId: session.user.id }
@@ -290,6 +288,7 @@ const DraftDetail = () => {
 
   const isApproved = draft.approval_status === "approved";
   const isPostedNow = draft.publish_status === "published_now";
+  const isScheduled = draft.publish_status === "scheduled" && draft.scheduled_for;
   const reuseAngles = Array.isArray(draft.reuse_angles_used) ? draft.reuse_angles_used as string[] : [];
   const reuseRemaining = (draft.max_reuse_count || 0) - (draft.reuse_count || 0);
 
@@ -371,6 +370,18 @@ const DraftDetail = () => {
                   <Clock className="h-3 w-3" />
                   Last updated {formatDistanceToNow(new Date(draft.updated_at), { addSuffix: true })}
                 </CardDescription>
+                {isPostedNow && (
+                  <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: "#f9655b" }}>
+                    <Send className="h-4 w-4" />
+                    Posted to LinkedIn
+                  </p>
+                )}
+                {!isPostedNow && isScheduled && (
+                  <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold text-green-700">
+                    <CalendarCheck className="h-4 w-4" />
+                    Scheduled for {new Date(draft.scheduled_for).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                  </p>
+                )}
               </div>
               <FileText className="h-6 w-6 text-muted-foreground" />
             </div>
@@ -458,7 +469,6 @@ const DraftDetail = () => {
               </div>
             )}
 
-            {/* Visual — shown for all approved drafts regardless of post status */}
             {isApproved && userId && (
               <>
                 <Separator />
@@ -504,7 +514,6 @@ const DraftDetail = () => {
           </CardContent>
         </Card>
 
-        {/* Child posts */}
         {childDrafts.length > 0 && (
           <Card>
             <CardHeader className="pb-3">
@@ -516,14 +525,8 @@ const DraftDetail = () => {
             </CardHeader>
             <CardContent className="space-y-2">
               {childDrafts.map((child, i) => (
-                <div
-                  key={child.id}
-                  className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30"
-                >
-                  <div
-                    className="flex-1 min-w-0 cursor-pointer"
-                    onClick={() => navigate(`/drafts/${child.id}`)}
-                  >
+                <div key={child.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30">
+                  <div className="flex-1 min-w-0 cursor-pointer" onClick={() => navigate(`/drafts/${child.id}`)}>
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-muted-foreground shrink-0">#{i + 1}</span>
                       <p className="text-sm font-medium truncate">{child.title}</p>
@@ -536,12 +539,7 @@ const DraftDetail = () => {
                     <Badge variant={getApprovalBadgeVariant(child.approval_status)} className="text-xs">
                       {child.approval_status}
                     </Badge>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 px-2"
-                      onClick={(e) => handleCopyChild(e, child)}
-                    >
+                    <Button size="sm" variant="outline" className="h-7 px-2" onClick={(e) => handleCopyChild(e, child)}>
                       {copiedChildId === child.id
                         ? <><Check className="h-3 w-3 mr-1 text-green-500" />Copied</>
                         : <><Copy className="h-3 w-3 mr-1" />Copy</>

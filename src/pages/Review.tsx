@@ -24,8 +24,6 @@ interface Draft {
   selected_direction: any;
   created_at: string;
   content_type: string;
-  autopilot_template_id?: string;
-  autopilot_templates?: { name: string };
   publish_status?: string | null;
   publish_error?: string | null;
   external_post_id?: string | null;
@@ -63,7 +61,7 @@ const Review = () => {
     const { data: { session } } = await supabase.auth.getSession();
     const { data, error } = await supabase
       .from("drafts")
-      .select(`*, autopilot_templates (name)`)
+      .select("*")
       .eq("user_id", session?.user?.id)
       .order("created_at", { ascending: false });
     if (error) {
@@ -404,7 +402,7 @@ const Review = () => {
               <CheckCheck className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-lg font-semibold mb-2">{filterStatus === "pending" ? "No drafts pending review" : "No drafts found"}</h3>
               <p className="text-muted-foreground mb-6">{filterStatus === "pending" ? "New drafts from your automations will appear here for review." : "Try adjusting your filters to see more drafts."}</p>
-              <Button onClick={() => navigate("/autopilot")}>Manage Automations</Button>
+              <Button onClick={() => navigate("/schedule")}>Manage Schedule</Button>
             </CardContent>
           </Card>
         ) : (
@@ -430,7 +428,6 @@ const Review = () => {
                             </h3>
                             <div className="flex flex-wrap gap-2 items-center mb-1">
                               {getStatusBadge(draft.approval_status)}
-                              {draft.autopilot_templates && (<Badge variant="secondary">From: {draft.autopilot_templates.name}</Badge>)}
                               <Badge variant="outline">{draft.content_type || "blog_post"}</Badge>
                             </div>
                             {getScheduleLabel(draft) && (

@@ -17,8 +17,6 @@ import CardDetail from "./pages/CardDetail";
 import CreateContent from "./pages/CreateContent";
 import Drafts from "./pages/Drafts";
 import DraftDetail from "./pages/DraftDetail";
-import AutopilotTemplates from "./pages/AutopilotTemplates";
-import AutopilotTemplateEditor from "./pages/AutopilotTemplateEditor";
 import QuestionSettings from "./pages/QuestionSettings";
 import Auth from "./pages/Auth";
 import Insights from "./pages/Insights";
@@ -55,9 +53,6 @@ const App = () => (
               <Route path="/create" element={<ProtectedRoute><CreateContent /></ProtectedRoute>} />
               <Route path="/drafts" element={<ProtectedRoute><Drafts /></ProtectedRoute>} />
               <Route path="/drafts/:id" element={<ProtectedRoute><DraftDetail /></ProtectedRoute>} />
-              <Route path="/autopilot" element={<ProtectedRoute><AutopilotTemplates /></ProtectedRoute>} />
-              <Route path="/autopilot/new" element={<ProtectedRoute><AutopilotTemplateEditor /></ProtectedRoute>} />
-              <Route path="/autopilot/:id/edit" element={<ProtectedRoute><AutopilotTemplateEditor /></ProtectedRoute>} />
               <Route path="/questions" element={<ProtectedRoute><QuestionSettings /></ProtectedRoute>} />
               <Route path="/insights" element={<ProtectedRoute><Insights /></ProtectedRoute>} />
               <Route path="/insights/new" element={<ProtectedRoute><InsightDetail /></ProtectedRoute>} />

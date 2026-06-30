@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, FileText, Sparkles, Rss, Database, FileEdit, Settings, Plus, MessageCircleQuestion, LogOut, CheckCheck, Clock, Ban, Lightbulb, Target, Users, CalendarClock } from "lucide-react";import { InstructionsToggle } from "@/components/InstructionsToggle";
+import { Calendar, FileText, Rss, Database, FileEdit, Settings, Plus, MessageCircleQuestion, LogOut, CheckCheck, Clock, Ban, Lightbulb, Target, Users, CalendarClock } from "lucide-react";import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
@@ -211,13 +211,6 @@ const Dashboard = () => {
   ];
 
   const automation = [
-    {
-      title: "Autopilot Templates",
-      description: "Set up automated content generation",
-      icon: Sparkles,
-      path: "/autopilot",
-      color: "text-purple-500",
-    },
     {
       title: "Review Queue",
       description: "Approve or reject automated drafts",

@@ -5,6 +5,12 @@
 // + timezone + status) was confirmed against the live API by probe, NOT the
 // OpenAPI summary (whose text/socialAccountIds/scheduledAt names the API silently
 // ignores). Connect/account shapes are handled defensively across known variants.
+//
+// updateSchedule()'s PUT /v1/posts/{id} has NOT been probed against a live
+// scheduled post (no Zernio credentials available where this was written).
+// reschedule-draft therefore never trusts this path alone: it always falls
+// back to cancel + republish when this throws, so reschedule keeps working
+// whether or not PUT actually supports moving scheduledFor.
 
 import type {
   ConnectStart,
@@ -104,5 +110,12 @@ export class ZernioPublisher implements Publisher {
       throw new Error("Zernio create post returned no post id");
     }
     return { externalPostId, status: post?.status ?? "scheduled", raw: body };
+  }
+
+  async updateSchedule(postId: string, scheduledFor: string, timezone: string): Promise<void> {
+    await this.#request(`/posts/${encodeURIComponent(postId)}`, {
+      method: "PUT",
+      body: JSON.stringify({ scheduledFor, timezone }),
+    });
   }
 }

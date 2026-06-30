@@ -50,4 +50,8 @@ export interface Publisher {
   getDefaultProfileId(): Promise<string | null>;
   // Hand a post to the provider's scheduler at scheduledFor.
   publish(input: PublishInput): Promise<PublishResult>;
+  // Move an already-scheduled post to a new time. Throws if the provider
+  // rejects or doesn't support the update; callers should fall back to
+  // cancelling and republishing when this throws.
+  updateSchedule(postId: string, scheduledFor: string, timezone: string): Promise<void>;
 }

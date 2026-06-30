@@ -1,23 +1,11 @@
 // src/pages/ContentCalendar.tsx
-import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Plus } from "lucide-react";
 import { WeeklyCalendar } from "@/components/calendar/WeeklyCalendar";
-import { useToast } from "@/components/ui/use-toast";
 
 const ContentCalendar = () => {
   const navigate = useNavigate();
-  const { toast } = useToast();
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
-
-  const handleNavigateToDrafts = () => {
-    navigate("/review");
-  };
-
-  const handleNavigateToCreate = () => {
-    navigate("/create");
-  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -26,40 +14,40 @@ const ContentCalendar = () => {
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Button 
-                variant="ghost" 
+              <Button
+                variant="ghost"
                 onClick={() => navigate("/dashboard")}
                 className="gap-2"
               >
                 <ArrowLeft className="h-4 w-4" />
-                Back to Dashboard
+                Back to dashboard
               </Button>
               <div className="h-6 w-px bg-gray-200" />
-              <h1 className="text-2xl font-bold text-gray-900">Content Calendar</h1>
+              <h1 className="text-2xl font-bold text-gray-900">Content calendar</h1>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
-                onClick={handleNavigateToDrafts}
+                onClick={() => navigate("/review")}
               >
-                Review Drafts
+                Review drafts
               </Button>
               <Button
-                onClick={handleNavigateToCreate}
+                onClick={() => navigate("/create")}
                 className="gap-2"
               >
                 <Plus className="h-4 w-4" />
-                Create Content
+                Create content
               </Button>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Main Calendar */}
+      {/* Real schedule, sourced from drafts + content_schedules */}
       <main className="container mx-auto">
-        <WeeklyCalendar key={refreshTrigger} />
+        <WeeklyCalendar />
       </main>
     </div>
   );

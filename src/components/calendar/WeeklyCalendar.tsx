@@ -1,124 +1,60 @@
 // src/components/calendar/WeeklyCalendar.tsx
-import { useState, useEffect } from 'react';
-import { DragDropContext, DropResult } from '@hello-pangea/dnd';
-import { format, startOfWeek, addDays } from 'date-fns';
-import { supabase } from '@/integrations/supabase/client';
-import { CalendarSlot } from './drag-drop-types';
-import { CalendarHeader } from './CalendarHeader';
-import { CalendarDayColumn } from './CalendarDayColumn';
-import { ReadyToSchedule } from './ReadyToSchedule';
-import { toast } from 'sonner';
+//
+// Real schedule view: sourced from drafts (publish_status in scheduled /
+// published_now), the actual publish truth, joined to content_schedules for
+// slot context. The old version read/wrote content_calendar, a table nothing
+// in publish-to-zernio ever consulted, so dragging a draft onto it had zero
+// effect on what Zernio actually posted.
+//
+// Scheduling itself now happens automatically at approval (publish-to-zernio
+// resolves the slot's next occurrence), so there's no "place this draft on a
+// date" interaction left to support. This view is read + edit (time only),
+// not a placement tool, so drag-and-drop is gone along with it.
+import { useState, useEffect } from "react";
+import { startOfWeek, addDays } from "date-fns";
+import { supabase } from "@/integrations/supabase/client";
+import { CalendarHeader } from "./CalendarHeader";
+import { CalendarDayColumn } from "./CalendarDayColumn";
+import { RescheduleDialog } from "./RescheduleDialog";
+import { ScheduledDraft } from "./schedule-types";
+import { toast } from "sonner";
 
 export const WeeklyCalendar = () => {
   const [currentWeek, setCurrentWeek] = useState(new Date());
-  const [calendarSlots, setCalendarSlots] = useState<CalendarSlot[]>([]);
+  const [drafts, setDrafts] = useState<ScheduledDraft[]>([]);
   const [loading, setLoading] = useState(true);
+  const [rescheduling, setRescheduling] = useState<ScheduledDraft | null>(null);
 
   useEffect(() => {
-    loadCalendarSlots();
+    loadScheduled();
   }, [currentWeek]);
 
-  const loadCalendarSlots = async () => {
+  const loadScheduled = async () => {
     setLoading(true);
     const { data: { session } } = await supabase.auth.getSession();
-    
+
     const weekStart = startOfWeek(currentWeek, { weekStartsOn: 0 });
     const weekEnd = addDays(weekStart, 7);
 
     const { data, error } = await supabase
-      .from('content_calendar')
+      .from("drafts")
       .select(`
-        *,
-        draft:drafts (
-          id,
-          title,
-          body,
-          approval_status,
-          content_type
-        )
+        id, title, body, content_type, publish_status, scheduled_for, external_post_id,
+        schedule:content_schedules ( frequency, format:formats ( name ) )
       `)
-      .eq('user_id', session?.user?.id)
-      .gte('scheduled_date', weekStart.toISOString())
-      .lt('scheduled_date', weekEnd.toISOString())
-      .order('scheduled_date');
+      .eq("user_id", session?.user?.id)
+      .in("publish_status", ["scheduled", "published_now"])
+      .gte("scheduled_for", weekStart.toISOString())
+      .lt("scheduled_for", weekEnd.toISOString())
+      .order("scheduled_for");
 
     if (error) {
-      console.error('Error loading calendar slots:', error);
-      toast.error('Failed to load calendar');
+      console.error("Error loading schedule:", error);
+      toast.error("Failed to load schedule");
     } else {
-      setCalendarSlots(data || []);
+      setDrafts((data || []) as unknown as ScheduledDraft[]);
     }
     setLoading(false);
-  };
-
-  const handleDragEnd = async (result: DropResult) => {
-    if (!result.destination) return;
-
-    // Check if this is a draft being dragged to calendar (starts with 'draft-')
-    if (result.draggableId.startsWith('draft-')) {
-      const draftId = result.draggableId.replace('draft-', '');
-      const newDate = new Date(result.destination.droppableId);
-      
-      try {
-        // First, get the draft details to know the content_type
-        const { data: draftData, error: draftError } = await supabase
-          .from('drafts')
-          .select('content_type')
-          .eq('id', draftId)
-          .single();
-
-        if (draftError) throw draftError;
-
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        // Create new calendar entry for the draft
-        const { error } = await supabase
-          .from('content_calendar')
-          .insert({
-            user_id: session?.user?.id,
-            draft_id: draftId,
-            scheduled_date: newDate.toISOString(),
-            content_type: draftData.content_type || 'blog_post',
-            status: 'scheduled'
-          });
-
-        if (error) throw error;
-
-        toast.success('Content scheduled!');
-        await loadCalendarSlots(); // Reload to show the new entry
-        // Trigger refresh of ReadyToSchedule by dispatching an event
-        window.dispatchEvent(new CustomEvent('calendar-updated'));
-      } catch (error) {
-        console.error('Error scheduling draft:', error);
-        toast.error('Failed to schedule content');
-      }
-    } else {
-      // Existing logic for moving existing calendar slots
-      const slotId = result.draggableId;
-      const newDate = new Date(result.destination.droppableId);
-      
-      try {
-        const { error } = await supabase
-          .from('content_calendar')
-          .update({ scheduled_date: newDate.toISOString() })
-          .eq('id', slotId);
-
-        if (error) throw error;
-
-        // Optimistically update UI
-        setCalendarSlots(prev => prev.map(slot =>
-          slot.id === slotId 
-            ? { ...slot, scheduled_date: newDate.toISOString() }
-            : slot
-        ));
-
-        toast.success('Content rescheduled!');
-      } catch (error) {
-        console.error('Error rescheduling:', error);
-        toast.error('Failed to reschedule');
-        loadCalendarSlots();
-      }
-    }
   };
 
   const getWeekDays = () => {
@@ -126,58 +62,37 @@ export const WeeklyCalendar = () => {
     return Array.from({ length: 7 }, (_, i) => addDays(start, i));
   };
 
-  const getSlotsForDay = (date: Date) => {
-    return calendarSlots.filter(slot => {
-      const slotDate = new Date(slot.scheduled_date);
-      return slotDate.toDateString() === date.toDateString();
-    });
-  };
+  const getDraftsForDay = (date: Date) =>
+    drafts.filter((d) => new Date(d.scheduled_for).toDateString() === date.toDateString());
 
   if (loading) {
     return (
       <div className="h-96 flex items-center justify-center">
-        <div className="animate-pulse text-lg text-gray-600">Loading calendar...</div>
+        <div className="animate-pulse text-lg text-gray-600">Loading schedule...</div>
       </div>
     );
   }
 
   return (
-    <DragDropContext onDragEnd={handleDragEnd}>
-      <div className="h-screen flex bg-gray-50">
-        {/* Ready to Schedule Sidebar */}
-        <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
-          <div className="p-4 border-b">
-            <h2 className="font-semibold text-lg">Ready to Schedule</h2>
-            <p className="text-sm text-gray-600 mt-1">Drag approved drafts to calendar</p>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            <ReadyToSchedule />
-          </div>
-        </div>
-        
-        {/* Main Calendar */}
-        <div className="flex-1 flex flex-col">
-          <CalendarHeader 
-            currentWeek={currentWeek}
-            onWeekChange={setCurrentWeek}
-            onRefresh={loadCalendarSlots}
+    <div className="flex flex-col bg-gray-50">
+      <CalendarHeader currentWeek={currentWeek} onWeekChange={setCurrentWeek} onRefresh={loadScheduled} />
+
+      <div className="flex-1 grid grid-cols-7 gap-4 p-6">
+        {getWeekDays().map((day) => (
+          <CalendarDayColumn
+            key={day.toISOString()}
+            date={day}
+            drafts={getDraftsForDay(day)}
+            onEditTime={setRescheduling}
           />
-          
-          <div className="flex-1 grid grid-cols-7 gap-4 p-6">
-            {getWeekDays().map(day => (
-              <CalendarDayColumn 
-                key={day.toISOString()}
-                date={day}
-                slots={getSlotsForDay(day)}
-                onSlotDeleted={() => {
-                  loadCalendarSlots();
-                  window.dispatchEvent(new CustomEvent('calendar-updated'));
-                }}
-              />
-            ))}
-          </div>
-        </div>
+        ))}
       </div>
-    </DragDropContext>
+
+      <RescheduleDialog
+        draft={rescheduling}
+        onClose={() => setRescheduling(null)}
+        onRescheduled={() => { setRescheduling(null); loadScheduled(); }}
+      />
+    </div>
   );
 };

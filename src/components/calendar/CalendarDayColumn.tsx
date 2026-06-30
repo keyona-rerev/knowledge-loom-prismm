@@ -1,69 +1,44 @@
-import { Droppable } from "@hello-pangea/dnd";
-import { format, isToday, isSameDay } from "date-fns";
-import { CalendarSlot } from "./drag-drop-types";
-import { CalendarSlotCard } from "./CalendarSlotCard";
+import { format, isToday } from "date-fns";
+import { ScheduledDraft } from "./schedule-types";
+import { ScheduleEntryCard } from "./ScheduleEntryCard";
 import { EmptyDayState } from "./EmptyDayState";
 
 interface CalendarDayColumnProps {
   date: Date;
-  slots: CalendarSlot[];
-  onSlotDeleted?: () => void;
+  drafts: ScheduledDraft[];
+  onEditTime: (draft: ScheduledDraft) => void;
 }
 
-export const CalendarDayColumn = ({ date, slots, onSlotDeleted }: CalendarDayColumnProps) => {
+export const CalendarDayColumn = ({ date, drafts, onEditTime }: CalendarDayColumnProps) => {
   const isTodayDate = isToday(date);
   const isWeekend = date.getDay() === 0 || date.getDay() === 6;
 
   return (
-    <Droppable droppableId={date.toISOString()}>
-      {(provided, snapshot) => (
-        <div
-          ref={provided.innerRef}
-          {...provided.droppableProps}
-          className={`
-            bg-white rounded-lg shadow-sm border min-h-[600px] transition-colors
-            ${snapshot.isDraggingOver ? 'bg-blue-50 border-blue-200' : 'border-gray-200'}
-            ${isWeekend ? 'bg-gray-50' : ''}
-          `}
-        >
-          {/* Day Header */}
-          <div className={`
-            p-3 border-b rounded-t-lg transition-colors
-            ${isTodayDate 
-              ? 'bg-blue-600 text-white' 
-              : 'bg-white text-gray-900'
-            }
-          `}>
-            <div className={`font-semibold ${isTodayDate ? 'text-blue-100' : 'text-gray-500'}`}>
-              {format(date, 'EEE')}
-            </div>
-            <div className={`text-2xl font-bold ${isTodayDate ? 'text-white' : 'text-gray-900'}`}>
-              {format(date, 'd')}
-            </div>
-            <div className={`text-sm ${isTodayDate ? 'text-blue-100' : 'text-gray-500'}`}>
-              {format(date, 'MMM yyyy')}
-            </div>
-          </div>
-
-          {/* Content Slots */}
-          <div className="p-2 space-y-2">
-            {slots.map((slot, index) => (
-              <CalendarSlotCard 
-                key={slot.id}
-                slot={slot}
-                index={index}
-                onDelete={onSlotDeleted}
-              />
-            ))}
-            
-            {slots.length === 0 && (
-              <EmptyDayState date={date} />
-            )}
-            
-            {provided.placeholder}
-          </div>
+    <div className={`
+      bg-white rounded-lg shadow-sm border min-h-[400px]
+      ${isWeekend ? "bg-gray-50" : "border-gray-200"}
+    `}>
+      <div className={`
+        p-3 border-b rounded-t-lg
+        ${isTodayDate ? "bg-blue-600 text-white" : "bg-white text-gray-900"}
+      `}>
+        <div className={`font-semibold ${isTodayDate ? "text-blue-100" : "text-gray-500"}`}>
+          {format(date, "EEE")}
         </div>
-      )}
-    </Droppable>
+        <div className={`text-2xl font-bold ${isTodayDate ? "text-white" : "text-gray-900"}`}>
+          {format(date, "d")}
+        </div>
+        <div className={`text-sm ${isTodayDate ? "text-blue-100" : "text-gray-500"}`}>
+          {format(date, "MMM yyyy")}
+        </div>
+      </div>
+
+      <div className="p-2 space-y-2">
+        {drafts.map((d) => (
+          <ScheduleEntryCard key={d.id} draft={d} onEditTime={() => onEditTime(d)} />
+        ))}
+        {drafts.length === 0 && <EmptyDayState date={date} />}
+      </div>
+    </div>
   );
 };

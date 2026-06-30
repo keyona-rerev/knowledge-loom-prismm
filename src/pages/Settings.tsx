@@ -38,6 +38,7 @@ const Settings = () => {
     ai_model: "claude-sonnet-4-6",
     ai_api_key: "",
     ai_endpoint: "",
+    min_approved_threshold: 12,
   });
 
   const currentProvider = AI_PROVIDERS.find(p => p.value === profile.ai_provider) || AI_PROVIDERS[0];
@@ -48,7 +49,7 @@ const Settings = () => {
       if (!session) { navigate("/auth"); return; }
       const { data, error } = await supabase
         .from("profiles")
-        .select("ai_provider, ai_model, ai_api_key, ai_endpoint")
+        .select("ai_provider, ai_model, ai_api_key, ai_endpoint, min_approved_threshold")
         .eq("user_id", session.user.id)
         .maybeSingle();
       if (data) {
@@ -57,6 +58,7 @@ const Settings = () => {
           ai_model: data.ai_model || "claude-sonnet-4-6",
           ai_api_key: data.ai_api_key || "",
           ai_endpoint: data.ai_endpoint || "",
+          min_approved_threshold: (data as any).min_approved_threshold ?? 12,
         });
       } else if (error && error.code !== "PGRST116") {
         toast.error("Failed to load settings");
@@ -153,6 +155,29 @@ const Settings = () => {
                 <Switch id="dark-mode" checked={theme === "dark"} onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")} />
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Review pipeline */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Review pipeline</CardTitle>
+            <CardDescription>The dashboard warns you when your approved, ready-to-publish queue drops below this many drafts.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-base font-semibold">Minimum approved drafts</Label>
+              <Input
+                type="number"
+                min={0}
+                value={profile.min_approved_threshold}
+                onChange={(e) => setProfile(prev => ({ ...prev, min_approved_threshold: Math.max(0, Number(e.target.value) || 0) }))}
+                className="max-w-[120px]"
+              />
+            </div>
+            <Button onClick={handleSave} disabled={loading}>
+              {loading ? "Saving..." : "Save Settings"}
+            </Button>
           </CardContent>
         </Card>
 

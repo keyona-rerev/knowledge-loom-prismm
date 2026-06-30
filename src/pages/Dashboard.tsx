@@ -2,21 +2,31 @@ import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, FileText, Rss, Database, FileEdit, Settings, Plus, MessageCircleQuestion, LogOut, CheckCheck, Clock, Ban, Lightbulb, Target, Users, CalendarClock } from "lucide-react";import { InstructionsToggle } from "@/components/InstructionsToggle";
+import {
+  Calendar, Rss, FileEdit, Settings, MessageCircleQuestion, LogOut,
+  CheckCheck, Clock, Lightbulb, Target, CalendarClock, AlertTriangle, Send, Database, Plus,
+} from "lucide-react";
+import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
+
+interface RecentlyPosted {
+  id: string;
+  title: string | null;
+  publish_status: string | null;
+  scheduled_for: string | null;
+}
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const [stats, setStats] = useState({
     pendingReviews: 0,
     approvedDrafts: 0,
-    rejectedDrafts: 0,
-    totalInsights: 0,
-    activeTemplates: 0,
-    scheduledCount: 0 // ✅ Add this
+    postedCount: 0,
+    minApprovedThreshold: 12,
   });
+  const [recentlyPosted, setRecentlyPosted] = useState<RecentlyPosted[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -31,66 +41,44 @@ const Dashboard = () => {
       setLoading(false);
       return;
     }
+    const userId = session.user.id;
 
     try {
-      // Get draft counts by approval status
-      const { data: drafts, error: draftsError } = await supabase
-        .from("drafts")
-        .select("approval_status")
-        .eq("user_id", session?.user?.id);
+      const nowIso = new Date().toISOString();
+      const postedFilter = `publish_status.eq.published_now,and(publish_status.eq.scheduled,scheduled_for.lt.${nowIso})`;
 
-      if (draftsError) throw draftsError;
-
-      const pendingReviews = drafts?.filter(d => d.approval_status === "pending").length || 0;
-      const approvedDrafts = drafts?.filter(d => d.approval_status === "approved").length || 0;
-      const rejectedDrafts = drafts?.filter(d => d.approval_status === "rejected").length || 0;
-
-      // Get insight cards count
-      const { data: insights, error: insightsError } = await supabase
-        .from("insight_cards")
-        .select("id")
-        .eq("user_id", session?.user?.id)
-        .eq("status", "active");
-
-      if (insightsError && insightsError.code !== '42P01') throw insightsError;
-
-      // Get active templates count
-      const { data: templates, error: templatesError } = await supabase
-        .from("autopilot_templates")
-        .select("id")
-        .eq("user_id", session?.user?.id)
-        .eq("is_active", true);
-
-      if (templatesError) throw templatesError;
-
-         // ✅ GET SCHEDULED CONTENT COUNT - ADD THIS BEFORE setStats
-      const { data: scheduled, error: scheduledError } = await supabase
-        .from("content_calendar")
-        .select("id")
-        .eq("user_id", session?.user?.id)
-        .eq("status", "scheduled");
+      const [
+        { count: pendingReviews },
+        { count: approvedDrafts },
+        { count: postedCount },
+        { data: recent },
+        { data: profile },
+      ] = await Promise.all([
+        supabase.from("drafts").select("id", { count: "exact", head: true })
+          .eq("user_id", userId).eq("approval_status", "pending"),
+        supabase.from("drafts").select("id", { count: "exact", head: true })
+          .eq("user_id", userId).eq("approval_status", "approved"),
+        supabase.from("drafts").select("id", { count: "exact", head: true })
+          .eq("user_id", userId).or(postedFilter),
+        supabase.from("drafts").select("id, title, publish_status, scheduled_for")
+          .eq("user_id", userId).or(postedFilter)
+          .order("scheduled_for", { ascending: false }).limit(5),
+        supabase.from("profiles").select("min_approved_threshold")
+          .eq("user_id", userId).maybeSingle(),
+      ]);
 
       setStats({
-        pendingReviews,
-        approvedDrafts,
-        rejectedDrafts,
-        totalInsights: insights?.length || 0,
-        activeTemplates: templates?.length || 0,
-        scheduledCount: scheduled?.length || 0 // ✅ Add this
+        pendingReviews: pendingReviews || 0,
+        approvedDrafts: approvedDrafts || 0,
+        postedCount: postedCount || 0,
+        minApprovedThreshold: (profile as any)?.min_approved_threshold ?? 12,
       });
+      setRecentlyPosted(recent || []);
     } catch (error) {
       console.error("Error loading dashboard stats:", error);
     } finally {
       setLoading(false);
     }
-          // Get scheduled content count
-      const { data: scheduled, error: scheduledError } = await supabase
-        .from("content_calendar")
-        .select("id")
-        .eq("user_id", session?.user?.id)
-        .eq("status", "scheduled");
-
-    
   };
 
   const handleLogout = async () => {
@@ -103,139 +91,56 @@ const Dashboard = () => {
     }
   };
 
-  const approvalPipeline = [
+  const captureTier = [
     {
-      title: "Pending Review",
-      count: stats.pendingReviews,
-      description: "Drafts awaiting your approval",
-      icon: Clock,
-      path: "/review",
-      color: "text-yellow-500",
-      badgeVariant: "outline" as const,
-      badgeClass: "bg-yellow-50 text-yellow-700 border-yellow-200"
-    },
-    {
-      title: "Approved",
-      count: stats.approvedDrafts,
-      description: "Drafts ready for publishing",
-      icon: CheckCheck,
-      path: "/drafts",
-      color: "text-green-500",
-      badgeVariant: "outline" as const,
-      badgeClass: "bg-green-50 text-green-700 border-green-200"
-    },
-    {
-      title: "Rejected",
-      count: stats.rejectedDrafts,
-      description: "Drafts that need revision",
-      icon: Ban,
-      path: "/drafts",
-      color: "text-red-500",
-      badgeVariant: "outline" as const,
-      badgeClass: "bg-red-50 text-red-700 border-red-200"
-    }
-  ];
-
-  const knowledgeLoom = [
-    {
-      title: "Strategy",
-      description: "Brand, formats, natures, and the jobs library that drive every post",
-      icon: Target,
-      path: "/strategy",
-      color: "text-rose-500",
-    },
-    {
-      title: "Audience",
-      description: "Thesis, lanes, SWOT, and the readers each post must answer to",
-      icon: Users,
-      path: "/audience",
-      color: "text-indigo-500",
-    },
-    {
-      title: "Schedule",
-      description: "Standing slots the engine fills on a recurring cadence",
-      icon: CalendarClock,
-      path: "/schedule",
-      color: "text-amber-500",
-    },
-  ];
-
-  const gettingStarted = [
-    {
-      title: "Content Sources",
-      description: "Set up Google Alerts or add manual sources",
+      title: "Sources",
+      description: "Google Alerts and manual sources that feed the engine",
       icon: Rss,
       path: "/feeds",
       color: "text-orange-500",
     },
     {
-      title: "Observation Journal",
-      description: "Capture and manage your insights",
+      title: "Journal",
+      description: "Capture observations; they're citable as soon as you save them",
       icon: Lightbulb,
       path: "/insights",
       color: "text-amber-500",
     },
-    {
-      title: "Question Settings",
-      description: "Configure questions for extracting insights",
-      icon: MessageCircleQuestion,
-      path: "/questions",
-      color: "text-cyan-500",
-    },
-    {
-      title: "Create Content",
-      description: "Generate new content from your insights",
-      icon: FileText,
-      path: "/create",
-      color: "text-blue-500",
-    },
   ];
 
-  const existingContent = [
+  const configureTier = [
     {
-      title: "Reference Cards",
-      description: "View and manage your reference cards",
-      icon: Database,
-      path: "/cards",
-      color: "text-green-500",
+      title: "Strategy",
+      description: "Brand, voice, audience, lanes, and the formats library",
+      icon: Target,
+      path: "/strategy",
+      color: "text-rose-500",
     },
     {
-      title: "Drafts",
-      description: "View and edit your drafts",
-      icon: FileEdit,
-      path: "/drafts",
-      color: "text-yellow-500",
-    
+      title: "Cadence",
+      description: "Standing slots the engine fills on a recurring schedule",
+      icon: CalendarClock,
+      path: "/schedule",
+      color: "text-amber-500",
     },
-    
-  ];
-
-  const automation = [
-    {
-      title: "Review Queue",
-      description: "Approve or reject automated drafts",
-      icon: CheckCheck,
-      path: "/review",
-      color: "text-blue-500",
-    },
-    {
-      title: "Content Calendar",
-      description: "Schedule and visualize your content pipeline",
-      icon: Calendar,
-      path: "/calendar",
-      color: "text-blue-500",
-    },
-  ];
-
-  const configuration = [
     {
       title: "Settings",
-      description: "Configure your business profile and preferences",
+      description: "AI provider, LinkedIn connection, and review pipeline",
       icon: Settings,
       path: "/settings",
       color: "text-gray-500",
     },
   ];
+
+  const moreLinks = [
+    { title: "All drafts", path: "/drafts", icon: FileEdit },
+    { title: "Reference cards", path: "/cards", icon: Database },
+    { title: "Content calendar", path: "/calendar", icon: Calendar },
+    { title: "Create content", path: "/create", icon: Plus },
+    { title: "Question settings", path: "/questions", icon: MessageCircleQuestion },
+  ];
+
+  const belowThreshold = stats.approvedDrafts < stats.minApprovedThreshold;
 
   return (
     <div className="min-h-screen bg-background">
@@ -244,7 +149,7 @@ const Dashboard = () => {
           <h1 className="text-3xl font-bold">Insight Forge</h1>
           <Button variant="ghost" onClick={handleLogout}>
             <LogOut className="mr-2 h-4 w-4" />
-            Sign Out
+            Sign out
           </Button>
         </div>
       </header>
@@ -257,117 +162,154 @@ const Dashboard = () => {
           </p>
         </div>
 
-        <InstructionsToggle 
-          instructions={`Getting Started:
-1. Set up your first Google Alert or add a manual source
-2. Capture insights in your Observation Journal
-3. Configure questions to extract insights from content
-4. Create content using your collected insights
-5. Set up automations and review generated drafts
+        <InstructionsToggle
+          instructions={`Getting started:
+1. Set up a source in Sources, or capture an observation directly in Journal
+2. Create content from your insights
+3. Approve drafts in Review; approval automatically schedules them to LinkedIn
+4. Edit a scheduled time from Content calendar if a slot needs to move
 
-The dashboard shows your content pipeline and quick access to all features.`}
+The dashboard shows your review pipeline and quick access to everything else.`}
         />
 
-        <div className="space-y-8">
-          {/* Approval Pipeline Section */}
-          {stats.pendingReviews > 0 && (
-            <section>
-              <div className="flex items-center gap-2 mb-4">
-                <CheckCheck className="h-5 w-5 text-primary" />
-                <h3 className="text-xl font-semibold">Approval Pipeline</h3>
-                {stats.pendingReviews > 0 && (
-                  <Badge variant="destructive" className="ml-2">
-                    {stats.pendingReviews} needs attention
-                  </Badge>
-                )}
+        {!loading && belowThreshold && (
+          <Card className="mb-8 border-amber-300 bg-amber-50">
+            <CardContent className="p-4 flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-700 mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <p className="font-medium text-amber-900">
+                  Only {stats.approvedDrafts} of your goal of {stats.minApprovedThreshold} approved drafts are ready to publish.
+                </p>
+                <p className="text-sm text-amber-800 mt-0.5">
+                  Approve more drafts in Review to keep the publishing pipeline healthy.
+                </p>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {approvalPipeline.map((item) => (
-                  <Card
-                    key={item.path}
-                    className={`cursor-pointer hover:shadow-lg transition-shadow ${
-                      item.title === "Pending Review" && item.count > 0 
-                        ? "border-2 border-yellow-300 bg-yellow-50" 
-                        : "border-2 border-primary/20"
-                    }`}
-                    onClick={() => navigate(item.path)}
-                  >
-                    <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <item.icon className={`h-8 w-8 ${item.color}`} />
-                          <CardTitle className="text-lg">{item.title}</CardTitle>
-                        </div>
-                        <Badge 
-                          variant={item.badgeVariant} 
-                          className={item.badgeClass}
-                        >
-                          {item.count}
-                        </Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <CardDescription>{item.description}</CardDescription>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </section>
-          )}
+              <Button size="sm" onClick={() => navigate("/review")} className="shrink-0">
+                Go to Review
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
-          {/* Quick Stats */}
+        <div className="space-y-8">
+          {/* Review tier */}
           <section>
-            <h3 className="text-xl font-semibold mb-4">At a Glance</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <div className="text-2xl font-bold text-blue-600">{stats.totalInsights}</div>
-                  <div className="text-sm text-muted-foreground">Insight Cards</div>
+            <div className="flex items-center gap-2 mb-4">
+              <CheckCheck className="h-5 w-5 text-primary" />
+              <h3 className="text-xl font-semibold">Review</h3>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <Card
+                className={`cursor-pointer hover:shadow-lg transition-shadow ${stats.pendingReviews > 0 ? "border-2 border-yellow-300 bg-yellow-50" : "border-2 border-primary/20"}`}
+                onClick={() => navigate("/review")}
+              >
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Clock className="h-8 w-8 text-yellow-500" />
+                      <CardTitle className="text-lg">Pending</CardTitle>
+                    </div>
+                    <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                      {stats.pendingReviews}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <CardDescription>Drafts awaiting your approval</CardDescription>
                 </CardContent>
               </Card>
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <div className="text-2xl font-bold text-purple-600">{stats.activeTemplates}</div>
-                  <div className="text-sm text-muted-foreground">Active Automations</div>
+
+              <Card className="cursor-pointer hover:shadow-lg transition-shadow border-2 border-primary/20" onClick={() => navigate("/drafts")}>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <CheckCheck className="h-8 w-8 text-green-500" />
+                      <CardTitle className="text-lg">Approved</CardTitle>
+                    </div>
+                    <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                      {stats.approvedDrafts} of {stats.minApprovedThreshold} goal
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <CardDescription>Approved and scheduled to publish</CardDescription>
                 </CardContent>
               </Card>
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <div className="text-2xl font-bold text-yellow-600">{stats.pendingReviews}</div>
-                  <div className="text-sm text-muted-foreground">Pending Reviews</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <div className="text-2xl font-bold text-green-600">{stats.approvedDrafts}</div>
-                  <div className="text-sm text-muted-foreground">Approved Drafts</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <div className="text-2xl font-bold text-orange-600">{stats.scheduledCount || 0}</div>
-                  <div className="text-sm text-muted-foreground">Scheduled Posts</div>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="mt-2 w-full"
-                    onClick={() => navigate('/calendar')}
-                  >
-                    View Calendar
-                  </Button>
+
+              <Card className="cursor-pointer hover:shadow-lg transition-shadow border-2 border-primary/20" onClick={() => navigate("/calendar")}>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Send className="h-8 w-8" style={{ color: "#f9655b" }} />
+                      <CardTitle className="text-lg">Posted</CardTitle>
+                    </div>
+                    <Badge style={{ backgroundColor: "#f9655b", color: "#ffffff" }}>{stats.postedCount}</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <CardDescription>Live on LinkedIn</CardDescription>
                 </CardContent>
               </Card>
             </div>
+
+            {recentlyPosted.length > 0 && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Recently posted</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {recentlyPosted.map((draft) => (
+                    <div
+                      key={draft.id}
+                      className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 cursor-pointer"
+                      onClick={() => navigate(`/drafts/${draft.id}`)}
+                    >
+                      <span className="text-sm font-medium truncate flex-1">{draft.title || "Untitled draft"}</span>
+                      <span className="text-xs text-muted-foreground ml-4 shrink-0">
+                        {draft.scheduled_for ? new Date(draft.scheduled_for).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}
+                      </span>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
           </section>
 
-          {/* Knowledge Loom Section */}
+          {/* Capture tier */}
           <section>
             <div className="flex items-center gap-2 mb-4">
-              <Target className="h-5 w-5 text-primary" />
-              <h3 className="text-xl font-semibold">Knowledge Loom</h3>
+              <Lightbulb className="h-5 w-5 text-primary" />
+              <h3 className="text-xl font-semibold">Capture</h3>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {captureTier.map((item) => (
+                <Card
+                  key={item.path}
+                  className="cursor-pointer hover:shadow-lg transition-shadow border-2 border-primary/20"
+                  onClick={() => navigate(item.path)}
+                >
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <item.icon className={`h-8 w-8 ${item.color}`} />
+                      <CardTitle className="text-lg">{item.title}</CardTitle>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <CardDescription>{item.description}</CardDescription>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </section>
+
+          {/* Configure tier */}
+          <section>
+            <div className="flex items-center gap-2 mb-4">
+              <Settings className="h-5 w-5 text-primary" />
+              <h3 className="text-xl font-semibold">Configure</h3>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {knowledgeLoom.map((item) => (
+              {configureTier.map((item) => (
                 <Card
                   key={item.path}
                   className="cursor-pointer hover:shadow-lg transition-shadow border-2 border-primary/20"
@@ -387,101 +329,15 @@ The dashboard shows your content pipeline and quick access to all features.`}
             </div>
           </section>
 
-          {/* Getting Started Section */}
+          {/* Everything else */}
           <section>
-            <div className="flex items-center gap-2 mb-4">
-              <Plus className="h-5 w-5 text-primary" />
-              <h3 className="text-xl font-semibold">Getting Started</h3>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {gettingStarted.map((item) => (
-                <Card
-                  key={item.path}
-                  className="cursor-pointer hover:shadow-lg transition-shadow border-2 border-primary/20"
-                  onClick={() => navigate(item.path)}
-                >
-                  <CardHeader>
-                    <div className="flex items-center gap-3">
-                      <item.icon className={`h-8 w-8 ${item.color}`} />
-                      <CardTitle className="text-lg">{item.title}</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <CardDescription>{item.description}</CardDescription>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </section>
-
-          {/* Existing Content Section */}
-          <section>
-            <h3 className="text-xl font-semibold mb-4">Your Content</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {existingContent.map((item) => (
-                <Card
-                  key={item.path}
-                  className="cursor-pointer hover:shadow-lg transition-shadow"
-                  onClick={() => navigate(item.path)}
-                >
-                  <CardHeader>
-                    <div className="flex items-center gap-3">
-                      <item.icon className={`h-8 w-8 ${item.color}`} />
-                      <CardTitle className="text-lg">{item.title}</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <CardDescription>{item.description}</CardDescription>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </section>
-
-          {/* Automation Section */}
-          <section>
-            <h3 className="text-xl font-semibold mb-4">Automation</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {automation.map((item) => (
-                <Card
-                  key={item.path}
-                  className="cursor-pointer hover:shadow-lg transition-shadow"
-                  onClick={() => navigate(item.path)}
-                >
-                  <CardHeader>
-                    <div className="flex items-center gap-3">
-                      <item.icon className={`h-8 w-8 ${item.color}`} />
-                      <CardTitle className="text-lg">{item.title}</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <CardDescription>{item.description}</CardDescription>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </section>
-
-          {/* Configuration Section */}
-          <section>
-            <h3 className="text-xl font-semibold mb-4">Configuration</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {configuration.map((item) => (
-                <Card
-                  key={item.path}
-                  className="cursor-pointer hover:shadow-lg transition-shadow"
-                  onClick={() => navigate(item.path)}
-                >
-                  <CardHeader>
-                    <div className="flex items-center gap-3">
-                      <item.icon className={`h-8 w-8 ${item.color}`} />
-                      <CardTitle className="text-lg">{item.title}</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <CardDescription>{item.description}</CardDescription>
-                  </CardContent>
-                </Card>
+            <h3 className="text-sm font-medium text-muted-foreground mb-3">More</h3>
+            <div className="flex flex-wrap gap-2">
+              {moreLinks.map((item) => (
+                <Button key={item.path} variant="outline" size="sm" onClick={() => navigate(item.path)}>
+                  <item.icon className="h-3.5 w-3.5 mr-2" />
+                  {item.title}
+                </Button>
               ))}
             </div>
           </section>

@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.0";
 import { getPublisher } from "../_shared/publisher/index.ts";
 import { resolveForApproval, type Frequency } from "../_shared/schedule-resolver.ts";
+import { getDraftImageUrl } from "../_shared/get-draft-image-url.ts";
 
 // Hand an approved draft to the provider's scheduler at its slot time.
 // Invoked on approval with { draftId }. Idempotent: a draft already handed off
@@ -125,12 +126,14 @@ serve(async (req) => {
 
     // Hand off to the provider's scheduler.
     try {
+      const imageUrl = await getDraftImageUrl(supabase, draft.id);
       const result = await publisher.publish({
         text,
         platform: "linkedin",
         accountId: conn.external_account_id,
         scheduledFor: resolved.scheduledFor,
         timezone: resolved.timezone,
+        imageUrl,
       });
       await supabase.from("drafts").update({
         external_post_id: result.externalPostId,

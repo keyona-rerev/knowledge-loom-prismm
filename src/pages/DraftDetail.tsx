@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { ArrowLeft, FileText, Clock, Edit, Save, Sparkles, ImageIcon, RotateCcw, Link2, Copy, Check, Send, CalendarCheck, X } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { VisualForge } from "@/components/VisualForge";
+import { ensureVisualImageUploaded } from "@/lib/ensureVisualImage";
 
 interface ContentTemplate {
   id: string;
@@ -200,13 +201,19 @@ const DraftDetail = () => {
     } else {
       toast.success("Draft approved! Generating visual...");
       await loadDraft();
-      if (session?.user?.id) {
-        supabase.functions.invoke("generate-draft-visual", {
-          body: { draftId: draft.id, userId: session.user.id }
-        }).catch(err => console.error("Visual generation error:", err));
-      }
-      supabase.functions.invoke("publish-to-zernio", { body: { draftId: draft.id } })
-        .then(({ data }) => {
+      (async () => {
+        if (session?.user?.id) {
+          try {
+            await supabase.functions.invoke("generate-draft-visual", {
+              body: { draftId: draft.id, userId: session.user.id }
+            });
+            await ensureVisualImageUploaded(draft.id, session.user.id);
+          } catch (err) {
+            console.error("Visual generation error:", err);
+          }
+        }
+        try {
+          const { data } = await supabase.functions.invoke("publish-to-zernio", { body: { draftId: draft.id } });
           if (data?.status === "scheduled") {
             const when = new Date(data.scheduledFor).toLocaleString();
             toast.success(data.basis === "rescheduled"
@@ -218,8 +225,10 @@ const DraftDetail = () => {
             toast.error(`Publish failed: ${data.error}`);
           }
           loadDraft();
-        })
-        .catch((err) => console.error("Publish error:", err));
+        } catch (err) {
+          console.error("Publish error:", err);
+        }
+      })();
     }
   };
 
@@ -279,6 +288,10 @@ const DraftDetail = () => {
 
     setPostingNow(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.id) {
+        await ensureVisualImageUploaded(draft.id, session.user.id, { timeoutMs: 30000 });
+      }
       const { data, error } = await supabase.functions.invoke("post-now", {
         body: { draftId: draft.id },
       });

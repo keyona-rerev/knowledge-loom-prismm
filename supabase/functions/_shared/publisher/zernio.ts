@@ -92,6 +92,7 @@ export class ZernioPublisher implements Publisher {
       scheduledFor: input.scheduledFor,
       timezone: input.timezone,
       status: "scheduled",
+      mediaItems: input.imageUrl ? [{ type: "image", url: input.imageUrl }] : undefined,
     };
     const body = await this.#request(`/posts`, {
       method: "POST",

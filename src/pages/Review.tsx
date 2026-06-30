@@ -12,6 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { ArrowLeft, Check, X, Clock, Filter, CheckCheck, Ban, MessageCircle, AlertTriangle, RefreshCw, ExternalLink, Send } from "lucide-react";
+import { ensureVisualImageUploaded } from "@/lib/ensureVisualImage";
 
 interface Draft {
   id: string;
@@ -94,14 +95,19 @@ const Review = () => {
 
     toast.success("Draft approved! Generating visual...");
 
-    if (session?.user?.id) {
-      supabase.functions.invoke("generate-draft-visual", {
-        body: { draftId, userId: session.user.id }
-      }).catch(err => console.error("Visual generation error:", err));
-    }
-
-    supabase.functions.invoke("publish-to-zernio", { body: { draftId } })
-      .then(({ data }) => {
+    (async () => {
+      if (session?.user?.id) {
+        try {
+          await supabase.functions.invoke("generate-draft-visual", {
+            body: { draftId, userId: session.user.id }
+          });
+          await ensureVisualImageUploaded(draftId, session.user.id);
+        } catch (err) {
+          console.error("Visual generation error:", err);
+        }
+      }
+      try {
+        const { data } = await supabase.functions.invoke("publish-to-zernio", { body: { draftId } });
         if (data?.status === "scheduled") {
           const when = new Date(data.scheduledFor).toLocaleString();
           toast.success(data.basis === "rescheduled"
@@ -113,8 +119,10 @@ const Review = () => {
           toast.error(`Publish failed: ${data.error}`);
         }
         loadDrafts();
-      })
-      .catch((err) => console.error("Publish error:", err));
+      } catch (err) {
+        console.error("Publish error:", err);
+      }
+    })();
   };
 
   const handlePostNow = async (draft: Draft) => {
@@ -125,6 +133,10 @@ const Review = () => {
 
     setPostingNowId(draft.id);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.id) {
+        await ensureVisualImageUploaded(draft.id, session.user.id, { timeoutMs: 30000 });
+      }
       const { data, error } = await supabase.functions.invoke("post-now", {
         body: { draftId: draft.id },
       });
@@ -146,6 +158,10 @@ const Review = () => {
 
   const handleRetrySchedule = async (draftId: string) => {
     toast.info("Retrying schedule...");
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user?.id) {
+      await ensureVisualImageUploaded(draftId, session.user.id, { timeoutMs: 10000 });
+    }
     const { data, error } = await supabase.functions.invoke("publish-to-zernio", { body: { draftId } });
     if (error) { toast.error("Retry could not reach the scheduler"); return; }
     if (data?.status === "scheduled") {
@@ -225,6 +241,7 @@ const Review = () => {
   const handleBulkAction = async () => {
     if (!bulkAction || selectedDrafts.length === 0) { toast.error("Please select an action and at least one draft"); return; }
     if (bulkAction === "reject" && !rejectNote.trim()) { toast.error("Please provide a reason for rejection"); return; }
+    const { data: { session } } = await supabase.auth.getSession();
     for (const draftId of selectedDrafts) {
       const { error } = await supabase
         .from("drafts")
@@ -232,8 +249,20 @@ const Review = () => {
         .eq("id", draftId);
       if (error) { toast.error(`Failed to update draft ${draftId}`); return; }
       if (bulkAction === "approve") {
-        supabase.functions.invoke("publish-to-zernio", { body: { draftId } })
-          .catch((err) => console.error("Publish error:", err));
+        (async () => {
+          if (session?.user?.id) {
+            try {
+              await supabase.functions.invoke("generate-draft-visual", {
+                body: { draftId, userId: session.user.id }
+              });
+              await ensureVisualImageUploaded(draftId, session.user.id);
+            } catch (err) {
+              console.error("Visual generation error:", err);
+            }
+          }
+          supabase.functions.invoke("publish-to-zernio", { body: { draftId } })
+            .catch((err) => console.error("Publish error:", err));
+        })();
       }
     }
     toast.success(`${selectedDrafts.length} drafts ${bulkAction}ed`);

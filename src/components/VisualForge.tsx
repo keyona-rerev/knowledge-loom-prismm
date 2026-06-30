@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Download, Loader2, ImageIcon, RefreshCw } from "lucide-react";
+import { capturePngDataUrl } from "@/lib/visualCapture";
 
 interface VisualForgeProps {
   draftId: string;
@@ -31,45 +32,12 @@ const VISUAL_TYPE_LABELS: Record<string, string> = {
   generating: "Generating...",
 };
 
-// Injects html2canvas into the visual HTML and triggers a capture on load,
-// then posts the PNG data URL back to the parent window.
-function buildCapturePage(html: string): string {
-  const script = `
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"><\/script>
-<script>
-window.addEventListener('load', function() {
-  // Small delay so fonts finish rendering
-  setTimeout(function() {
-    html2canvas(document.body, {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: null,
-      logging: false,
-      width: 1200,
-      height: 627
-    }).then(function(canvas) {
-      window.parent.postMessage({ type: 'PRISMM_PNG', dataUrl: canvas.toDataURL('image/png') }, '*');
-    }).catch(function(err) {
-      window.parent.postMessage({ type: 'PRISMM_PNG_ERROR', error: err.message }, '*');
-    });
-  }, 600);
-});
-<\/script>`;
-
-  // Insert before </body> if present, otherwise append
-  if (html.includes("</body>")) {
-    return html.replace("</body>", script + "\n</body>");
-  }
-  return html + "\n" + script;
-}
-
 export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
   const [visual, setVisual] = useState<DraftVisual | null>(null);
   const [loading, setLoading] = useState(true);
   const [regenerating, setRegenerating] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const captureIframeRef = useRef<HTMLIFrameElement | null>(null);
   const pollRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadVisual = async () => {
@@ -123,66 +91,22 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
     }
   };
 
-  // PNG download: inject html2canvas into a hidden off-screen iframe,
-  // listen for the postMessage with the data URL, then trigger the download.
-  const handleDownloadPng = () => {
+  const handleDownloadPng = async () => {
     if (!visual?.html_content) return;
     setDownloading(true);
-
-    const filename = `prismm-visual-${visual.visual_type}-${visual.id.slice(0, 8)}.png`;
-
-    // Listen for the capture result
-    const onMessage = (evt: MessageEvent) => {
-      if (evt.data?.type === "PRISMM_PNG") {
-        window.removeEventListener("message", onMessage);
-        const link = document.createElement("a");
-        link.download = filename;
-        link.href = evt.data.dataUrl;
-        link.click();
-        // Clean up the hidden iframe
-        if (captureIframeRef.current) {
-          document.body.removeChild(captureIframeRef.current);
-          captureIframeRef.current = null;
-        }
-        setDownloading(false);
-        toast.success("PNG downloaded — check your Downloads folder.");
-      } else if (evt.data?.type === "PRISMM_PNG_ERROR") {
-        window.removeEventListener("message", onMessage);
-        if (captureIframeRef.current) {
-          document.body.removeChild(captureIframeRef.current);
-          captureIframeRef.current = null;
-        }
-        setDownloading(false);
-        toast.error("PNG capture failed: " + (evt.data.error || "unknown error"));
-      }
-    };
-    window.addEventListener("message", onMessage);
-
-    // Build a hidden 1200x627 iframe that captures itself on load
-    const capturePage = buildCapturePage(visual.html_content);
-    const blob = new Blob([capturePage], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-
-    const frame = document.createElement("iframe");
-    frame.style.cssText =
-      "position:fixed;left:-9999px;top:-9999px;width:1200px;height:627px;border:none;visibility:hidden;";
-    frame.src = url;
-    captureIframeRef.current = frame;
-    document.body.appendChild(frame);
-
-    // Safety timeout in case the iframe never posts back
-    setTimeout(() => {
-      if (downloading) {
-        window.removeEventListener("message", onMessage);
-        if (captureIframeRef.current) {
-          document.body.removeChild(captureIframeRef.current);
-          captureIframeRef.current = null;
-        }
-        setDownloading(false);
-        toast.error("PNG capture timed out. Try regenerating the visual.");
-      }
-      URL.revokeObjectURL(url);
-    }, 15000);
+    try {
+      const dataUrl = await capturePngDataUrl(visual.html_content);
+      const filename = `prismm-visual-${visual.visual_type}-${visual.id.slice(0, 8)}.png`;
+      const link = document.createElement("a");
+      link.download = filename;
+      link.href = dataUrl;
+      link.click();
+      toast.success("PNG downloaded — check your Downloads folder.");
+    } catch (err) {
+      toast.error("PNG capture failed: " + ((err as Error)?.message || "unknown error"));
+    } finally {
+      setDownloading(false);
+    }
   };
 
   if (loading) {

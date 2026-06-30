@@ -31,6 +31,7 @@ export interface PublishInput {
   accountId: string; // provider account id (from social_connections)
   scheduledFor: string; // ISO-8601 UTC instant from the resolver
   timezone: string; // IANA zone the slot is expressed in
+  imageUrl?: string; // public URL of the draft's generated visual, if ready
 }
 
 export interface PublishResult {

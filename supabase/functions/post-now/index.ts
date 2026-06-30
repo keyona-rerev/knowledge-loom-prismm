@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.0";
 import { getPublisher } from "../_shared/publisher/index.ts";
+import { getDraftImageUrl } from "../_shared/get-draft-image-url.ts";
 
 // Publishes an approved draft immediately (or within ~60 seconds) by scheduling
 // it at the current time. Unlike publish-to-zernio, this bypasses the slot
@@ -96,12 +97,14 @@ serve(async (req) => {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
     try {
+      const imageUrl = await getDraftImageUrl(supabase, draft.id);
       const result = await publisher.publish({
         text,
         platform: "linkedin",
         accountId: conn.external_account_id,
         scheduledFor,
         timezone,
+        imageUrl,
       });
 
       await supabase

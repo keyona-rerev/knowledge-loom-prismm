@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ColorProvider } from "./components/ColorProvider";
 import { AuthProvider } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -10,7 +10,6 @@ import NotFound from "./pages/NotFound";
 import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
 import Strategy from "./pages/Strategy";
-import Audience from "./pages/Audience";
 import Feeds from "./pages/Feeds";
 import ReferenceCards from "./pages/ReferenceCards";
 import CardDetail from "./pages/CardDetail";
@@ -45,7 +44,8 @@ const App = () => (
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
               <Route path="/visual-studio" element={<ProtectedRoute><VisualStudio /></ProtectedRoute>} />
               <Route path="/strategy" element={<ProtectedRoute><Strategy /></ProtectedRoute>} />
-              <Route path="/audience" element={<ProtectedRoute><Audience /></ProtectedRoute>} />
+              {/* Audience merged into Strategy; keep the old URL working */}
+              <Route path="/audience" element={<Navigate to="/strategy" replace />} />
               <Route path="/feeds" element={<ProtectedRoute><Feeds /></ProtectedRoute>} />
               <Route path="/cards" element={<ProtectedRoute><ReferenceCards /></ProtectedRoute>} />
               <Route path="/cards/:id" element={<ProtectedRoute><CardDetail /></ProtectedRoute>} />

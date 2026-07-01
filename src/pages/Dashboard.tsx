@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Rss, FileEdit, Settings, MessageCircleQuestion, LogOut,
-  CheckCheck, Clock, Lightbulb, Target, CalendarClock, AlertTriangle, Send, Database, Plus,
+  CheckCheck, Clock, Lightbulb, Target, CalendarClock, AlertTriangle, Database, Plus,
 } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { supabase } from "@/integrations/supabase/client";
@@ -16,7 +16,6 @@ const Dashboard = () => {
   const [stats, setStats] = useState({
     pendingReviews: 0,
     approvedDrafts: 0,
-    postedCount: 0,
     minApprovedThreshold: 12,
   });
   const [loading, setLoading] = useState(true);
@@ -60,12 +59,10 @@ const Dashboard = () => {
       // threshold banner built on it) would only ever grow and never reflect
       // an actually-thinning queue.
       const approvedDrafts = drafts.filter(d => d.approval_status === "approved" && !isPosted(d)).length;
-      const postedCount = drafts.filter(isPosted).length;
 
       setStats({
         pendingReviews,
         approvedDrafts,
-        postedCount,
         minApprovedThreshold: (profile as any)?.min_approved_threshold ?? 12,
       });
     } catch (error) {
@@ -185,7 +182,7 @@ The dashboard shows your review pipeline and quick access to everything else.`}
               <CheckCheck className="h-5 w-5 text-primary" />
               <h3 className="text-xl font-semibold">Review</h3>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <Card
                 className={`cursor-pointer hover:shadow-lg transition-shadow ${stats.pendingReviews > 0 ? "border-2 border-yellow-300 bg-yellow-50" : "border-2 border-primary/20"}`}
                 onClick={() => navigate("/review")}
@@ -220,21 +217,6 @@ The dashboard shows your review pipeline and quick access to everything else.`}
                 </CardHeader>
                 <CardContent>
                   <CardDescription>Approved and scheduled to publish</CardDescription>
-                </CardContent>
-              </Card>
-
-              <Card className="cursor-pointer hover:shadow-lg transition-shadow border-2 border-primary/20" onClick={() => navigate("/schedule?tab=posted")}>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <Send className="h-8 w-8" style={{ color: "#f9655b" }} />
-                      <CardTitle className="text-lg">Posted</CardTitle>
-                    </div>
-                    <Badge style={{ backgroundColor: "#f9655b", color: "#ffffff" }}>{stats.postedCount}</Badge>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <CardDescription>Live on LinkedIn — see the full list on Schedule</CardDescription>
                 </CardContent>
               </Card>
             </div>

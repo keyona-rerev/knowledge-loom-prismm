@@ -337,135 +337,10 @@ const Feeds = () => {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
+        <div className="container mx-auto px-4 py-4">
           <Button variant="ghost" onClick={() => navigate("/dashboard")}>
             <ArrowLeft className="mr-2 h-4 w-4" />Back to Dashboard
           </Button>
-          <Dialog open={manualSourceDialogOpen} onOpenChange={(open) => { setManualSourceDialogOpen(open); if (!open) resetDialog(); }}>
-            <DialogTrigger asChild>
-              <Button variant="outline"><Plus className="mr-2 h-4 w-4" />Manual Source</Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Create Manual Source</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                {/* Source type selector */}
-                <div className="flex gap-2">
-                  <Button
-                    variant={manualSourceType === "url" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setManualSourceType("url")}
-                  >
-                    <LinkIcon className="mr-2 h-4 w-4" />Article URL
-                  </Button>
-                  <Button
-                    variant={manualSourceType === "pdf" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setManualSourceType("pdf")}
-                  >
-                    <FileUp className="mr-2 h-4 w-4" />Upload PDF
-                  </Button>
-                  <Button
-                    variant={manualSourceType === "paste" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setManualSourceType("paste")}
-                  >
-                    <ClipboardPaste className="mr-2 h-4 w-4" />Paste text
-                  </Button>
-                </div>
-
-                {/* URL input */}
-                {manualSourceType === "url" && (
-                  <div className="space-y-2">
-                    <Label>Article URL</Label>
-                    <Input
-                      placeholder="https://example.com/article"
-                      value={manualUrl}
-                      onChange={(e) => setManualUrl(e.target.value)}
-                    />
-                  </div>
-                )}
-
-                {/* PDF upload */}
-                {manualSourceType === "pdf" && (
-                  <div className="space-y-2">
-                    <Label>Upload PDF</Label>
-                    <Input
-                      type="file"
-                      accept=".pdf"
-                      onChange={(e) => setManualPdfFile(e.target.files?.[0] || null)}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Upload a PDF to extract its content and create a reference card.
-                    </p>
-                  </div>
-                )}
-
-                {/* Paste text */}
-                {manualSourceType === "paste" && (
-                  <div className="space-y-3">
-                    <div className="space-y-2">
-                      <Label>Title <span className="text-muted-foreground font-normal">(optional)</span></Label>
-                      <Input
-                        placeholder="Article title or headline..."
-                        value={pasteTitle}
-                        onChange={(e) => setPasteTitle(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Article text</Label>
-                      <Textarea
-                        placeholder="Paste the full article text here..."
-                        value={pasteText}
-                        onChange={(e) => setPasteText(e.target.value)}
-                        rows={10}
-                        className="resize-y font-mono text-sm"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        {pasteText.length > 0
-                          ? `${pasteText.length.toLocaleString()} characters · ${Math.round(pasteText.split(/\s+/).filter(Boolean).length)} words`
-                          : "Copy the full article text from your browser and paste it here."}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Question set */}
-                <div className="space-y-2">
-                  <Label>Question Set</Label>
-                  <Select value={selectedQuestionSet} onValueChange={setSelectedQuestionSet}>
-                    <SelectTrigger><SelectValue placeholder="Select question set" /></SelectTrigger>
-                    <SelectContent>
-                      {questionSets.map((set) => (
-                        <SelectItem key={set.id} value={set.id}>{set.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Choose which questions to run against this source.
-                  </p>
-                </div>
-
-                {/* From company toggle */}
-                <div className="flex items-center justify-between rounded-lg border p-3">
-                  <div className="space-y-0.5 pr-3">
-                    <Label>From the company (first-party)</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Mark this as Prismm's own material so the writer can weight and anchor on it.
-                    </p>
-                  </div>
-                  <Switch checked={manualFromCompany} onCheckedChange={setManualFromCompany} />
-                </div>
-
-                <Button onClick={createManualSource} className="w-full" disabled={creatingManualSource}>
-                  {creatingManualSource
-                    ? <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Creating...</>
-                    : "Create Reference Card"}
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
         </div>
       </header>
 
@@ -664,6 +539,134 @@ Reference cards are created from your sources and used for content generation.`}
           </TabsContent>
 
           <TabsContent value="manual">
+            <div className="mb-6">
+              <h2 className="text-xl font-semibold mb-3">Manual Sources</h2>
+              <Dialog open={manualSourceDialogOpen} onOpenChange={(open) => { setManualSourceDialogOpen(open); if (!open) resetDialog(); }}>
+                <DialogTrigger asChild>
+                  <Button variant="outline"><Plus className="mr-2 h-4 w-4" />Manual Sources</Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>Create Manual Source</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    {/* Source type selector */}
+                    <div className="flex gap-2">
+                      <Button
+                        variant={manualSourceType === "url" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setManualSourceType("url")}
+                      >
+                        <LinkIcon className="mr-2 h-4 w-4" />Article URL
+                      </Button>
+                      <Button
+                        variant={manualSourceType === "pdf" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setManualSourceType("pdf")}
+                      >
+                        <FileUp className="mr-2 h-4 w-4" />Upload PDF
+                      </Button>
+                      <Button
+                        variant={manualSourceType === "paste" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setManualSourceType("paste")}
+                      >
+                        <ClipboardPaste className="mr-2 h-4 w-4" />Paste text
+                      </Button>
+                    </div>
+
+                    {/* URL input */}
+                    {manualSourceType === "url" && (
+                      <div className="space-y-2">
+                        <Label>Article URL</Label>
+                        <Input
+                          placeholder="https://example.com/article"
+                          value={manualUrl}
+                          onChange={(e) => setManualUrl(e.target.value)}
+                        />
+                      </div>
+                    )}
+
+                    {/* PDF upload */}
+                    {manualSourceType === "pdf" && (
+                      <div className="space-y-2">
+                        <Label>Upload PDF</Label>
+                        <Input
+                          type="file"
+                          accept=".pdf"
+                          onChange={(e) => setManualPdfFile(e.target.files?.[0] || null)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Upload a PDF to extract its content and create a reference card.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Paste text */}
+                    {manualSourceType === "paste" && (
+                      <div className="space-y-3">
+                        <div className="space-y-2">
+                          <Label>Title <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                          <Input
+                            placeholder="Article title or headline..."
+                            value={pasteTitle}
+                            onChange={(e) => setPasteTitle(e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Article text</Label>
+                          <Textarea
+                            placeholder="Paste the full article text here..."
+                            value={pasteText}
+                            onChange={(e) => setPasteText(e.target.value)}
+                            rows={10}
+                            className="resize-y font-mono text-sm"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            {pasteText.length > 0
+                              ? `${pasteText.length.toLocaleString()} characters · ${Math.round(pasteText.split(/\s+/).filter(Boolean).length)} words`
+                              : "Copy the full article text from your browser and paste it here."}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Question set */}
+                    <div className="space-y-2">
+                      <Label>Question Set</Label>
+                      <Select value={selectedQuestionSet} onValueChange={setSelectedQuestionSet}>
+                        <SelectTrigger><SelectValue placeholder="Select question set" /></SelectTrigger>
+                        <SelectContent>
+                          {questionSets.map((set) => (
+                            <SelectItem key={set.id} value={set.id}>{set.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Choose which questions to run against this source.
+                      </p>
+                    </div>
+
+                    {/* From company toggle */}
+                    <div className="flex items-center justify-between rounded-lg border p-3">
+                      <div className="space-y-0.5 pr-3">
+                        <Label>From the company (first-party)</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Mark this as Prismm's own material so the writer can weight and anchor on it.
+                        </p>
+                      </div>
+                      <Switch checked={manualFromCompany} onCheckedChange={setManualFromCompany} />
+                    </div>
+
+                    <Button onClick={createManualSource} className="w-full" disabled={creatingManualSource}>
+                      {creatingManualSource
+                        ? <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Creating...</>
+                        : "Create Reference Card"}
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
             <div className="grid gap-4">
               {manualSources.length === 0 && (
                 <Card>

@@ -1,17 +1,16 @@
 // src/components/calendar/WeeklyCalendar.tsx
 //
-// Real schedule view: sourced from drafts (publish_status in scheduled /
-// published_now), the actual publish truth, joined to content_schedules for
-// slot context. The old version read/wrote content_calendar, a table nothing
-// in publish-to-zernio ever consulted, so dragging a draft onto it had zero
-// effect on what Zernio actually posted.
+// The "Upcoming" view: still-scheduled drafts (not yet posted — those live in
+// the Posted tab) sourced from drafts joined to content_schedules, the real
+// publish truth, not content_calendar. Days that have an active cadence slot
+// are highlighted, matching the standing Mon/Wed/Fri-style pattern configured
+// in the Cadence tab, so a post landing on its cadence day reads as expected.
 //
-// Scheduling itself now happens automatically at approval (publish-to-zernio
-// resolves the slot's next occurrence), so there's no "place this draft on a
-// date" interaction left to support. This view is read + edit (time only),
-// not a placement tool, so drag-and-drop is gone along with it.
+// Dragging a card to a different day calls reschedule-draft for real (same
+// function the "Edit time" dialog uses) — it keeps the draft's original
+// time-of-day and only changes the date.
 import { useState, useEffect } from "react";
-import { startOfWeek, addDays } from "date-fns";
+import { startOfWeek, addDays, setHours, setMinutes, setSeconds, setMilliseconds } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import { CalendarHeader } from "./CalendarHeader";
 import { CalendarDayColumn } from "./CalendarDayColumn";
@@ -22,6 +21,7 @@ import { toast } from "sonner";
 export const WeeklyCalendar = () => {
   const [currentWeek, setCurrentWeek] = useState(new Date());
   const [drafts, setDrafts] = useState<ScheduledDraft[]>([]);
+  const [cadenceDays, setCadenceDays] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [rescheduling, setRescheduling] = useState<ScheduledDraft | null>(null);
 
@@ -36,17 +36,22 @@ export const WeeklyCalendar = () => {
     const weekStart = startOfWeek(currentWeek, { weekStartsOn: 0 });
     const weekEnd = addDays(weekStart, 7);
 
-    const { data, error } = await supabase
-      .from("drafts")
-      .select(`
-        id, title, body, content_type, publish_status, scheduled_for, external_post_id,
-        schedule:content_schedules ( frequency, format:formats ( name ) )
-      `)
-      .eq("user_id", session?.user?.id)
-      .in("publish_status", ["scheduled", "published_now"])
-      .gte("scheduled_for", weekStart.toISOString())
-      .lt("scheduled_for", weekEnd.toISOString())
-      .order("scheduled_for");
+    const [{ data, error }, { data: cadence }] = await Promise.all([
+      supabase.from("drafts")
+        .select(`
+          id, title, body, content_type, publish_status, scheduled_for, external_post_id,
+          schedule:content_schedules ( frequency, format:formats ( name ) )
+        `)
+        .eq("user_id", session?.user?.id)
+        .eq("publish_status", "scheduled")
+        .gte("scheduled_for", weekStart.toISOString())
+        .lt("scheduled_for", weekEnd.toISOString())
+        .order("scheduled_for"),
+      supabase.from("content_schedules")
+        .select("day_of_week")
+        .eq("user_id", session?.user?.id)
+        .eq("is_active", true),
+    ]);
 
     if (error) {
       console.error("Error loading schedule:", error);
@@ -54,6 +59,7 @@ export const WeeklyCalendar = () => {
     } else {
       setDrafts((data || []) as unknown as ScheduledDraft[]);
     }
+    setCadenceDays(new Set((cadence || []).map((c) => c.day_of_week)));
     setLoading(false);
   };
 
@@ -64,6 +70,40 @@ export const WeeklyCalendar = () => {
 
   const getDraftsForDay = (date: Date) =>
     drafts.filter((d) => new Date(d.scheduled_for).toDateString() === date.toDateString());
+
+  const handleDropDraft = async (draftId: string, targetDate: Date) => {
+    const draft = drafts.find((d) => d.id === draftId);
+    if (!draft) return;
+    const original = new Date(draft.scheduled_for);
+    if (original.toDateString() === targetDate.toDateString()) return; // dropped on its own day
+
+    // Keep the original time-of-day, just move the date.
+    const newDate = setMilliseconds(setSeconds(setMinutes(setHours(targetDate, original.getHours()), original.getMinutes()), original.getSeconds()), 0);
+    if (newDate.getTime() <= Date.now()) {
+      toast.error("Can't move a post into the past");
+      return;
+    }
+
+    // Optimistic update so the card doesn't snap back while the request is in flight.
+    setDrafts((prev) => prev.map((d) => (d.id === draftId ? { ...d, scheduled_for: newDate.toISOString() } : d)));
+
+    try {
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      const { data, error } = await supabase.functions.invoke("reschedule-draft", {
+        body: { draftId, newScheduledFor: newDate.toISOString(), timezone },
+      });
+      if (error) throw error;
+      if (data?.ok) {
+        toast.success("Rescheduled");
+      } else {
+        toast.error(data?.error || "Reschedule failed");
+      }
+    } catch (err) {
+      toast.error("Reschedule failed: " + (err as Error)?.message);
+    } finally {
+      loadScheduled();
+    }
+  };
 
   if (loading) {
     return (
@@ -83,7 +123,9 @@ export const WeeklyCalendar = () => {
             key={day.toISOString()}
             date={day}
             drafts={getDraftsForDay(day)}
+            isCadenceDay={cadenceDays.has(day.getDay())}
             onEditTime={setRescheduling}
+            onDropDraft={handleDropDraft}
           />
         ))}
       </div>

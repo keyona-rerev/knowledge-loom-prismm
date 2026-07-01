@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { format, startOfWeek, addWeeks, subWeeks } from "date-fns";
 
 interface CalendarHeaderProps {
@@ -27,11 +27,6 @@ export const CalendarHeader = ({ currentWeek, onWeekChange, onRefresh }: Calenda
   return (
     <div className="flex items-center justify-between p-6 border-b bg-white">
       <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          <Calendar className="h-5 w-5 text-blue-600" />
-          <h1 className="text-2xl font-bold text-gray-900">Content Calendar</h1>
-        </div>
-        
         <div className="flex items-center gap-2">
           <Button
             variant="outline"

@@ -21,7 +21,6 @@ import Auth from "./pages/Auth";
 import Insights from "./pages/Insights";
 import InsightDetail from "./pages/InsightDetail";
 import Review from "./pages/Review";
-import ContentCalendar from "./pages/ContentCalendar";
 import Schedule from "./pages/Schedule";
 import QuestionSets from "./pages/QuestionSets";
 import QuestionSetEditor from "./pages/QuestionSetEditor";
@@ -58,7 +57,8 @@ const App = () => (
               <Route path="/insights/new" element={<ProtectedRoute><InsightDetail /></ProtectedRoute>} />
               <Route path="/insights/:id" element={<ProtectedRoute><InsightDetail /></ProtectedRoute>} />
               <Route path="/review" element={<ProtectedRoute><Review /></ProtectedRoute>} />
-              <Route path="/calendar" element={<ProtectedRoute><ContentCalendar /></ProtectedRoute>} />
+              {/* Calendar merged into Schedule's Upcoming tab; keep the old URL working */}
+              <Route path="/calendar" element={<Navigate to="/schedule?tab=upcoming" replace />} />
               <Route path="/schedule" element={<ProtectedRoute><Schedule /></ProtectedRoute>} />
               <Route path="/question-sets" element={<ProtectedRoute><QuestionSets /></ProtectedRoute>} />
               <Route path="/question-sets/new" element={<ProtectedRoute><QuestionSetEditor /></ProtectedRoute>} />

@@ -67,7 +67,7 @@ const InsightDetail = () => {
     if (error) {
       console.error("Error loading insight:", error);
       toast.error("Failed to load insight");
-      navigate("/insights");
+      navigate("/feeds?tab=observations");
     } else if (data) {
       setFormData({
         title: data.title || "",
@@ -157,7 +157,7 @@ const InsightDetail = () => {
       if (insightId) await syncReferenceCard(insightId, session.user.id);
 
       toast.success(isEditing ? "Insight updated" : "Insight captured and added to your reference library");
-      navigate("/insights");
+      navigate("/feeds?tab=observations");
     } catch (error) {
       console.error("Error saving insight:", error);
       toast.error(`Failed to ${isEditing ? 'update' : 'create'} insight`);
@@ -196,9 +196,9 @@ const InsightDetail = () => {
       <div className="min-h-screen bg-background">
         <header className="border-b">
           <div className="container mx-auto px-4 py-4">
-            <Button variant="ghost" onClick={() => navigate("/insights")}>
+            <Button variant="ghost" onClick={() => navigate("/feeds?tab=observations")}>
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Insights
+              Back to Sources
             </Button>
           </div>
         </header>
@@ -220,9 +220,9 @@ const InsightDetail = () => {
     <div className="min-h-screen bg-background">
       <header className="border-b">
         <div className="container mx-auto px-4 py-4">
-          <Button variant="ghost" onClick={() => navigate("/insights")}>
+          <Button variant="ghost" onClick={() => navigate("/feeds?tab=observations")}>
             <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Insights
+            Back to Sources
           </Button>
         </div>
       </header>

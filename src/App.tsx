@@ -18,7 +18,6 @@ import Drafts from "./pages/Drafts";
 import DraftDetail from "./pages/DraftDetail";
 import QuestionSettings from "./pages/QuestionSettings";
 import Auth from "./pages/Auth";
-import Insights from "./pages/Insights";
 import InsightDetail from "./pages/InsightDetail";
 import Review from "./pages/Review";
 import Schedule from "./pages/Schedule";
@@ -53,7 +52,8 @@ const App = () => (
               <Route path="/drafts" element={<ProtectedRoute><Drafts /></ProtectedRoute>} />
               <Route path="/drafts/:id" element={<ProtectedRoute><DraftDetail /></ProtectedRoute>} />
               <Route path="/questions" element={<ProtectedRoute><QuestionSettings /></ProtectedRoute>} />
-              <Route path="/insights" element={<ProtectedRoute><Insights /></ProtectedRoute>} />
+              {/* Journal merged into the Sources page's Observations tab; keep the old URL working */}
+              <Route path="/insights" element={<Navigate to="/feeds?tab=observations" replace />} />
               <Route path="/insights/new" element={<ProtectedRoute><InsightDetail /></ProtectedRoute>} />
               <Route path="/insights/:id" element={<ProtectedRoute><InsightDetail /></ProtectedRoute>} />
               <Route path="/review" element={<ProtectedRoute><Review /></ProtectedRoute>} />

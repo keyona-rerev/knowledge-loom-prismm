@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,8 @@ import {
   Settings,
   ExternalLink,
   ClipboardPaste,
+  Rss,
+  Lightbulb,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -41,9 +43,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { parsePDF } from "@/lib/pdf-parser";
+import { ObservationsTab } from "@/components/sources/ObservationsTab";
+
+const VALID_TABS = ["automated", "manual", "observations"];
 
 const Feeds = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const activeTab = VALID_TABS.includes(tabParam || "") ? tabParam! : "automated";
   const [feeds, setFeeds] = useState<any[]>([]);
   const [selectedQuestionSet, setSelectedQuestionSet] = useState("default");
 
@@ -56,7 +64,6 @@ const Feeds = () => {
   const [manualFromCompany, setManualFromCompany] = useState(false);
   const [creatingManualSource, setCreatingManualSource] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<"newsletter" | "manual">("newsletter");
   const [expandedFeeds, setExpandedFeeds] = useState<Set<string>>(new Set());
   const [refCardsByFeed, setRefCardsByFeed] = useState<Record<string, any[]>>({});
   const [loadingRefs, setLoadingRefs] = useState(false);
@@ -69,6 +76,13 @@ const Feeds = () => {
   const [recentEmails, setRecentEmails] = useState<any[]>([]);
   const [loadingEmails, setLoadingEmails] = useState(false);
   const [emailDetailsOpen, setEmailDetailsOpen] = useState(false);
+
+  // Automated reference cards (rss + newsletter) are queried directly by
+  // source_type rather than through source_feeds, since newsletter-sourced
+  // cards never get a source_feed_id (there's no per-newsletter feed row) -
+  // grouping by feed was hiding them entirely.
+  const [automatedCards, setAutomatedCards] = useState<any[]>([]);
+  const [loadingAutomatedCards, setLoadingAutomatedCards] = useState(false);
 
   const loadReferenceCards = async (feedIds: string[]) => {
     if (!feedIds.length) return;
@@ -179,11 +193,25 @@ const Feeds = () => {
     setLoadingEmails(false);
   };
 
+  const loadAutomatedCards = async () => {
+    setLoadingAutomatedCards(true);
+    const { data, error } = await supabase
+      .from("reference_cards")
+      .select("id,title,content_quality,content_warning,ai_summary,status,source_type,created_at")
+      .in("source_type", ["rss", "newsletter"])
+      .order("created_at", { ascending: false })
+      .limit(100);
+    if (error) { console.error("Failed to load automated reference cards:", error); }
+    else { setAutomatedCards(data || []); }
+    setLoadingAutomatedCards(false);
+  };
+
   useEffect(() => {
     loadFeeds();
     loadQuestionSets();
     loadNewsletterConfig();
     loadRecentEmails();
+    loadAutomatedCards();
   }, [navigate]);
 
   const deleteFeed = async (id: string, name: string) => {
@@ -442,26 +470,30 @@ const Feeds = () => {
       </header>
 
       <main className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold mb-4">Content Sources</h1>
+        <h1 className="text-3xl font-bold mb-4">Sources</h1>
 
         <InstructionsToggle
-          instructions={`Content Sources helps you bring content into Knowledge Loom:
+          instructions={`Sources brings everything that feeds the engine into one place:
 
-1. Newsletter Inbox: Subscribe to any newsletter using your unique email address
-2. Manual Sources: Paste article links, upload PDFs, or paste full article text directly
+1. Automated: Subscribe to any newsletter using your unique email address, or pull in RSS feeds. Reference cards appear here automatically - an AI relevance gate filters out noise before a card is ever created.
+2. Manual: Paste article links, upload PDFs, or paste full article text directly
+3. Observations: Capture thesis statements, hooks, and other journal entries - each one becomes a citable reference card as soon as you save it
 
 Reference cards are created from your sources and used for content generation.`}
         />
 
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "newsletter" | "manual")}>
+        <Tabs value={activeTab} onValueChange={(v) => setSearchParams({ tab: v })}>
           <TabsList className="mb-4">
-            <TabsTrigger value="newsletter">
-              <Mail className="h-4 w-4 mr-2" />Newsletter Inbox
+            <TabsTrigger value="automated">
+              <Rss className="h-4 w-4 mr-2" />Automated
             </TabsTrigger>
-            <TabsTrigger value="manual">Manual Sources</TabsTrigger>
+            <TabsTrigger value="manual">Manual</TabsTrigger>
+            <TabsTrigger value="observations">
+              <Lightbulb className="h-4 w-4 mr-2" />Observations
+            </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="newsletter">
+          <TabsContent value="automated">
             {loadingNewsletter ? (
               <Card>
                 <CardContent className="py-8 text-center">
@@ -553,7 +585,7 @@ Reference cards are created from your sources and used for content generation.`}
                               <TableCell className="text-muted-foreground text-sm">{email.received_at ? new Date(email.received_at).toLocaleDateString() : "-"}</TableCell>
                               <TableCell>
                                 <Badge variant={email.processing_status === "success" ? "default" : "secondary"} className={email.processing_status === "success" ? "bg-green-500/10 text-green-600 border-green-500/20" : ""}>
-                                  {email.processing_status || "pending"}
+                                  {(email.processing_status || "pending").replace(/_/g, " ")}
                                 </Badge>
                               </TableCell>
                               <TableCell>
@@ -572,6 +604,63 @@ Reference cards are created from your sources and used for content generation.`}
                 </Card>
               </div>
             )}
+
+            <Card className="mt-4">
+              <CardHeader>
+                <CardTitle className="text-lg">Reference Cards</CardTitle>
+                <CardDescription>Cards created from newsletters and RSS feeds</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loadingAutomatedCards ? (
+                  <div className="flex items-center justify-center py-4">
+                    <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : automatedCards.length === 0 ? (
+                  <div className="text-center py-6 text-muted-foreground">
+                    <Rss className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No automated reference cards yet.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {automatedCards.map((rc: any) => (
+                      <div key={rc.id} className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          {rc.content_quality === "error" ? (
+                            <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
+                          ) : rc.content_quality === "partial" || rc.content_quality === "title_only" ? (
+                            <AlertCircle className="h-4 w-4 text-amber-500 shrink-0" />
+                          ) : rc.source_type === "newsletter" ? (
+                            <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                          ) : (
+                            <Rss className="h-4 w-4 text-muted-foreground shrink-0" />
+                          )}
+                          <span className="text-sm truncate">{rc.title || "Untitled"}</span>
+                          <Badge variant="outline" className="text-xs shrink-0">{rc.source_type}</Badge>
+                          <Badge variant="outline" className="text-xs shrink-0">{rc.status}</Badge>
+                        </div>
+                        <div className="flex gap-1 shrink-0">
+                          {(rc.status === "needs_review" || rc.content_quality === "error") && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={async () => {
+                                const toastId = toast.loading("Processing with AI...");
+                                const { error } = await supabase.functions.invoke("process-reference-card", { body: { cardId: rc.id } });
+                                if (error) { toast.error("Failed to process: " + error.message, { id: toastId }); }
+                                else { toast.success("Card processed successfully!", { id: toastId }); loadAutomatedCards(); }
+                              }}
+                            >
+                              <Sparkles className="h-3 w-3" />
+                            </Button>
+                          )}
+                          <Button variant="outline" size="sm" onClick={() => navigate(`/cards/${rc.id}`)}>Open</Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="manual">
@@ -653,6 +742,10 @@ Reference cards are created from your sources and used for content generation.`}
                 </Card>
               ))}
             </div>
+          </TabsContent>
+
+          <TabsContent value="observations">
+            <ObservationsTab />
           </TabsContent>
         </Tabs>
       </main>

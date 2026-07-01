@@ -89,17 +89,10 @@ const Dashboard = () => {
   const captureTier = [
     {
       title: "Sources",
-      description: "Google Alerts and manual sources that feed the engine",
+      description: "Newsletters, RSS, manual sources, and journal observations — everything that feeds the engine",
       icon: Rss,
       path: "/feeds",
       color: "text-orange-500",
-    },
-    {
-      title: "Journal",
-      description: "Capture observations; they're citable as soon as you save them",
-      icon: Lightbulb,
-      path: "/insights",
-      color: "text-amber-500",
     },
   ];
 
@@ -158,7 +151,7 @@ const Dashboard = () => {
 
         <InstructionsToggle
           instructions={`Getting started:
-1. Set up a source in Sources, or capture an observation directly in Journal
+1. Set up a source or capture an observation directly in Sources
 2. Create content from your insights
 3. Approve drafts in Review; approval automatically schedules them to LinkedIn
 4. Drag a post to a different day on the Schedule page's Upcoming tab if a time needs to move
@@ -253,7 +246,7 @@ The dashboard shows your review pipeline and quick access to everything else.`}
               <Lightbulb className="h-5 w-5 text-primary" />
               <h3 className="text-xl font-semibold">Capture</h3>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4">
               {captureTier.map((item) => (
                 <Card
                   key={item.path}

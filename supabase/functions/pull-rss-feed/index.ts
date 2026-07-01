@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { DOMParser } from "https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts";
+import { assessRelevance } from "../_shared/relevance-gate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -199,6 +200,7 @@ serve(async (req) => {
     // Parse RSS items
     const items = Array.from(xmlDoc.querySelectorAll("item")) as any[];
     const createdCards = [];
+    let skippedIrrelevant = 0;
 
     console.log(`📰 Found ${items.length} items in feed`);
 
@@ -235,6 +237,15 @@ serve(async (req) => {
         .trim()
         .substring(0, 10000);
 
+      // Relevance gate: skip creating a card at all for noise (ads, broken
+      // scrapes, off-topic content) before it eats up review-queue space.
+      const verdict = await assessRelevance(supabaseClient, userId, { title, content: cleanDescription });
+      if (!verdict.relevant) {
+        console.log("⏭️ Skipping irrelevant article:", title.substring(0, 50), "-", verdict.reason);
+        skippedIrrelevant++;
+        continue;
+      }
+
       // Create reference card
       const { data: card, error: cardError } = await supabaseClient
         .from("reference_cards")
@@ -270,13 +281,14 @@ serve(async (req) => {
       })
       .eq("id", feedId);
 
-    console.log(`✅ Feed pull complete. Created ${createdCards.length} new cards.`);
+    console.log(`✅ Feed pull complete. Created ${createdCards.length} new cards, skipped ${skippedIrrelevant} as irrelevant.`);
 
     return new Response(
       JSON.stringify({
         success: true,
         cardsCreated: createdCards.length,
-        cardIds: createdCards.map(c => c.id)
+        cardIds: createdCards.map(c => c.id),
+        skippedIrrelevant
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

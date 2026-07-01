@@ -158,6 +158,23 @@ const LANE_SCOPE_OPTIONS = [
   { value: "credit_union", label: "Credit union" },
   { value: "community_bank", label: "Community bank" },
 ];
+// Jump-to-section nav for this otherwise very long page. Each id matches a
+// section Card below (which carries a matching scroll-mt so the sticky nav
+// doesn't cover its heading when scrolled to).
+const STRATEGY_SECTIONS = [
+  { id: "brand", label: "Brand" },
+  { id: "generation", label: "Generation" },
+  { id: "audience", label: "Audience" },
+  { id: "swot", label: "SWOT" },
+  { id: "lanes", label: "Lanes" },
+  { id: "readers", label: "Readers" },
+  { id: "formats", label: "Formats" },
+  { id: "natures", label: "Natures" },
+  { id: "jobs", label: "Jobs" },
+];
+const scrollToSection = (id: string) =>
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+
 const NONE = "__none__";
 
 const toArray = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]) : []);
@@ -729,6 +746,21 @@ const Strategy = () => {
         </div>
       </header>
 
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b">
+        <nav className="container mx-auto px-4 max-w-4xl py-2 flex flex-wrap gap-1">
+          {STRATEGY_SECTIONS.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => scrollToSection(s.id)}
+              className="px-3 py-1.5 text-sm rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            >
+              {s.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+
       <main className="container mx-auto px-4 py-8 max-w-4xl">
         <h1 className="text-3xl font-bold mb-1">Strategy</h1>
         <p className="text-sm text-muted-foreground mb-8">
@@ -736,7 +768,7 @@ const Strategy = () => {
         </p>
 
         {/* Brand */}
-        <Card className="mb-6">
+        <Card id="brand" className="mb-6 scroll-mt-20">
           <CardHeader>
             <CardTitle>Brand</CardTitle>
             <CardDescription>Who Prismm is and how it sounds. The first context the generator reads. The app also themes from these colors.</CardDescription>
@@ -852,7 +884,7 @@ const Strategy = () => {
         </Card>
 
         {/* Generation console */}
-        <Card className="mb-6">
+        <Card id="generation" className="mb-6 scroll-mt-20">
           <CardHeader>
             <CardTitle>Generation console</CardTitle>
             <CardDescription>How the writer leans while it drafts. These shape tone and source use, not the rules.</CardDescription>
@@ -891,7 +923,7 @@ const Strategy = () => {
         {/* Audience */}
         <h2 className="text-xl font-semibold mt-10 mb-4">Audience</h2>
 
-        <Card className="mb-6">
+        <Card id="audience" className="mb-6 scroll-mt-20">
           <CardHeader>
             <CardTitle>Profile</CardTitle>
             <CardDescription>The thesis and the fit. The first audience context the generator reads.</CardDescription>
@@ -936,7 +968,7 @@ const Strategy = () => {
           </CardContent>
         </Card>
 
-        <Card className="mb-6">
+        <Card id="swot" className="mb-6 scroll-mt-20">
           <CardHeader>
             <CardTitle>SWOT</CardTitle>
             <CardDescription>The terrain. Threats can be standing (always live) or triggered (held until a moment fires). Threat items can be attached to a reader below.</CardDescription>
@@ -1010,7 +1042,7 @@ const Strategy = () => {
         {/* Lanes & readers */}
         <h2 className="text-xl font-semibold mt-10 mb-4">Lanes &amp; readers</h2>
 
-        <Card className="mb-6">
+        <Card id="lanes" className="mb-6 scroll-mt-20">
           <CardHeader>
             <CardTitle>Lanes</CardTitle>
             <CardDescription>The segments Prismm serves. Mark the wedge: the lane content leads with. Lanes are also a slot dial on the schedule.</CardDescription>
@@ -1058,7 +1090,7 @@ const Strategy = () => {
           </CardContent>
         </Card>
 
-        <Card className="mb-6">
+        <Card id="readers" className="mb-6 scroll-mt-20">
           <CardHeader>
             <CardTitle>Readers</CardTitle>
             <CardDescription>The people in the room. Each carries the questions a post has to answer. Readers are an optional slot dial on the schedule; leave a slot unset to rotate.</CardDescription>
@@ -1144,7 +1176,7 @@ const Strategy = () => {
         {/* Formats, natures & jobs library */}
         <h2 className="text-xl font-semibold mt-10 mb-4">Formats, natures &amp; jobs library</h2>
 
-        <Card className="mb-6">
+        <Card id="formats" className="mb-6 scroll-mt-20">
           <CardHeader>
             <CardTitle>Formats</CardTitle>
             <CardDescription>The platform-native artifact and how it is written. The schedule turns these on; the definitions live here.</CardDescription>
@@ -1193,7 +1225,7 @@ const Strategy = () => {
           </CardContent>
         </Card>
 
-        <Card className="mb-6">
+        <Card id="natures" className="mb-6 scroll-mt-20">
           <CardHeader>
             <CardTitle>Natures</CardTitle>
             <CardDescription>The rhetorical angle: how a post argues and what evidence it leans on. Fit is how well it lands with a banking committee.</CardDescription>
@@ -1262,7 +1294,7 @@ const Strategy = () => {
           </CardContent>
         </Card>
 
-        <Card className="mb-6">
+        <Card id="jobs" className="mb-6 scroll-mt-20">
           <CardHeader>
             <CardTitle>Jobs &amp; funnel strategy</CardTitle>
             <CardDescription>The funnel role a post performs. Engine jobs are picked by scheduled slots. Reference motions are run by hand and shown here for context.</CardDescription>

@@ -137,4 +137,16 @@ export class ZernioPublisher implements Publisher {
       impressions: stats.impressions ?? stats.impressionCount ?? stats.views ?? null,
     };
   }
+
+  async cancel(postId: string): Promise<void> {
+    const res = await fetch(`${BASE_URL}/posts/${encodeURIComponent(postId)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${this.#apiKey}`, "Content-Type": "application/json" },
+    });
+    // 404 is fine, the post is already gone.
+    if (!res.ok && res.status !== 404) {
+      const body = await res.text();
+      throw new Error(`Zernio cancel failed (${res.status}): ${body}`);
+    }
+  }
 }

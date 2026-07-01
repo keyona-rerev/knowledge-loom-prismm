@@ -53,36 +53,47 @@ const Dashboard = () => {
     try {
       const nowIso = new Date().toISOString();
       const postedFilter = `publish_status.eq.published_now,and(publish_status.eq.scheduled,scheduled_for.lt.${nowIso})`;
+      const isPosted = (d: { publish_status: string | null; scheduled_for: string | null }) =>
+        d.publish_status === "published_now" ||
+        (d.publish_status === "scheduled" && !!d.scheduled_for && new Date(d.scheduled_for).getTime() < Date.now());
 
       const [
-        { count: pendingReviews },
-        { count: approvedDrafts },
-        { count: postedCount },
-        { data: recent },
-        { data: profile },
+        { data: allDrafts, error: draftsError },
+        { data: recent, error: recentError },
+        { data: profile, error: profileError },
       ] = await Promise.all([
-        supabase.from("drafts").select("id", { count: "exact", head: true })
-          .eq("user_id", userId).eq("approval_status", "pending"),
-        supabase.from("drafts").select("id", { count: "exact", head: true })
-          .eq("user_id", userId).eq("approval_status", "approved"),
-        supabase.from("drafts").select("id", { count: "exact", head: true })
-          .eq("user_id", userId).or(postedFilter),
+        supabase.from("drafts").select("id, approval_status, publish_status, scheduled_for")
+          .eq("user_id", userId),
         supabase.from("drafts").select("id, title, publish_status, scheduled_for, metric_likes, metric_comments, metric_impressions, metrics_synced_at, metrics_error")
           .eq("user_id", userId).or(postedFilter)
           .order("scheduled_for", { ascending: false }).limit(5),
         supabase.from("profiles").select("min_approved_threshold")
           .eq("user_id", userId).maybeSingle(),
       ]);
+      if (draftsError) throw draftsError;
+      if (recentError) throw recentError;
+      if (profileError) throw profileError;
+
+      const drafts = allDrafts || [];
+      const pendingReviews = drafts.filter(d => d.approval_status === "pending").length;
+      // "Approved" here means still waiting to go out. approval_status stays
+      // "approved" forever, even after publish_status flips to published_now,
+      // so without excluding already-posted drafts this count (and the
+      // threshold banner built on it) would only ever grow and never reflect
+      // an actually-thinning queue.
+      const approvedDrafts = drafts.filter(d => d.approval_status === "approved" && !isPosted(d)).length;
+      const postedCount = drafts.filter(isPosted).length;
 
       setStats({
-        pendingReviews: pendingReviews || 0,
-        approvedDrafts: approvedDrafts || 0,
-        postedCount: postedCount || 0,
+        pendingReviews,
+        approvedDrafts,
+        postedCount,
         minApprovedThreshold: (profile as any)?.min_approved_threshold ?? 12,
       });
       setRecentlyPosted(recent || []);
     } catch (error) {
       console.error("Error loading dashboard stats:", error);
+      toast.error("Failed to load dashboard stats");
     } finally {
       setLoading(false);
     }
@@ -108,7 +119,7 @@ const Dashboard = () => {
       } else {
         toast.success(`Synced metrics for ${data?.synced ?? 0} post(s)`);
       }
-      loadDashboardStats();
+      await loadDashboardStats();
     } catch (err) {
       toast.error("Metrics sync failed: " + (err as Error)?.message);
     } finally {

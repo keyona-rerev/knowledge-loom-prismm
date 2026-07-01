@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.0";
+import { getPublisher } from "../_shared/publisher/index.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,7 +18,6 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    const zernioApiKey = Deno.env.get("ZERNIO_API_KEY") ?? "";
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) return json({ error: "Authentication required" }, 401);
@@ -43,24 +43,17 @@ Deno.serve(async (req) => {
 
     if (!draft) return json({ error: "Draft not found or access denied" }, 404);
 
-    // If there's an external post ID, try to delete it from Zernio
-    if (draft.external_post_id && zernioApiKey) {
+    // If there's an external post ID, try to delete it from the provider.
+    // This is a deliberate user cancel action, so unlike reschedule-draft's
+    // cancel-then-republish fallback, we clear our side regardless of
+    // whether the provider delete succeeds — the user asked to cancel, and
+    // there's no republish step downstream that a still-live post would
+    // collide with.
+    if (draft.external_post_id) {
       try {
-        const res = await fetch(`https://zernio.com/api/v1/posts/${draft.external_post_id}`, {
-          method: "DELETE",
-          headers: {
-            Authorization: `Bearer ${zernioApiKey}`,
-            "Content-Type": "application/json",
-          },
-        });
-        // 404 is fine — already gone. Anything else we log but don't block.
-        if (!res.ok && res.status !== 404) {
-          const body = await res.text();
-          console.error("Zernio delete failed:", res.status, body);
-        }
+        await getPublisher().cancel(draft.external_post_id);
       } catch (e) {
-        console.error("Zernio delete error:", e);
-        // Don't block — clear our side regardless
+        console.error("Provider cancel error:", e);
       }
     }
 

@@ -10,9 +10,25 @@ import { getDraftImageUrl } from "../_shared/get-draft-image-url.ts";
 // If that throws (unsupported, rejected, or anything else goes wrong), falls
 // back to cancelling the existing post and republishing fresh at the new
 // time, bypassing the cadence resolver entirely since the caller already
-// supplied an explicit instant. If the republish leg of that fallback also
-// fails, the draft is left in publish_status "needs_attention" rather than
-// silently dropped, since the old post was already cancelled by then.
+// supplied an explicit instant.
+//
+// Two failure-handling rules that matter here:
+// - updateSchedule() and the DB write that persists it are in SEPARATE
+//   try/catch blocks. If updateSchedule() succeeds on the provider but the
+//   DB write then fails (transient network blip), that must not be treated
+//   as "updateSchedule failed" — doing so would cancel a post that was just
+//   successfully moved and republish a duplicate.
+// - If cancelling the old post fails, the fallback stops there rather than
+//   proceeding to republish anyway: we don't know whether the old post is
+//   still live, so publishing a new one risks two live posts. The draft's
+//   existing schedule is left untouched (not nulled out) so it keeps
+//   pointing at whatever is actually still scheduled.
+// - Every terminal write is a single UPDATE call that sets publish_status
+//   together with whatever fields it implies, never a separate "clear the
+//   fields first" write followed by a second "set the real status" write —
+//   that gap would leave publish_status transiently null (invisible to both
+//   the calendar's scheduled/published_now filter and Review's
+//   needs_attention filter) if the function were interrupted between them.
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -33,7 +49,6 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    const zernioApiKey = Deno.env.get("ZERNIO_API_KEY") ?? "";
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) return json({ error: "Authentication required" }, 401);
@@ -54,13 +69,13 @@ serve(async (req) => {
     if (Number.isNaN(newDate.getTime())) return json({ error: "newScheduledFor is not a valid date" }, 400);
     if (newDate.getTime() <= Date.now()) return json({ error: "newScheduledFor must be in the future" }, 400);
 
-    const { data: draft } = await supabase
+    const { data: draft, error: draftError } = await supabase
       .from("drafts")
       .select("id, user_id, body, external_post_id, publish_status, scheduled_for")
       .eq("id", draftId)
       .eq("user_id", userId)
       .single();
-    if (!draft) return json({ error: "Draft not found or access denied" }, 404);
+    if (draftError || !draft) return json({ error: "Draft not found or access denied" }, 404);
 
     if (!draft.external_post_id) {
       return json({ error: "Draft is not scheduled yet; nothing to reschedule." }, 409);
@@ -74,44 +89,59 @@ serve(async (req) => {
     const publisher = getPublisher();
 
     // Try moving the existing post in place first.
+    let updatedInPlace = false;
     try {
       await publisher.updateSchedule(draft.external_post_id, scheduledForIso, timezone);
-      await supabase.from("drafts").update({
-        scheduled_for: scheduledForIso,
-        publish_status: "scheduled",
-        publish_error: null,
-      }).eq("id", draft.id);
-      return json({ ok: true, status: "rescheduled", method: "update", scheduledFor: scheduledForIso });
+      updatedInPlace = true;
     } catch (updateErr) {
       console.warn("updateSchedule failed, falling back to cancel + republish:", updateErr);
     }
 
-    // Fallback: cancel the existing post, then republish fresh at the new time.
-    if (zernioApiKey) {
+    if (updatedInPlace) {
+      // Separate try/catch: the provider-side move already succeeded, so a
+      // failure here must not trigger cancel + republish.
       try {
-        const res = await fetch(`https://zernio.com/api/v1/posts/${draft.external_post_id}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${zernioApiKey}`, "Content-Type": "application/json" },
-        });
-        if (!res.ok && res.status !== 404) {
-          console.error("Zernio cancel (pre-reschedule) failed:", res.status, await res.text());
-        }
-      } catch (e) {
-        console.error("Zernio cancel (pre-reschedule) error:", e);
+        await supabase.from("drafts").update({
+          scheduled_for: scheduledForIso,
+          publish_status: "scheduled",
+          publish_error: null,
+        }).eq("id", draft.id);
+        return json({ ok: true, status: "rescheduled", method: "update", scheduledFor: scheduledForIso });
+      } catch (dbErr) {
+        const msg = dbErr instanceof Error ? dbErr.message : "Failed to save the new time";
+        return json({
+          ok: false,
+          status: "failed",
+          error: `Zernio moved the post but saving the new time failed: ${msg}. The post is scheduled at the new time on the provider even though this shows an error; refresh before retrying.`,
+        }, 500);
       }
     }
 
-    // Old post is gone or unreachable either way past this point, so the draft
-    // can no longer be considered scheduled under its old external_post_id.
-    await supabase.from("drafts").update({
-      external_post_id: null,
-      publish_status: null,
-      scheduled_for: null,
-    }).eq("id", draft.id);
+    // Fallback: cancel the existing post, then republish fresh at the new
+    // time. Abort here (without touching the draft) if cancel fails, since
+    // we don't know whether the old post is still live.
+    try {
+      await publisher.cancel(draft.external_post_id);
+    } catch (cancelErr) {
+      const msg = cancelErr instanceof Error ? cancelErr.message : "Could not cancel the existing post";
+      return json({
+        ok: false,
+        status: "failed",
+        error: `${msg}. Nothing changed; the draft is still scheduled at its original time.`,
+      }, 502);
+    }
 
+    // Old post is confirmed gone past this point. Every branch below writes
+    // external_post_id/scheduled_for together with the resulting
+    // publish_status in one UPDATE, so the draft is never left with a stale
+    // external_post_id (which would fool publish-to-zernio's idempotency
+    // check into treating a cancelled post as still scheduled) or with
+    // publish_status sitting null.
     const text = (draft.body ?? "").trim();
     if (!text) {
       await supabase.from("drafts").update({
+        external_post_id: null,
+        scheduled_for: null,
         publish_status: "needs_attention",
         publish_error: "Draft has no body to publish",
       }).eq("id", draft.id);
@@ -119,7 +149,12 @@ serve(async (req) => {
     }
     if (text.length > LINKEDIN_MAX_CHARS) {
       const msg = `Draft is ${text.length} characters; LinkedIn allows ${LINKEDIN_MAX_CHARS}`;
-      await supabase.from("drafts").update({ publish_status: "needs_attention", publish_error: msg }).eq("id", draft.id);
+      await supabase.from("drafts").update({
+        external_post_id: null,
+        scheduled_for: null,
+        publish_status: "needs_attention",
+        publish_error: msg,
+      }).eq("id", draft.id);
       return json({ ok: false, status: "needs_attention", error: msg }, 200);
     }
 
@@ -132,7 +167,12 @@ serve(async (req) => {
       .maybeSingle();
     if (!conn?.external_account_id) {
       const msg = "LinkedIn is not connected. Connect it in Settings first.";
-      await supabase.from("drafts").update({ publish_status: "needs_attention", publish_error: msg }).eq("id", draft.id);
+      await supabase.from("drafts").update({
+        external_post_id: null,
+        scheduled_for: null,
+        publish_status: "needs_attention",
+        publish_error: msg,
+      }).eq("id", draft.id);
       return json({ ok: false, status: "needs_attention", error: msg }, 200);
     }
 
@@ -157,6 +197,8 @@ serve(async (req) => {
     } catch (publishErr) {
       const msg = publishErr instanceof Error ? publishErr.message : "Provider publish failed";
       await supabase.from("drafts").update({
+        external_post_id: null,
+        scheduled_for: null,
         publish_status: "needs_attention",
         publish_error: `Reschedule cancelled the old post but republishing failed: ${msg}`,
       }).eq("id", draft.id);

@@ -42,6 +42,7 @@ const Review = () => {
   const [bulkAction, setBulkAction] = useState<string>("");
   const [rejectNote, setRejectNote] = useState("");
   const [postingNowId, setPostingNowId] = useState<string | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
 
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [selectedDraft, setSelectedDraft] = useState<Draft | null>(null);
@@ -126,17 +127,33 @@ const Review = () => {
   };
 
   const handlePostNow = async (draft: Draft) => {
-    // If not yet approved, approve first
-    if (draft.approval_status !== "approved") {
-      await handleApprove(draft.id);
-    }
-
     setPostingNowId(draft.id);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user?.id) {
-        await ensureVisualImageUploaded(draft.id, session.user.id, { timeoutMs: 30000 });
+      if (!session?.user?.id) { toast.error("You must be logged in"); return; }
+
+      // Approve and wait for the visual inline here rather than delegating to
+      // handleApprove, whose own generate-visual/publish chain runs in an
+      // unawaited background IIFE (so the UI stays responsive on a plain
+      // Approve click). Post Now needs that sequencing to actually finish
+      // before it checks for an image, not just get kicked off.
+      if (draft.approval_status !== "approved") {
+        setDrafts(prev => prev.map(d => d.id === draft.id ? { ...d, approval_status: "approved" } : d));
+        const { error: approveError } = await supabase
+          .from("drafts")
+          .update({ approval_status: "approved", reviewed_at: new Date().toISOString() })
+          .eq("id", draft.id);
+        if (approveError) { toast.error("Failed to approve draft"); return; }
+        try {
+          await supabase.functions.invoke("generate-draft-visual", {
+            body: { draftId: draft.id, userId: session.user.id }
+          });
+        } catch (err) {
+          console.error("Visual generation error:", err);
+        }
       }
+
+      await ensureVisualImageUploaded(draft.id, session.user.id, { timeoutMs: 30000 });
       const { data, error } = await supabase.functions.invoke("post-now", {
         body: { draftId: draft.id },
       });
@@ -157,26 +174,32 @@ const Review = () => {
   };
 
   const handleRetrySchedule = async (draftId: string) => {
+    if (retryingId) return;
+    setRetryingId(draftId);
     toast.info("Retrying schedule...");
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user?.id) {
-      await ensureVisualImageUploaded(draftId, session.user.id, { timeoutMs: 10000 });
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.id) {
+        await ensureVisualImageUploaded(draftId, session.user.id, { timeoutMs: 10000 });
+      }
+      const { data, error } = await supabase.functions.invoke("publish-to-zernio", { body: { draftId } });
+      if (error) { toast.error("Retry could not reach the scheduler"); return; }
+      if (data?.status === "scheduled") {
+        const when = new Date(data.scheduledFor).toLocaleString();
+        toast.success(data.basis === "rescheduled"
+          ? `Slot time had passed; rescheduled to publish ${when}`
+          : `Scheduled to publish ${when}`);
+      } else if (data?.status === "needs_attention") {
+        toast.warning(`Still needs attention: ${data.error}`);
+      } else if (data?.status === "failed" || data?.error) {
+        toast.error(`Still failing: ${data.error}`);
+      } else if (data?.alreadyScheduled) {
+        toast.info("This draft is already scheduled.");
+      }
+      loadDrafts();
+    } finally {
+      setRetryingId(null);
     }
-    const { data, error } = await supabase.functions.invoke("publish-to-zernio", { body: { draftId } });
-    if (error) { toast.error("Retry could not reach the scheduler"); return; }
-    if (data?.status === "scheduled") {
-      const when = new Date(data.scheduledFor).toLocaleString();
-      toast.success(data.basis === "rescheduled"
-        ? `Slot time had passed; rescheduled to publish ${when}`
-        : `Scheduled to publish ${when}`);
-    } else if (data?.status === "needs_attention") {
-      toast.warning(`Still needs attention: ${data.error}`);
-    } else if (data?.status === "failed" || data?.error) {
-      toast.error(`Still failing: ${data.error}`);
-    } else if (data?.alreadyScheduled) {
-      toast.info("This draft is already scheduled.");
-    }
-    loadDrafts();
   };
 
   const handleSmartReject = (draft: Draft) => {
@@ -369,8 +392,8 @@ const Review = () => {
                     <Button size="sm" variant="outline" onClick={() => navigate(`/drafts/${draft.id}`)}>
                       <ExternalLink className="h-4 w-4 mr-1" />View
                     </Button>
-                    <Button size="sm" onClick={() => handleRetrySchedule(draft.id)}>
-                      <RefreshCw className="h-4 w-4 mr-1" />Retry
+                    <Button size="sm" onClick={() => handleRetrySchedule(draft.id)} disabled={retryingId === draft.id}>
+                      <RefreshCw className="h-4 w-4 mr-1" />{retryingId === draft.id ? "Retrying..." : "Retry"}
                     </Button>
                   </div>
                 </div>

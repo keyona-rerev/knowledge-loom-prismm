@@ -63,4 +63,7 @@ export interface Publisher {
   // Engagement metrics for a live post. Throws on failure, including if the
   // provider account's plan doesn't include analytics access.
   getAnalytics(postId: string): Promise<PostAnalytics>;
+  // Cancel a scheduled post. A post that's already gone (e.g. already fired,
+  // or already cancelled) is treated as success, not an error.
+  cancel(postId: string): Promise<void>;
 }

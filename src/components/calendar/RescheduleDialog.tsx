@@ -41,12 +41,17 @@ export const RescheduleDialog = ({ draft, onClose, onRescheduled }: RescheduleDi
       if (error) throw error;
       if (data?.ok) {
         toast.success("Rescheduled");
-        onRescheduled();
       } else {
         toast.error(data?.error || "Reschedule failed");
       }
+      // Refresh either way: even a failed reschedule can change the draft's
+      // state server-side (e.g. the old post was cancelled but republishing
+      // failed), so the calendar shouldn't keep showing a stale card at the
+      // old time.
+      onRescheduled();
     } catch (err) {
       toast.error("Reschedule failed: " + (err as Error)?.message);
+      onRescheduled();
     } finally {
       setSaving(false);
     }

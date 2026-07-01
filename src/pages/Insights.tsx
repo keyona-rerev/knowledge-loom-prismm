@@ -159,7 +159,8 @@ const Insights = () => {
     }
 
     const { data: { session } } = await supabase.auth.getSession();
-    
+    const insight = insights.find(i => i.id === insightId);
+
     const { error } = await supabase
       .from("insight_cards")
       .delete()
@@ -168,6 +169,12 @@ const Insights = () => {
     if (error) {
       toast.error("Failed to delete insight");
     } else {
+      // The reference card only exists because this insight auto-created it;
+      // deleting the insight should take its reference-library copy with it
+      // rather than leaving an orphaned, still-approved, still-citable card.
+      if (insight?.reference_card_id) {
+        await supabase.from("reference_cards").delete().eq("id", insight.reference_card_id);
+      }
       toast.success("Insight deleted");
       if (session?.user?.id) {
         loadInsightsWithSession(session.user.id);

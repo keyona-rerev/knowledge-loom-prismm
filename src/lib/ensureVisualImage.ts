@@ -34,8 +34,14 @@ export async function ensureVisualImageUploaded(
   const timeoutMs = opts.timeoutMs ?? 30000;
   const start = Date.now();
 
+  // Treat "no row yet" the same as "generating": generate-draft-visual
+  // inserts its placeholder row before this is typically called, but if a
+  // caller ever fires generation without awaiting it first, the very first
+  // fetch here could beat that insert to the database. Without this, a null
+  // row would fall straight through to "not ready" below and return
+  // immediately, skipping the wait entirely.
   let visual = await fetchLatestVisual(draftId);
-  while (visual?.status === "generating" && Date.now() - start < timeoutMs) {
+  while ((!visual || visual.status === "generating") && Date.now() - start < timeoutMs) {
     await sleep(2000);
     visual = await fetchLatestVisual(draftId);
   }

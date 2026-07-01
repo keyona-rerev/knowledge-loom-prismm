@@ -265,33 +265,38 @@ const DraftDetail = () => {
   const handlePostNow = async () => {
     if (!draft) return;
 
-    if (draft.approval_status !== "approved") {
-      const { data: { session } } = await supabase.auth.getSession();
-      const { error: approveError } = await supabase
-        .from("drafts")
-        .update({
-          approval_status: "approved",
-          reviewed_at: new Date().toISOString(),
-          published_at: new Date().toISOString(),
-        })
-        .eq("id", draft.id);
-      if (approveError) {
-        toast.error("Failed to approve draft before posting");
-        return;
-      }
-      if (session?.user?.id) {
-        supabase.functions.invoke("generate-draft-visual", {
-          body: { draftId: draft.id, userId: session.user.id }
-        }).catch(err => console.error("Visual generation error:", err));
-      }
-    }
-
     setPostingNow(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user?.id) {
-        await ensureVisualImageUploaded(draft.id, session.user.id, { timeoutMs: 30000 });
+      if (!session?.user?.id) { toast.error("You must be logged in"); return; }
+
+      if (draft.approval_status !== "approved") {
+        const { error: approveError } = await supabase
+          .from("drafts")
+          .update({
+            approval_status: "approved",
+            reviewed_at: new Date().toISOString(),
+            published_at: new Date().toISOString(),
+          })
+          .eq("id", draft.id);
+        if (approveError) {
+          toast.error("Failed to approve draft before posting");
+          return;
+        }
+        // Awaited (not fire-and-forget) so ensureVisualImageUploaded below
+        // never polls before the visual's placeholder row exists — it would
+        // otherwise see no row at all and return immediately without
+        // waiting, publishing with no image.
+        try {
+          await supabase.functions.invoke("generate-draft-visual", {
+            body: { draftId: draft.id, userId: session.user.id }
+          });
+        } catch (err) {
+          console.error("Visual generation error:", err);
+        }
       }
+
+      await ensureVisualImageUploaded(draft.id, session.user.id, { timeoutMs: 30000 });
       const { data, error } = await supabase.functions.invoke("post-now", {
         body: { draftId: draft.id },
       });

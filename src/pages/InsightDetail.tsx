@@ -9,8 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Save, X, FileText } from "lucide-react";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ArrowLeft, Save, X, Database } from "lucide-react";
 
 interface InsightFormData {
   title: string;
@@ -25,14 +24,12 @@ const InsightDetail = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEditing = Boolean(id);
-  
+
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [tagInput, setTagInput] = useState("");
-  const [questionSets, setQuestionSets] = useState<Array<{ id: string; name: string }>>([]);
-  const [convertDialogOpen, setConvertDialogOpen] = useState(false);
-  const [selectedQuestionSetId, setSelectedQuestionSetId] = useState<string>("none");
-  
+  const [referenceCardId, setReferenceCardId] = useState<string | null>(null);
+
   const [formData, setFormData] = useState<InsightFormData>({
     title: "",
     content: "",
@@ -54,7 +51,6 @@ const InsightDetail = () => {
     if (isEditing) {
       loadInsight();
     }
-    loadQuestionSets();
   }, [navigate, id, isEditing]);
 
   const loadInsight = async () => {
@@ -81,80 +77,40 @@ const InsightDetail = () => {
         priority: data.priority || 3,
         tags: data.tags || []
       });
+      setReferenceCardId((data as any).reference_card_id || null);
     }
     setLoading(false);
   };
 
-  const loadQuestionSets = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    const { data, error } = await supabase
-      .from("question_sets")
-      .select("id, name")
-      .eq("user_id", session?.user?.id)
-      .eq("is_active", true)
-      .order("name");
-
-    if (!error && data) {
-      setQuestionSets(data);
-    }
-  };
-
-  const handleConvertToReferenceCard = async (questionSetId?: string) => {
-    if (!id) return;
-
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session?.user?.id) {
-      toast.error("You must be logged in to convert insights");
+  // Keeps the insight's reference card (auto-created on first save) in sync.
+  // Updates the existing card if one is already linked; creates one on first
+  // save so capture and citable-source availability happen in the same flow,
+  // no separate "convert" step. Approved true by default: capturing a journal
+  // entry is already a deliberate act, source_type "observation" is what
+  // distinguishes it from sourced/verified material in generation.
+  const syncReferenceCard = async (insightId: string, userId: string) => {
+    const payload = { title: formData.title, original_text: formData.content };
+    if (referenceCardId) {
+      await supabase.from("reference_cards").update(payload).eq("id", referenceCardId);
       return;
     }
-
-    try {
-      // Create the reference card
-      const { data, error } = await supabase
-        .from("reference_cards")
-        .insert({
-          user_id: session.user.id,
-          title: formData.title,
-          original_text: formData.content,
-          source_type: "observation",
-          status: "active",
-          question_set_id: questionSetId && questionSetId !== "none" ? questionSetId : null,
-          content_quality: "good"
-        })
-        .select()
-        .single();
-
-      if (error) {
-        console.error("Insert error:", error);
-        throw error;
-      }
-
-      // Process the card with AI if question set is provided
-      if (questionSetId && questionSetId !== "none") {
-        toast.info("Processing reference card with AI...");
-        const { error: processError } = await supabase.functions.invoke("process-reference-card", {
-          body: { cardId: data.id }
-        });
-
-        if (processError) {
-          console.error("AI processing error:", processError);
-          toast.warning("Reference card created but AI processing failed");
-        } else {
-          toast.success("Insight converted and processed with AI!");
-        }
-      } else {
-        toast.success("Insight converted to reference card");
-      }
-
-      setConvertDialogOpen(false);
-      setSelectedQuestionSetId("none");
-      navigate(`/reference-cards/${data.id}`);
-    } catch (error) {
-      console.error(error);
-      toast.error("Failed to convert insight to reference card");
+    const { data, error } = await supabase
+      .from("reference_cards")
+      .insert({
+        ...payload,
+        user_id: userId,
+        source_type: "observation",
+        status: "active",
+        approved: true,
+      })
+      .select("id")
+      .single();
+    if (error) {
+      console.error("Failed to create reference card for insight:", error);
+      return;
     }
+    await supabase.from("insight_cards").update({ reference_card_id: data.id }).eq("id", insightId);
+    setReferenceCardId(data.id);
   };
 
   const handleSave = async () => {
@@ -165,9 +121,15 @@ const InsightDetail = () => {
 
     setSaving(true);
     const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.id) {
+      toast.error("You must be logged in");
+      setSaving(false);
+      return;
+    }
 
     try {
-      if (isEditing) {
+      let insightId = id;
+      if (isEditing && id) {
         const { error } = await supabase
           .from("insight_cards")
           .update({
@@ -177,20 +139,24 @@ const InsightDetail = () => {
           .eq("id", id);
 
         if (error) throw error;
-        toast.success("Insight updated successfully");
       } else {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from("insight_cards")
           .insert({
             ...formData,
-            user_id: session?.user?.id,
+            user_id: session.user.id,
             status: "active"
-          });
+          })
+          .select("id")
+          .single();
 
         if (error) throw error;
-        toast.success("Insight created successfully");
+        insightId = data.id;
       }
-      
+
+      if (insightId) await syncReferenceCard(insightId, session.user.id);
+
+      toast.success(isEditing ? "Insight updated" : "Insight captured and added to your reference library");
       navigate("/insights");
     } catch (error) {
       console.error("Error saving insight:", error);
@@ -267,7 +233,9 @@ const InsightDetail = () => {
             {isEditing ? "Edit Insight" : "New Insight"}
           </h1>
           <p className="text-muted-foreground">
-            {isEditing ? "Update your insight card" : "Capture a new observation, thesis, or idea"}
+            {isEditing
+              ? "Update your insight card. Saving keeps its reference card in sync."
+              : "Capture a new observation, thesis, or idea. Saving adds it to your reference library automatically, no separate convert step."}
           </p>
         </div>
 
@@ -384,16 +352,16 @@ const InsightDetail = () => {
 
             {/* Action Buttons */}
             <div className="flex justify-between pt-4">
-              {isEditing && (
-                <Button 
-                  variant="outline" 
-                  onClick={() => setConvertDialogOpen(true)}
+              {isEditing && referenceCardId ? (
+                <Button
+                  variant="outline"
+                  onClick={() => navigate(`/cards/${referenceCardId}`)}
                   type="button"
                 >
-                  <FileText className="mr-2 h-4 w-4" />
-                  Convert to a Reference Card
+                  <Database className="mr-2 h-4 w-4" />
+                  View reference card
                 </Button>
-              )}
+              ) : <div />}
               <div className={!isEditing ? "ml-auto" : ""}>
                 <Button onClick={handleSave} disabled={saving}>
                   <Save className="mr-2 h-4 w-4" />
@@ -403,48 +371,6 @@ const InsightDetail = () => {
             </div>
           </CardContent>
         </Card>
-
-        {/* Convert to Reference Card Dialog */}
-        <Dialog open={convertDialogOpen} onOpenChange={setConvertDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Convert to Reference Card</DialogTitle>
-              <DialogDescription>
-                This will create a reference card from your insight. You can optionally apply a question set for AI processing.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div>
-                <label className="text-sm font-medium mb-2 block">
-                  Question Set (Optional)
-                </label>
-                <Select value={selectedQuestionSetId} onValueChange={setSelectedQuestionSetId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="No question set (convert only)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No question set</SelectItem>
-                    {questionSets.map((qs) => (
-                      <SelectItem key={qs.id} value={qs.id}>
-                        {qs.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setConvertDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button 
-                  onClick={() => handleConvertToReferenceCard(selectedQuestionSetId !== "none" ? selectedQuestionSetId : undefined)}
-                >
-                  Convert to Reference Card
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
       </main>
     </div>
   );

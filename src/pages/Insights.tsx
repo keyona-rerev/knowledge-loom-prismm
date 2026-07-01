@@ -7,8 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Search, Filter, Lightbulb, Edit, Trash2, FileText } from "lucide-react";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { ArrowLeft, Plus, Search, Filter, Lightbulb, Edit, Trash2, Sparkles, Database } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface InsightCard {
   id: string;
@@ -20,6 +20,7 @@ interface InsightCard {
   tags: string[];
   created_at: string;
   status: string;
+  reference_card_id: string | null;
 }
 
 const Insights = () => {
@@ -30,7 +31,7 @@ const Insights = () => {
   const [filterType, setFilterType] = useState<string>("all");
   const [filterPriority, setFilterPriority] = useState<string>("all");
   const [questionSets, setQuestionSets] = useState<Array<{ id: string; name: string }>>([]);
-  const [convertDialogOpen, setConvertDialogOpen] = useState(false);
+  const [processDialogOpen, setProcessDialogOpen] = useState(false);
   const [selectedInsightId, setSelectedInsightId] = useState<string | null>(null);
   const [selectedQuestionSetId, setSelectedQuestionSetId] = useState<string>("none");
 
@@ -85,75 +86,71 @@ const Insights = () => {
     }
   };
 
-  const handleConvertToReferenceCard = async (insightId: string, questionSetId?: string) => {
+  // Insights auto-get a reference card on save now (InsightDetail.tsx), so
+  // this no longer creates one, it runs AI extraction on the card the insight
+  // already has, for insights that want deeper processing than fast capture
+  // gives them by default. Falls back to creating the card here only for
+  // insights captured before that auto-link existed and never got backfilled.
+  const handleProcessWithAI = async (insightId: string, questionSetId?: string) => {
     const insight = insights.find(i => i.id === insightId);
     if (!insight) return;
 
     const { data: { session } } = await supabase.auth.getSession();
-    
+
     if (!session?.user?.id) {
-      toast.error("You must be logged in to convert insights");
+      toast.error("You must be logged in");
       return;
     }
 
     try {
-      // Use explicit object without TypeScript inference issues
-      const insertData: Record<string, unknown> = {
-        user_id: session.user.id,
-        title: insight.title,
-        original_text: insight.content,
-        source_type: "observation",
-        status: "active",
-        question_set_id: questionSetId && questionSetId !== "none" ? questionSetId : null,
-        content_quality: "good"
-      };
-      
-      console.log("Inserting reference card with data:", JSON.stringify(insertData));
-      
-      // Create the reference card
-      const { data, error } = await supabase
-        .from("reference_cards")
-        .insert(insertData)
-        .select()
-        .single();
-
-      if (error) {
-        console.error("Insert error details:", JSON.stringify(error));
-        throw new Error(error.message || error.details || 'Insert failed');
+      let cardId = insight.reference_card_id;
+      if (!cardId) {
+        const { data, error } = await supabase
+          .from("reference_cards")
+          .insert({
+            user_id: session.user.id,
+            title: insight.title,
+            original_text: insight.content,
+            source_type: "observation",
+            status: "active",
+            approved: true,
+          })
+          .select("id")
+          .single();
+        if (error) throw new Error(error.message || "Insert failed");
+        cardId = data.id;
+        await supabase.from("insight_cards").update({ reference_card_id: cardId }).eq("id", insightId);
       }
 
-      // Process the card with AI if question set is provided
       if (questionSetId && questionSetId !== "none") {
-        toast.info("Processing reference card with AI...");
-        const { error: processError } = await supabase.functions.invoke("process-reference-card", {
-          body: { cardId: data.id }
-        });
-
-        if (processError) {
-          console.error("AI processing error:", processError);
-          toast.warning("Reference card created but AI processing failed");
-        } else {
-          toast.success("Insight converted and processed with AI!");
-        }
-      } else {
-        toast.success("Insight converted to reference card");
+        await supabase.from("reference_cards").update({ question_set_id: questionSetId }).eq("id", cardId);
       }
 
-      setConvertDialogOpen(false);
+      toast.info("Processing with AI...");
+      const { error: processError } = await supabase.functions.invoke("process-reference-card", {
+        body: { cardId }
+      });
+
+      if (processError) {
+        console.error("AI processing error:", processError);
+        toast.warning("AI processing failed");
+      } else {
+        toast.success("Processed with AI");
+      }
+
+      setProcessDialogOpen(false);
       setSelectedInsightId(null);
       setSelectedQuestionSetId("none");
-      navigate('/reference-cards');
+      loadInsightsWithSession(session.user.id);
     } catch (error: any) {
-      console.error("Convert error details:", error);
-      console.error("Error message:", error?.message);
-      console.error("Error code:", error?.code);
-      toast.error(`Failed to convert: ${error?.message || 'Unknown error'}`);
+      console.error("Process error:", error);
+      toast.error(`Failed to process: ${error?.message || 'Unknown error'}`);
     }
   };
 
-  const openConvertDialog = (insightId: string) => {
+  const openProcessDialog = (insightId: string) => {
     setSelectedInsightId(insightId);
-    setConvertDialogOpen(true);
+    setProcessDialogOpen(true);
   };
 
   const handleDeleteInsight = async (insightId: string) => {
@@ -248,7 +245,7 @@ const Insights = () => {
           <div>
             <h1 className="text-3xl font-bold mb-2">Observation Journal</h1>
             <p className="text-muted-foreground">
-              Capture insights that can become reference cards for content generation. Record thesis statements, hooks, contrarian arguments, and key observations. Click "Convert to a Reference Card" to transform insights into processed reference material with optional question sets for AI analysis.
+              Capture thesis statements, hooks, contrarian arguments, and observations. Every insight is added to your reference library as soon as you save it, no separate convert step. Use "Process with AI" on any insight for deeper extraction with a question set.
             </p>
           </div>
           <Button onClick={() => navigate("/insights/new")}>
@@ -333,6 +330,11 @@ const Insights = () => {
                         <Badge variant="outline" className={getPriorityColor(insight.priority)}>
                           Priority {insight.priority}
                         </Badge>
+                        {insight.reference_card_id && (
+                          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                            <Database className="h-3 w-3 mr-1" />In reference library
+                          </Badge>
+                        )}
                         {insight.tags?.map((tag, index) => (
                           <Badge key={index} variant="secondary">
                             {tag}
@@ -344,10 +346,10 @@ const Insights = () => {
                       <Button
                         variant="default"
                         size="sm"
-                        onClick={() => openConvertDialog(insight.id)}
+                        onClick={() => openProcessDialog(insight.id)}
                       >
-                        <FileText className="h-4 w-4 mr-1" />
-                        Convert to a Reference Card
+                        <Sparkles className="h-4 w-4 mr-1" />
+                        Process with AI
                       </Button>
                       <Button
                         variant="outline"
@@ -385,13 +387,13 @@ const Insights = () => {
           </div>
         )}
 
-        {/* Convert to Reference Card Dialog */}
-        <Dialog open={convertDialogOpen} onOpenChange={setConvertDialogOpen}>
+        {/* Process with AI Dialog */}
+        <Dialog open={processDialogOpen} onOpenChange={setProcessDialogOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Convert to Reference Card</DialogTitle>
+              <DialogTitle>Process with AI</DialogTitle>
               <DialogDescription>
-                This will create a reference card from your insight. You can optionally apply a question set for AI processing.
+                Runs AI extraction on this insight's reference card. Optionally apply a question set for deeper extraction.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
@@ -401,7 +403,7 @@ const Insights = () => {
                 </label>
                 <Select value={selectedQuestionSetId} onValueChange={setSelectedQuestionSetId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="No question set (convert only)" />
+                    <SelectValue placeholder="No question set" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">No question set</SelectItem>
@@ -414,13 +416,13 @@ const Insights = () => {
                 </Select>
               </div>
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setConvertDialogOpen(false)}>
+                <Button variant="outline" onClick={() => setProcessDialogOpen(false)}>
                   Cancel
                 </Button>
-                <Button 
-                  onClick={() => selectedInsightId && handleConvertToReferenceCard(selectedInsightId, selectedQuestionSetId !== "none" ? selectedQuestionSetId : undefined)}
+                <Button
+                  onClick={() => selectedInsightId && handleProcessWithAI(selectedInsightId, selectedQuestionSetId !== "none" ? selectedQuestionSetId : undefined)}
                 >
-                  Convert to Reference Card
+                  Process with AI
                 </Button>
               </div>
             </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -8,8 +8,9 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "sonner";
-import { Plus, Trash2, Loader2, Play, RefreshCw, Calendar, RotateCcw, CalendarClock } from "lucide-react";
+import { Plus, Trash2, Loader2, Play, RefreshCw, Calendar, RotateCcw, CalendarClock, Pencil, Save as SaveIcon } from "lucide-react";
 import { resolveNext } from "@/lib/scheduleResolver";
 import { ScheduleWeekGrid } from "@/components/ScheduleWeekGrid";
 
@@ -40,6 +41,34 @@ const TIMEZONES = [
 ];
 const NONE = "__none__";
 const ANY = "__any__";
+const TZ_ABBR: Record<string, string> = {
+  "America/New_York": "ET",
+  "America/Chicago": "CT",
+  "America/Denver": "MT",
+  "America/Phoenix": "MT",
+  "America/Los_Angeles": "PT",
+  "America/Anchorage": "AKT",
+  "Pacific/Honolulu": "HST",
+  "UTC": "UTC",
+};
+
+function fmtTime12(time: string): string {
+  if (!time) return "";
+  const [hStr, mStr] = time.split(":");
+  const h = parseInt(hStr, 10);
+  const m = mStr ?? "00";
+  const ampm = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${m} ${ampm}`;
+}
+
+// Per-slot expand/collapse. Collapsed slots show a one-line summary;
+// expanded slots show the full form. Purely a UI state - the page-level
+// "Save now" button still does the real persist.
+const expandRow = (setExpanded: Dispatch<SetStateAction<Set<string>>>, id: string) =>
+  setExpanded((prev) => new Set(prev).add(id));
+const collapseRow = (setExpanded: Dispatch<SetStateAction<Set<string>>>, id: string) =>
+  setExpanded((prev) => { const next = new Set(prev); next.delete(id); return next; });
 
 interface Slot {
   id: string;
@@ -83,6 +112,7 @@ export const CadenceTab = () => {
   const [userId, setUserId] = useState<string | null>(null);
 
   const [slots, setSlots] = useState<Slot[]>([]);
+  const [expandedSlots, setExpandedSlots] = useState<Set<string>>(new Set());
   const [deletedSlots, setDeletedSlots] = useState<string[]>([]);
   const [formats, setFormats] = useState<NamedRow[]>([]);
   const [natures, setNatures] = useState<NamedRow[]>([]);
@@ -162,14 +192,16 @@ export const CadenceTab = () => {
       toast.error("Add at least one format, nature, and engine job in Strategy first");
       return;
     }
+    const id = `new_${Date.now()}_${slots.length}`;
     setSlots((prev) => [...prev, {
-      id: `new_${Date.now()}_${prev.length}`,
+      id,
       format_id: formats[0].id, nature_id: natures[0].id, job_id: jobs[0].id,
       lane_id: null, reader_id: null, day_of_week: 1, frequency: "weekly", anchor: null,
       time_of_day: "09:00", timezone: "America/New_York",
       is_active: true, requires_child: false, child_format_id: null, child_nature_id: null,
       max_reuse_count: 0, reuse_window_days: 90, _isNew: true,
     }]);
+    expandRow(setExpandedSlots, id);
     setIsDirty(true);
   };
 
@@ -321,8 +353,25 @@ export const CadenceTab = () => {
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">{DAYS_OF_WEEK[day]}</h3>
               {daySlots.map((slot) => {
                 const isWeekly = slot.frequency === "weekly" || slot.frequency === "as_needed";
+                const expanded = expandedSlots.has(slot.id);
+                const summaryLine = `${nameOf(natures, slot.nature_id) ?? "…"} ${nameOf(formats, slot.format_id) ?? "…"} for ${nameOf(jobs, slot.job_id) ?? "…"}`
+                  + `${slot.lane_id ? `, ${nameOf(lanes, slot.lane_id)} lane` : ", both lanes"}`
+                  + `${slot.reader_id ? `, aimed at ${nameOf(readers, slot.reader_id)}` : ", reader rotates"}`
+                  + ` — ${DAYS_OF_WEEK[slot.day_of_week]} ${fmtTime12(slot.time_of_day)} ${TZ_ABBR[slot.timezone] ?? slot.timezone}.`;
                 return (
                   <Card key={slot.id} className={`mb-3 ${!slot.is_active ? "opacity-60" : ""} ${slot._isNew ? "border-orange-300" : ""}`}>
+                    {!expanded && (
+                      <CardContent className="py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm flex-1 min-w-0 truncate">{summaryLine}</p>
+                          <Button size="sm" variant="outline" onClick={() => expandRow(setExpandedSlots, slot.id)}>
+                            <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit
+                          </Button>
+                        </div>
+                      </CardContent>
+                    )}
+                    <Collapsible open={expanded}>
+                    <CollapsibleContent>
                     <CardContent className="pt-4 space-y-4">
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
@@ -414,6 +463,9 @@ export const CadenceTab = () => {
                           <Switch checked={slot.is_active} onCheckedChange={(v) => updateSlot(slot.id, { is_active: v })} />
                         </div>
                         <div className="flex gap-1 pb-1 ml-auto">
+                          <Button size="sm" onClick={() => collapseRow(setExpandedSlots, slot.id)}>
+                            <SaveIcon className="h-3.5 w-3.5 mr-1.5" />Save
+                          </Button>
                           <Button size="sm" variant="outline" onClick={() => runSlot(slot)} disabled={!!running || slot._isNew} title={slot._isNew ? "Save cadence first to enable run" : "Run now"}>
                             {running === slot.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
                           </Button>
@@ -492,6 +544,8 @@ export const CadenceTab = () => {
                         );
                       })()}
                     </CardContent>
+                    </CollapsibleContent>
+                    </Collapsible>
                   </Card>
                 );
               })}

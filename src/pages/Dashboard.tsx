@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Rss, FileEdit, Settings, MessageCircleQuestion, LogOut,
-  CheckCheck, Clock, Lightbulb, Target, CalendarClock, AlertTriangle, Database, Plus,
+  CheckCheck, Lightbulb, Target, CalendarClock, AlertTriangle, Database, Plus,
 } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { supabase } from "@/integrations/supabase/client";
@@ -52,7 +52,7 @@ const Dashboard = () => {
       if (profileError) throw profileError;
 
       const drafts = allDrafts || [];
-      const pendingReviews = drafts.filter(d => d.approval_status === "pending").length;
+      const pendingReviews = drafts.filter(d => d.approval_status === "pending" || d.approval_status === "needs_revision").length;
       // "Approved" here means still waiting to go out. approval_status stays
       // "approved" forever, even after publish_status flips to published_now,
       // so without excluding already-posted drafts this count (and the
@@ -182,7 +182,7 @@ The dashboard shows your review pipeline and quick access to everything else.`}
               <CheckCheck className="h-5 w-5 text-primary" />
               <h3 className="text-xl font-semibold">Review</h3>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div className="max-w-sm">
               <Card
                 className={`cursor-pointer hover:shadow-lg transition-shadow ${stats.pendingReviews > 0 ? "border-2 border-yellow-300 bg-yellow-50" : "border-2 border-primary/20"}`}
                 onClick={() => navigate("/review")}
@@ -190,33 +190,18 @@ The dashboard shows your review pipeline and quick access to everything else.`}
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <Clock className="h-8 w-8 text-yellow-500" />
-                      <CardTitle className="text-lg">Pending</CardTitle>
+                      <CheckCheck className="h-8 w-8 text-primary" />
+                      <CardTitle className="text-lg">Review</CardTitle>
                     </div>
-                    <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
-                      {stats.pendingReviews}
-                    </Badge>
+                    {stats.pendingReviews > 0 && (
+                      <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                        {stats.pendingReviews} pending
+                      </Badge>
+                    )}
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <CardDescription>Drafts awaiting your approval</CardDescription>
-                </CardContent>
-              </Card>
-
-              <Card className="cursor-pointer hover:shadow-lg transition-shadow border-2 border-primary/20" onClick={() => navigate("/drafts")}>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <CheckCheck className="h-8 w-8 text-green-500" />
-                      <CardTitle className="text-lg">Approved</CardTitle>
-                    </div>
-                    <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                      {stats.approvedDrafts} of {stats.minApprovedThreshold} goal
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <CardDescription>Approved and scheduled to publish</CardDescription>
+                  <CardDescription>Pending drafts, approved queue, and the rejection log</CardDescription>
                 </CardContent>
               </Card>
             </div>

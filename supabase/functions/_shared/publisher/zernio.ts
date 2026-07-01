@@ -11,6 +11,14 @@
 // reschedule-draft therefore never trusts this path alone: it always falls
 // back to cancel + republish when this throws, so reschedule keeps working
 // whether or not PUT actually supports moving scheduledFor.
+//
+// getAnalytics()'s GET /v1/analytics/{postId} also hasn't been probed, and
+// whether it requires Zernio's paid Analytics add-on is unconfirmed (their
+// changelog suggests some aggregate analytics endpoints do, while marketing
+// copy says it's bundled free). sync-post-analytics records failures into
+// drafts.metrics_error per draft instead of assuming success, so a
+// plan/billing gap shows up in the UI rather than metrics silently never
+// populating.
 
 import type {
   ConnectStart,
@@ -18,6 +26,7 @@ import type {
   Publisher,
   PublishInput,
   PublishResult,
+  PostAnalytics,
   SocialAccount,
 } from "./publisher.ts";
 
@@ -117,5 +126,15 @@ export class ZernioPublisher implements Publisher {
       method: "PUT",
       body: JSON.stringify({ scheduledFor, timezone }),
     });
+  }
+
+  async getAnalytics(postId: string): Promise<PostAnalytics> {
+    const body = await this.#request(`/analytics/${encodeURIComponent(postId)}`);
+    const stats = body?.analytics ?? body?.data ?? body ?? {};
+    return {
+      likes: stats.likes ?? stats.likeCount ?? stats.reactions ?? null,
+      comments: stats.comments ?? stats.commentCount ?? null,
+      impressions: stats.impressions ?? stats.impressionCount ?? stats.views ?? null,
+    };
   }
 }

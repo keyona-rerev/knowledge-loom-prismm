@@ -4,7 +4,7 @@
 import type { Publisher } from "./publisher.ts";
 import { ZernioPublisher } from "./zernio.ts";
 
-export type { Publisher, PublishInput, PublishResult, SocialAccount, ConnectStart, ConnectStartInput } from "./publisher.ts";
+export type { Publisher, PublishInput, PublishResult, PostAnalytics, SocialAccount, ConnectStart, ConnectStartInput } from "./publisher.ts";
 
 export function getPublisher(): Publisher {
   const provider = Deno.env.get("PUBLISH_PROVIDER") ?? "zernio";

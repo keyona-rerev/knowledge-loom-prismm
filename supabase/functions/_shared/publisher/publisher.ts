@@ -40,6 +40,12 @@ export interface PublishResult {
   raw?: unknown;
 }
 
+export interface PostAnalytics {
+  likes: number | null;
+  comments: number | null;
+  impressions: number | null;
+}
+
 export interface Publisher {
   readonly name: string;
   // Begin an OAuth connect for a platform; returns the URL to send the user to.
@@ -54,4 +60,7 @@ export interface Publisher {
   // rejects or doesn't support the update; callers should fall back to
   // cancelling and republishing when this throws.
   updateSchedule(postId: string, scheduledFor: string, timezone: string): Promise<void>;
+  // Engagement metrics for a live post. Throws on failure, including if the
+  // provider account's plan doesn't include analytics access.
+  getAnalytics(postId: string): Promise<PostAnalytics>;
 }

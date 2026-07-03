@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
@@ -13,14 +12,6 @@ import { ArrowLeft, FileText, Clock, Edit, Save, Sparkles, ImageIcon, RotateCcw,
 import { formatDistanceToNow } from "date-fns";
 import { VisualForge } from "@/components/VisualForge";
 import { ensureVisualImageUploaded } from "@/lib/ensureVisualImage";
-
-interface ContentTemplate {
-  id: string;
-  name: string;
-  description: string;
-  content_type: string;
-  template_structure: any;
-}
 
 const DraftDetail = () => {
   const { id } = useParams();
@@ -32,8 +23,7 @@ const DraftDetail = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedBody, setEditedBody] = useState("");
   const [editedSeedInsight, setEditedSeedInsight] = useState("");
-  const [templates, setTemplates] = useState<ContentTemplate[]>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<string>("");
+  const [feedback, setFeedback] = useState("");
   const [regenerating, setRegenerating] = useState(false);
   const [revisions, setRevisions] = useState<any[]>([]);
   const [userId, setUserId] = useState<string>("");
@@ -71,7 +61,6 @@ const DraftDetail = () => {
     setDraft(data);
     setEditedBody(data.body || "");
     setEditedSeedInsight(data.seed_insight || "");
-    setSelectedTemplate(data.autopilot_template_id || "");
     setLoading(false);
 
     if (data.parent_draft_id) {
@@ -103,26 +92,8 @@ const DraftDetail = () => {
     if (!error && data) setRevisions(data);
   };
 
-  const loadTemplates = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("content_templates")
-        .select("*")
-        .eq("is_active", true)
-        .order("name");
-      if (error) {
-        if (error.code === "42P01") { setTemplates([]); return; }
-      } else {
-        setTemplates(data || []);
-      }
-    } catch (error) {
-      console.error("Error loading templates:", error);
-    }
-  };
-
   useEffect(() => {
     loadDraft();
-    loadTemplates();
     loadRevisions();
   }, [id]);
 
@@ -169,15 +140,21 @@ const DraftDetail = () => {
   };
 
   const handleRegenerate = async () => {
-    if (!draft || !selectedTemplate) { toast.error("Please select a template"); return; }
+    if (!draft || !feedback.trim()) { toast.error("Please describe what should change"); return; }
     setRegenerating(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const { data, error } = await supabase.functions.invoke("regenerate-draft-with-feedback", {
-        body: { draftId: draft.id, templateId: selectedTemplate, userId: session?.user?.id, feedback: "Regenerate with selected template structure" },
+        body: { draftId: draft.id, feedback: feedback.trim(), userId: session?.user?.id },
       });
       if (error) throw error;
-      if (data.success) { toast.success("Draft regenerated!"); await loadDraft(); } else { toast.error("Failed to regenerate draft"); }
+      if (data.success) {
+        toast.success("Draft regenerated!");
+        setFeedback("");
+        await Promise.all([loadDraft(), loadRevisions()]);
+      } else {
+        toast.error("Failed to regenerate draft");
+      }
     } catch (error) {
       toast.error("Failed to regenerate: " + (error as any)?.message);
     } finally {
@@ -347,11 +324,6 @@ const DraftDetail = () => {
               </>
             ) : (
               <>
-                {templates.length > 0 && (
-                  <Button onClick={handleRegenerate} disabled={regenerating} variant="outline">
-                    <Sparkles className="mr-2 h-4 w-4" />{regenerating ? "Regenerating..." : "Regenerate"}
-                  </Button>
-                )}
                 <Button variant="outline" onClick={handleCopy}>
                   {copied ? <Check className="mr-2 h-4 w-4 text-green-500" /> : <Copy className="mr-2 h-4 w-4" />}
                   {copied ? "Copied" : "Copy"}
@@ -438,25 +410,20 @@ const DraftDetail = () => {
               <FileText className="h-6 w-6 text-muted-foreground" />
             </div>
 
-            {templates.length > 0 && !isEditing && (
+            {!isEditing && (
               <div className="mt-4">
-                <Label className="text-sm font-medium">Regenerate with Template</Label>
+                <Label className="text-sm font-medium">Revise with feedback</Label>
                 <div className="flex gap-2 mt-1">
-                  <Select value={selectedTemplate} onValueChange={setSelectedTemplate}>
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="Select template..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {templates.map((template) => (
-                        <SelectItem key={template.id} value={template.id}>
-                          <div className="flex items-center gap-2">
-                            <FileText className="h-4 w-4" />{template.name}
-                            <span className="text-xs text-muted-foreground ml-1">({template.content_type})</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Textarea
+                    value={feedback}
+                    onChange={(e) => setFeedback(e.target.value)}
+                    placeholder="What should change? e.g. 'make the hook punchier' or 'cut the third paragraph'"
+                    rows={2}
+                    className="flex-1 text-sm"
+                  />
+                  <Button onClick={handleRegenerate} disabled={regenerating || !feedback.trim()} variant="outline" className="shrink-0">
+                    <Sparkles className="mr-2 h-4 w-4" />{regenerating ? "Regenerating..." : "Regenerate"}
+                  </Button>
                 </div>
               </div>
             )}

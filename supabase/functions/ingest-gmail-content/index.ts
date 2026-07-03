@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { assessRelevance } from "../_shared/relevance-gate.ts";
+import { scoreRelevance } from "../_shared/relevance-scorer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -23,7 +23,6 @@ serve(async (req) => {
     const json = await req.json();
     const { user_id, subject, sender, body, message_id } = json;
 
-    // Validate required fields
     if (!user_id) {
       return new Response(
         JSON.stringify({ error: "Missing user_id" }),
@@ -38,7 +37,6 @@ serve(async (req) => {
       );
     }
 
-    // Verify user exists in Supabase
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("user_id")
@@ -53,7 +51,6 @@ serve(async (req) => {
       );
     }
 
-    // Deduplicate — skip if message_id already processed
     if (message_id) {
       const { data: existing } = await supabase
         .from("newsletter_emails")
@@ -71,18 +68,24 @@ serve(async (req) => {
       }
     }
 
-    // Truncate body if over 50000 chars
     const content = body.length > 50000
       ? body.substring(0, 50000) + "... [truncated]"
       : body;
 
     console.log(`📝 Processing email: "${subject}" from ${sender} (${content.length} chars)`);
 
-    // Relevance gate: skip creating a card at all for noise (ads, digest
-    // footers, off-topic newsletters) before it eats up review-queue space.
-    const verdict = await assessRelevance(supabase, user_id, { title: subject, content });
+    // Graded relevance scoring against this company's actual strategy,
+    // replacing both the old binary gate (relevance-gate.ts) and the
+    // hardcoded global_relevance_score: 5. relevant === score >= 3, so this
+    // still skips true noise (ads, footers, broken scrapes) before it
+    // becomes a card, while everything that is kept gets a real score
+    // instead of a placeholder. The weekly newsletter health scan
+    // (scan-newsletter-health) rolls these scores up per sender.
+    const verdict = await scoreRelevance(supabase, user_id, { title: subject, content });
+    console.log(`📊 Relevance score: ${verdict.score}/10 — ${verdict.reason}`);
+
     if (!verdict.relevant) {
-      console.log("⏭️ Skipping irrelevant Gmail newsletter:", subject?.substring(0, 50), "-", verdict.reason);
+      console.log("⏭️ Skipping low-relevance Gmail newsletter:", subject?.substring(0, 50), "-", verdict.reason);
       await supabase.from("newsletter_emails").insert({
         user_id,
         from_address: sender,
@@ -91,12 +94,11 @@ serve(async (req) => {
         processing_status: "skipped_irrelevant",
       });
       return new Response(
-        JSON.stringify({ success: true, skipped: true, reason: verdict.reason }),
+        JSON.stringify({ success: true, skipped: true, reason: verdict.reason, relevanceScore: verdict.score }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Create reference card
     const { data: card, error: cardError } = await supabase
       .from("reference_cards")
       .insert({
@@ -106,7 +108,7 @@ serve(async (req) => {
         source_type: "newsletter",
         source_url: `mailto:${sender}`,
         status: "processing",
-        global_relevance_score: 5,
+        global_relevance_score: verdict.score,
       })
       .select()
       .single();
@@ -121,7 +123,6 @@ serve(async (req) => {
 
     console.log("✅ Created reference card:", card.id);
 
-    // Log the email
     await supabase.from("newsletter_emails").insert({
       user_id,
       from_address: sender,
@@ -131,7 +132,6 @@ serve(async (req) => {
       processing_status: "success",
     });
 
-    // Trigger AI processing
     try {
       const { error: processError } = await supabase.functions.invoke("process-reference-card", {
         body: { cardId: card.id }
@@ -146,7 +146,7 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ success: true, cardId: card.id }),
+      JSON.stringify({ success: true, cardId: card.id, relevanceScore: verdict.score }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 

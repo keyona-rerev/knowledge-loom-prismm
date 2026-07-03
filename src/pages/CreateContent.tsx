@@ -25,13 +25,12 @@ interface InsightCard {
   insight_type: string;
 }
 
-interface ContentTemplate {
-  id: string;
-  name: string;
-  description: string;
-  content_type: string;
-  template_structure: any;
-}
+// Strategy library rows - same tables the Strategy page and the schedule
+// autopilot read, so manual content creation can align with them too.
+interface NamedRow { id: string; name: string; }
+interface FormatRow extends NamedRow { key: string; }
+
+const NONE = "__none__";
 
 const CreateContent = () => {
   const navigate = useNavigate();
@@ -39,10 +38,18 @@ const CreateContent = () => {
   
   const [seedInsight, setSeedInsight] = useState("");
   const [seedCategory, setSeedCategory] = useState<string>("thesis");
-  const [selectedTemplate, setSelectedTemplate] = useState<string>("");
-  const [templates, setTemplates] = useState<ContentTemplate[]>([]);
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<"input" | "directions" | "cards">("input");
+
+  // Strategy library: same formats/natures/jobs the Strategy page and the
+  // schedule autopilot read, offered here as optional context so manually
+  // created content can align with them too.
+  const [formats, setFormats] = useState<FormatRow[]>([]);
+  const [natures, setNatures] = useState<NamedRow[]>([]);
+  const [jobs, setJobs] = useState<NamedRow[]>([]);
+  const [selectedFormat, setSelectedFormat] = useState<string>(NONE);
+  const [selectedNature, setSelectedNature] = useState<string>(NONE);
+  const [selectedJob, setSelectedJob] = useState<string>(NONE);
 
   // NEW STATE: Insight cards integration
   const [insightCards, setInsightCards] = useState<InsightCard[]>([]);
@@ -61,42 +68,23 @@ const CreateContent = () => {
     checkAuth();
   }, [navigate]);
 
-  // NEW EFFECT: Load content templates from user profile
   useEffect(() => {
-    const loadTemplates = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
+    const loadStrategyLibrary = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const uid = session.user.id;
 
-        const { data: profile, error } = await supabase
-          .from("profiles")
-          .select("content_type_templates")
-          .eq("user_id", session.user.id)
-          .maybeSingle();
-
-        if (error) {
-          console.error("Error loading content type templates:", error);
-          toast.error("Failed to load content templates");
-        } else if (profile?.content_type_templates) {
-          const templates = (profile.content_type_templates as any[]).map((t: any) => ({
-            id: t.id,
-            name: t.name,
-            description: t.prompt.substring(0, 100) + "...",
-            content_type: t.id,
-            template_structure: { prompt: t.prompt }
-          }));
-          setTemplates(templates);
-          // Auto-select first template if available
-          if (templates.length > 0) {
-            setSelectedTemplate(templates[0].id);
-          }
-        }
-      } catch (error) {
-        console.error("Error loading templates:", error);
-      }
+      const [{ data: fmt }, { data: nat }, { data: jb }] = await Promise.all([
+        supabase.from("formats").select("id, name, key").eq("user_id", uid).eq("is_active", true).order("sort_order"),
+        supabase.from("natures").select("id, name").eq("user_id", uid).eq("is_active", true).order("sort_order"),
+        supabase.from("jobs").select("id, name").eq("user_id", uid).eq("is_active", true).order("sort_order"),
+      ]);
+      setFormats((fmt || []) as FormatRow[]);
+      setNatures((nat || []) as NamedRow[]);
+      setJobs((jb || []) as NamedRow[]);
     };
 
-    loadTemplates();
+    loadStrategyLibrary();
   }, []);
 
   const [directions, setDirections] = useState<ContentDirection[]>([]);
@@ -143,6 +131,9 @@ const CreateContent = () => {
       body: {
         seedInsight,
         seedCategory,
+        formatId: selectedFormat !== NONE ? selectedFormat : undefined,
+        natureId: selectedNature !== NONE ? selectedNature : undefined,
+        jobId: selectedJob !== NONE ? selectedJob : undefined,
         userId: session?.user?.id,
       },
     });
@@ -162,31 +153,25 @@ const CreateContent = () => {
     }
   };
 
-  // NEW FUNCTION: Enhanced content generation with insight cards AND templates
+  // NEW FUNCTION: Enhanced content generation with insight cards AND strategy library
   const handleGenerateWithInsights = async (direction: ContentDirection) => {
     setLoading(true);
     toast.info("Creating enhanced draft...");
 
     const { data: { session } } = await supabase.auth.getSession();
+    const chosenFormat = formats.find(f => f.id === selectedFormat);
 
     try {
-      // Get template data
-      const selectedTemplateData = templates.find(t => t.id === selectedTemplate);
-      
-      // Add contentType to direction for the edge function
-      const directionWithType = {
-        ...direction,
-        contentType: selectedTemplateData?.content_type || selectedTemplate
-      };
-
-      // Use the enhanced function with template support
+      // Use the enhanced function with strategy library support
       const { data, error } = await supabase.functions.invoke("generate-final-content", {
         body: {
-          direction: directionWithType,
+          direction,
           seedInsight,
           seedCategory,
           insightCardIds: selectedInsightCards,
-          templateId: selectedTemplate,
+          formatId: selectedFormat !== NONE ? selectedFormat : undefined,
+          natureId: selectedNature !== NONE ? selectedNature : undefined,
+          jobId: selectedJob !== NONE ? selectedJob : undefined,
           userId: session?.user?.id,
         },
       });
@@ -197,10 +182,8 @@ const CreateContent = () => {
         await handleSelectDirection(direction);
         return;
       }
-      
+
       // Create draft with enhanced content
-      // Note: template_id should only be set if it's a real UUID from content_templates table
-      // content_type_templates from profile use string IDs, not UUIDs
       const { data: draftData, error: draftError } = await supabase
         .from("drafts")
         .insert({
@@ -211,8 +194,11 @@ const CreateContent = () => {
           user_id: session?.user?.id,
           seed_category: seedCategory,
           selected_direction: direction,
-          content_type: selectedTemplateData?.content_type || "blog_post",
-          template_id: null, // Set to null since we're using content_type_templates from profile
+          content_type: chosenFormat?.key || "blog_post",
+          format_id: selectedFormat !== NONE ? selectedFormat : null,
+          nature_id: selectedNature !== NONE ? selectedNature : null,
+          job_id: selectedJob !== NONE ? selectedJob : null,
+          template_id: null,
           revision_count: 0,
           approval_status: "pending"
         } as any)
@@ -248,7 +234,7 @@ const CreateContent = () => {
       data: { session },
     } = await supabase.auth.getSession();
 
-    const selectedTemplateData = templates.find(t => t.id === selectedTemplate);
+    const chosenFormat = formats.find(f => f.id === selectedFormat);
 
     try {
       const { data: draftData, error } = await supabase
@@ -261,8 +247,11 @@ const CreateContent = () => {
           user_id: session?.user?.id,
           seed_category: seedCategory,
           selected_direction: direction,
-          content_type: selectedTemplateData?.content_type || "blog_post",
-          template_id: null, // Set to null since content_type_templates use string IDs, not UUIDs
+          content_type: chosenFormat?.key || "blog_post",
+          format_id: selectedFormat !== NONE ? selectedFormat : null,
+          nature_id: selectedNature !== NONE ? selectedNature : null,
+          job_id: selectedJob !== NONE ? selectedJob : null,
+          template_id: null,
           revision_count: 0,
           approval_status: "pending"
         } as any)
@@ -281,7 +270,7 @@ const CreateContent = () => {
             user_id: session?.user?.id,
             seed_category: seedCategory,
             selected_direction: direction,
-            template_id: null, // Set to null since content_type_templates use string IDs, not UUIDs
+            template_id: null,
             revision_count: 0,
             approval_status: "pending"
           } as any)
@@ -372,35 +361,41 @@ const CreateContent = () => {
                 </Select>
               </div>
 
-              {/* NEW: Template Selection */}
-              {templates.length > 0 && (
+              {/* Strategy library: optional format/nature/job so this can align with
+                  the same tables the Schedule autopilot reads. All optional -
+                  leave any of them unset and the writer decides. */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <Label htmlFor="template">Content Template</Label>
-                  <Select value={selectedTemplate} onValueChange={setSelectedTemplate}>
-                    <SelectTrigger id="template" className="mt-2">
-                      <SelectValue />
-                    </SelectTrigger>
+                  <Label htmlFor="format" className="text-xs">Format</Label>
+                  <Select value={selectedFormat} onValueChange={setSelectedFormat}>
+                    <SelectTrigger id="format" className="mt-2"><SelectValue placeholder="Unset" /></SelectTrigger>
                     <SelectContent>
-                      {templates.map((template) => (
-                        <SelectItem key={template.id} value={template.id}>
-                          <div className="flex items-center gap-2">
-                            <FileText className="h-4 w-4" />
-                            {template.name}
-                            <span className="text-xs text-muted-foreground ml-1">
-                              ({template.content_type})
-                            </span>
-                          </div>
-                        </SelectItem>
-                      ))}
+                      <SelectItem value={NONE}>Unset</SelectItem>
+                      {formats.map((f) => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
-                  {selectedTemplate && (
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {templates.find(t => t.id === selectedTemplate)?.description}
-                    </p>
-                  )}
                 </div>
-              )}
+                <div>
+                  <Label htmlFor="nature" className="text-xs">Nature</Label>
+                  <Select value={selectedNature} onValueChange={setSelectedNature}>
+                    <SelectTrigger id="nature" className="mt-2"><SelectValue placeholder="Unset" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NONE}>Unset</SelectItem>
+                      {natures.map((n) => <SelectItem key={n.id} value={n.id}>{n.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="job" className="text-xs">Job</Label>
+                  <Select value={selectedJob} onValueChange={setSelectedJob}>
+                    <SelectTrigger id="job" className="mt-2"><SelectValue placeholder="Unset" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NONE}>Unset</SelectItem>
+                      {jobs.map((j) => <SelectItem key={j.id} value={j.id}>{j.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
 
               <Button onClick={handleGenerateDirections} disabled={loading} className="w-full" size="lg">
                 <Sparkles className="mr-2 h-5 w-5" />
@@ -423,9 +418,9 @@ const CreateContent = () => {
                         • {selectedInsightCards.length} insights selected
                       </span>
                     )}
-                    {selectedTemplate && (
+                    {selectedFormat !== NONE && (
                       <span className="ml-2 text-sm">
-                        • Template: {templates.find(t => t.id === selectedTemplate)?.name}
+                        • Format: {formats.find(f => f.id === selectedFormat)?.name}
                       </span>
                     )}
                   </CardDescription>
@@ -503,10 +498,10 @@ const CreateContent = () => {
                               +{selectedInsightCards.length} insights
                             </div>
                           )}
-                          {selectedTemplate && (
+                          {selectedFormat !== NONE && (
                             <div className="flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
                               <FileText className="h-3 w-3" />
-                              {templates.find(t => t.id === selectedTemplate)?.name}
+                              {formats.find(f => f.id === selectedFormat)?.name}
                             </div>
                           )}
                         </div>

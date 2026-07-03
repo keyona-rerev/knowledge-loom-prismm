@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callAI, loadAIProfile } from "../_shared/ai-caller.ts";
+import { callAI } from "../_shared/ai-caller.ts";
+import { loadStrategyContext, buildContextBlock, buildSystemPrompt } from "../_shared/strategy-context.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,17 +32,21 @@ serve(async (req) => {
     if (authError || !user) return new Response(JSON.stringify({ error: "Invalid or expired authentication token" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
-    const { seedInsight, seedCategory } = await req.json();
+    const { seedInsight, seedCategory, formatId, natureId, jobId } = await req.json();
 
     if (!seedInsight) return new Response(JSON.stringify({ error: "seedInsight is required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("ai_provider, ai_model, ai_api_key, ai_endpoint, business_name, business_description, target_audience")
+      .select("ai_provider, ai_model, ai_api_key, ai_endpoint")
       .eq("user_id", user.id)
       .single();
 
     if (!profile) return new Response(JSON.stringify({ error: "User profile not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    if (!profile.ai_api_key) return new Response(JSON.stringify({ error: "No AI API key configured in Settings" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+    const { ctx, hardRules, voiceRules, inlineAttribution } = await loadStrategyContext(supabase, user.id, { formatId, natureId, jobId });
+    const strategyBlock = buildContextBlock(ctx);
 
     const { data: cards } = await supabase
       .from("reference_cards")
@@ -53,31 +58,26 @@ serve(async (req) => {
 
     const contextCards = cards?.map(c => `${c.title}: ${c.ai_summary}`).join('\n\n') || "No reference cards available";
 
-    let businessContext = "";
-    if (profile.business_name || profile.business_description || profile.target_audience) {
-      businessContext = `\n\nBUSINESS CONTEXT:\n`;
-      if (profile.business_name) businessContext += `Business: ${profile.business_name}\n`;
-      if (profile.business_description) businessContext += `About: ${profile.business_description}\n`;
-      if (profile.target_audience) businessContext += `Audience: ${profile.target_audience}\n`;
-    }
-
     const prompt = `Based on this seed insight and reference materials, generate 4 distinct content directions.
 
 Seed Insight: ${seedInsight}
 Category: ${seedCategory}
 
+${strategyBlock}
 Reference Materials:
 ${contextCards}
-${businessContext}
 
 Generate 4 unique angles for developing this insight into content. Each should have a compelling title, 2-3 sentence description, and unique angle.
-${profile.target_audience ? `Be specifically relevant for the target audience described above.` : ''}
 
 Respond ONLY with valid JSON:
 {"directions": [{"title": "...", "description": "...", "angle": "..."}, ...]}`;
 
     const aiProfile = { ai_provider: profile.ai_provider, ai_model: profile.ai_model, ai_api_key: profile.ai_api_key, ai_endpoint: profile.ai_endpoint };
-    const response = await callAI(aiProfile, [{ role: "user", content: prompt }], "You are a creative content strategist. Always respond with valid JSON only, no markdown.");
+    const system = buildSystemPrompt(
+      "You are a creative content strategist. Always respond with valid JSON only, no markdown.",
+      hardRules, voiceRules, inlineAttribution
+    );
+    const response = await callAI(aiProfile, [{ role: "user", content: prompt }], system);
 
     const result = parseJSON(response.text);
 

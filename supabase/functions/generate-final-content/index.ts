@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAI } from "../_shared/ai-caller.ts";
+import { loadStrategyContext, buildContextBlock, buildSystemPrompt } from "../_shared/strategy-context.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,7 +32,7 @@ serve(async (req) => {
     if (authError || !user) return new Response(JSON.stringify({ error: "Invalid or expired authentication token" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
-    const { direction, seedInsight, seedCategory, insightCardIds } = await req.json();
+    const { direction, seedInsight, seedCategory, insightCardIds, formatId, natureId, jobId } = await req.json();
 
     if (!direction || !seedInsight) return new Response(JSON.stringify({ error: "Missing required fields" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
@@ -42,31 +43,11 @@ serve(async (req) => {
     if ((rateCount || 0) >= 100) return new Response(JSON.stringify({ error: 'Rate limit exceeded.' }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     await supabase.from('rate_limit_logs').insert({ user_id: user.id, action: 'generate_final' });
 
-    const { data: profile } = await supabase.from("profiles").select("ai_provider, ai_model, ai_api_key, ai_endpoint, brand_voice, writing_examples, business_name, business_description, target_audience, content_type_templates").eq("user_id", user.id).single();
+    const { data: profile } = await supabase.from("profiles").select("ai_provider, ai_model, ai_api_key, ai_endpoint").eq("user_id", user.id).single();
     if (!profile) return new Response(JSON.stringify({ error: "Profile not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-    let writingStyleContext = "";
-    if (profile.writing_examples && Array.isArray(profile.writing_examples) && profile.writing_examples.length > 0) {
-      writingStyleContext = "\n\nWRITING STYLE EXAMPLES:\n";
-      profile.writing_examples.slice(0, 4).forEach((ex: { content: string }, i: number) => {
-        if (ex.content) writingStyleContext += `\n--- Example ${i + 1} ---\n${ex.content.substring(0, 1000)}\n`;
-      });
-    }
-
-    let businessContext = "";
-    if (profile.business_name || profile.business_description || profile.target_audience) {
-      businessContext = "\n\nBUSINESS CONTEXT:\n";
-      if (profile.business_name) businessContext += `Business: ${profile.business_name}\n`;
-      if (profile.business_description) businessContext += `About: ${profile.business_description}\n`;
-      if (profile.target_audience) businessContext += `Audience: ${profile.target_audience}\n`;
-    }
-
-    let contentTypePrompt = "";
-    if (direction.contentType && profile.content_type_templates) {
-      const templates = profile.content_type_templates as Array<{ id: string; prompt: string }>;
-      const t = templates.find(t => t.id === direction.contentType);
-      if (t?.prompt) contentTypePrompt = `\n\nCONTENT TYPE GUIDELINES:\n${t.prompt}`;
-    }
+    const { ctx, hardRules, voiceRules, inlineAttribution } = await loadStrategyContext(supabase, user.id, { formatId, natureId, jobId });
+    const strategyBlock = buildContextBlock(ctx);
 
     let insightContext = "";
     if (insightCardIds?.length) {
@@ -82,19 +63,19 @@ serve(async (req) => {
 Direction: ${JSON.stringify(direction)}
 Seed Insight: ${seedInsight}
 Category: ${seedCategory || "General"}
-${profile.brand_voice ? `Brand Voice: ${profile.brand_voice}` : ""}
-${insightContext}
-${contentTypePrompt}
-${writingStyleContext}
-${businessContext}
+
+${strategyBlock}${insightContext}
 
 Create comprehensive, publication-ready content. Engaging title, clear structure, professional quality.
-${profile.target_audience ? `Write specifically for: ${profile.target_audience}` : ""}
 
 Respond ONLY with valid JSON: {"title": "...", "content": "full markdown content"}`;
 
     const aiProfile = { ai_provider: profile.ai_provider, ai_model: profile.ai_model, ai_api_key: profile.ai_api_key, ai_endpoint: profile.ai_endpoint };
-    const response = await callAI(aiProfile, [{ role: "user", content: prompt }], "You are a professional content writer. Always respond with valid JSON only.");
+    const system = buildSystemPrompt(
+      "You are a professional content writer. Always respond with valid JSON only.",
+      hardRules, voiceRules, inlineAttribution
+    );
+    const response = await callAI(aiProfile, [{ role: "user", content: prompt }], system);
     const result = parseJSON(response.text);
 
     return new Response(JSON.stringify(result), { headers: { ...corsHeaders, "Content-Type": "application/json" } });

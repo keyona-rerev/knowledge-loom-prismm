@@ -252,6 +252,7 @@ const Strategy = () => {
   const [swot, setSwot] = useState<SwotRow[]>([]);
   const [readers, setReaders] = useState<ReaderRow[]>([]);
 
+  const [audienceProfileEditing, setAudienceProfileEditing] = useState(false);
   const [lanesEditing, setLanesEditing] = useState(false);
   const [swotEditing, setSwotEditing] = useState(false);
   const [readersEditing, setReadersEditing] = useState(false);
@@ -966,46 +967,120 @@ const Strategy = () => {
 
         <Card id="audience" className="mb-6 scroll-mt-20">
           <CardHeader>
-            <CardTitle>Profile</CardTitle>
-            <CardDescription>The thesis and the fit. The first audience context the generator reads.</CardDescription>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <CardTitle>Profile</CardTitle>
+                <CardDescription>The thesis and the fit. The first audience context the generator reads.</CardDescription>
+              </div>
+              {audienceProfileEditing ? (
+                <Button size="sm" onClick={() => setAudienceProfileEditing(false)} className="shrink-0">
+                  <SaveIcon className="h-3.5 w-3.5 mr-1.5" />Save
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => setAudienceProfileEditing(true)} className="shrink-0">
+                  <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit profile
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
-              <Label>Thesis</Label>
-              <Textarea rows={3} placeholder="The one sentence about who this is for and why it matters now" value={audienceProfile.thesis} onChange={(e) => setAudienceProfile((p) => ({ ...p, thesis: e.target.value }))} />
-            </div>
-            <div>
-              <Label>Fit criteria (one per line)</Label>
-              <Textarea rows={3} value={audienceProfile.fit_criteria.join("\n")} onChange={(e) => setAudienceProfile((p) => ({ ...p, fit_criteria: linesToArray(e.target.value) }))} />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <Label>Institution type</Label>
-                <Input value={audienceProfile.institution_type} onChange={(e) => setAudienceProfile((p) => ({ ...p, institution_type: e.target.value }))} />
-              </div>
-              <div>
-                <Label>Asset range</Label>
-                <Input value={audienceProfile.asset_range} onChange={(e) => setAudienceProfile((p) => ({ ...p, asset_range: e.target.value }))} />
-              </div>
-            </div>
-            <div>
-              <Label>Core systems</Label>
-              <Textarea rows={2} placeholder="The platforms and vendors they run on" value={audienceProfile.core_systems} onChange={(e) => setAudienceProfile((p) => ({ ...p, core_systems: e.target.value }))} />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <Label>Language to use (one per line)</Label>
-                <Textarea rows={3} value={audienceProfile.language_use.join("\n")} onChange={(e) => setAudienceProfile((p) => ({ ...p, language_use: linesToArray(e.target.value) }))} />
-              </div>
-              <div>
-                <Label>Language to avoid (one per line)</Label>
-                <Textarea rows={3} value={audienceProfile.language_avoid.join("\n")} onChange={(e) => setAudienceProfile((p) => ({ ...p, language_avoid: linesToArray(e.target.value) }))} />
-              </div>
-            </div>
-            <div>
-              <Label>Channels (comma separated)</Label>
-              <Input placeholder="e.g. LinkedIn, conferences, trade press" value={audienceProfile.channels.join(", ")} onChange={(e) => setAudienceProfile((p) => ({ ...p, channels: csvToArray(e.target.value) }))} />
-            </div>
+            {audienceProfileEditing ? (
+              <>
+                <div>
+                  <Label>Thesis</Label>
+                  <Textarea rows={3} placeholder="The one sentence about who this is for and why it matters now" value={audienceProfile.thesis} onChange={(e) => setAudienceProfile((p) => ({ ...p, thesis: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>Fit criteria (one per line)</Label>
+                  <Textarea rows={3} value={audienceProfile.fit_criteria.join("\n")} onChange={(e) => setAudienceProfile((p) => ({ ...p, fit_criteria: linesToArray(e.target.value) }))} />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <Label>Institution type</Label>
+                    <Input value={audienceProfile.institution_type} onChange={(e) => setAudienceProfile((p) => ({ ...p, institution_type: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>Asset range</Label>
+                    <Input value={audienceProfile.asset_range} onChange={(e) => setAudienceProfile((p) => ({ ...p, asset_range: e.target.value }))} />
+                  </div>
+                </div>
+                <div>
+                  <Label>Core systems</Label>
+                  <Textarea rows={2} placeholder="The platforms and vendors they run on" value={audienceProfile.core_systems} onChange={(e) => setAudienceProfile((p) => ({ ...p, core_systems: e.target.value }))} />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <Label>Language to use (one per line)</Label>
+                    <Textarea rows={3} value={audienceProfile.language_use.join("\n")} onChange={(e) => setAudienceProfile((p) => ({ ...p, language_use: linesToArray(e.target.value) }))} />
+                  </div>
+                  <div>
+                    <Label>Language to avoid (one per line)</Label>
+                    <Textarea rows={3} value={audienceProfile.language_avoid.join("\n")} onChange={(e) => setAudienceProfile((p) => ({ ...p, language_avoid: linesToArray(e.target.value) }))} />
+                  </div>
+                </div>
+                <div>
+                  <Label>Channels (comma separated)</Label>
+                  <Input placeholder="e.g. LinkedIn, conferences, trade press" value={audienceProfile.channels.join(", ")} onChange={(e) => setAudienceProfile((p) => ({ ...p, channels: csvToArray(e.target.value) }))} />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground mb-1">Thesis</p>
+                  <p className="text-sm whitespace-pre-wrap">{audienceProfile.thesis || "(not set)"}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground mb-1">Fit criteria</p>
+                  {audienceProfile.fit_criteria.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">(none)</p>
+                  ) : (
+                    <ul className="list-disc pl-5 space-y-1 text-sm">
+                      {audienceProfile.fit_criteria.map((c, i) => <li key={i}>{c}</li>)}
+                    </ul>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-1">Institution type</p>
+                    <p className="text-sm">{audienceProfile.institution_type || "(not set)"}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-1">Asset range</p>
+                    <p className="text-sm">{audienceProfile.asset_range || "(not set)"}</p>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground mb-1">Core systems</p>
+                  <p className="text-sm whitespace-pre-wrap">{audienceProfile.core_systems || "(not set)"}</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-1">Language to use</p>
+                    {audienceProfile.language_use.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">(none)</p>
+                    ) : (
+                      <ul className="list-disc pl-5 space-y-1 text-sm">
+                        {audienceProfile.language_use.map((c, i) => <li key={i}>{c}</li>)}
+                      </ul>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-1">Language to avoid</p>
+                    {audienceProfile.language_avoid.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">(none)</p>
+                    ) : (
+                      <ul className="list-disc pl-5 space-y-1 text-sm">
+                        {audienceProfile.language_avoid.map((c, i) => <li key={i}>{c}</li>)}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground mb-1">Channels</p>
+                  <p className="text-sm">{audienceProfile.channels.length ? audienceProfile.channels.join(", ") : "(not set)"}</p>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 

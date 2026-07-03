@@ -45,7 +45,7 @@ const AI_USAGE = [
   {
     name: "Manual content creation",
     trigger: "Create Content page, per draft you generate by hand",
-    fn: "generate-content-directions / generate-content-from-card",
+    fn: "generate-content-directions / generate-final-content",
     est: "$0.01–$0.03 per draft",
   },
   {

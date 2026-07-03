@@ -15,9 +15,6 @@ verify_jwt = true
 [functions.execute-autopilot-template]
 verify_jwt = true
 
-[functions.generate-content-from-card]
-verify_jwt = true
-
 [functions.send-draft-notification]
 verify_jwt = true
 

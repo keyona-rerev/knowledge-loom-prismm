@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAI } from "../_shared/ai-caller.ts";
+import { loadStrategyContext, buildContextBlock, buildSystemPrompt } from "../_shared/strategy-context.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -45,7 +46,7 @@ serve(async (req) => {
     const { data: draft } = await supabase.from("drafts").select("*").eq("id", draftId).eq("user_id", user.id).single();
     if (!draft) return new Response(JSON.stringify({ error: "Draft not found or access denied" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-    const { data: profile } = await supabase.from("profiles").select("ai_provider, ai_model, ai_api_key, ai_endpoint, brand_voice, writing_examples, business_name, business_description, target_audience, content_type_templates").eq("user_id", user.id).single();
+    const { data: profile } = await supabase.from("profiles").select("ai_provider, ai_model, ai_api_key, ai_endpoint").eq("user_id", user.id).single();
     if (!profile) return new Response(JSON.stringify({ error: "Profile not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     // Store revision history
@@ -57,28 +58,15 @@ serve(async (req) => {
       changes_summary: `Before revision: ${feedback.substring(0, 100)}...`
     });
 
-    let writingStyleContext = "";
-    if (profile.writing_examples && Array.isArray(profile.writing_examples) && profile.writing_examples.length > 0) {
-      writingStyleContext = "\n\nWRITING STYLE EXAMPLES:\n";
-      profile.writing_examples.slice(0, 4).forEach((ex: { content: string }, i: number) => {
-        if (ex.content) writingStyleContext += `\n--- Example ${i + 1} ---\n${ex.content.substring(0, 800)}\n`;
-      });
-    }
-
-    let businessContext = "";
-    if (profile.business_name || profile.business_description || profile.target_audience) {
-      businessContext = "\n\nBUSINESS CONTEXT:\n";
-      if (profile.business_name) businessContext += `Business: ${profile.business_name}\n`;
-      if (profile.business_description) businessContext += `About: ${profile.business_description}\n`;
-      if (profile.target_audience) businessContext += `Audience: ${profile.target_audience}\n`;
-    }
-
-    let contentTypePrompt = "";
-    if (draft.content_type && profile.content_type_templates) {
-      const templates = profile.content_type_templates as Array<{ id: string; prompt: string }>;
-      const t = templates.find(t => t.id === draft.content_type);
-      if (t?.prompt) contentTypePrompt = `\n\nCONTENT TYPE GUIDELINES:\n${t.prompt}`;
-    }
+    // Same strategy tables execute-autopilot-template and the modernized
+    // Create Content flow read, instead of the old flat profiles columns.
+    // Read format/nature/job straight off the draft being revised - it
+    // already carries them from when it was first generated, so revising it
+    // doesn't need any new UI to re-pick them.
+    const { ctx, hardRules, voiceRules, inlineAttribution } = await loadStrategyContext(supabase, user.id, {
+      formatId: draft.format_id, natureId: draft.nature_id, jobId: draft.job_id,
+    });
+    const strategyBlock = buildContextBlock(ctx);
 
     const prompt = `Revise this content based on the feedback. Address all points while maintaining quality.
 
@@ -90,17 +78,16 @@ ${draft.body}
 FEEDBACK:
 ${feedback}
 
-${profile.brand_voice ? `Brand Voice: ${profile.brand_voice}` : ""}
-${contentTypePrompt}
-${writingStyleContext}
-${businessContext}
-
-${profile.target_audience ? `Keep content valuable for: ${profile.target_audience}` : ""}
+${strategyBlock}
 
 Respond ONLY with valid JSON: {"title": "...", "content": "full revised content"}`;
 
     const aiProfile = { ai_provider: profile.ai_provider, ai_model: profile.ai_model, ai_api_key: profile.ai_api_key, ai_endpoint: profile.ai_endpoint };
-    const response = await callAI(aiProfile, [{ role: "user", content: prompt }], "You are a professional editor. Always respond with valid JSON only.");
+    const system = buildSystemPrompt(
+      "You are a professional editor. Always respond with valid JSON only.",
+      hardRules, voiceRules, inlineAttribution
+    );
+    const response = await callAI(aiProfile, [{ role: "user", content: prompt }], system);
     const result = parseJSON(response.text);
 
     await supabase.from("drafts").update({

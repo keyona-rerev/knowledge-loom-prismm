@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2, Pencil, Save as SaveIcon, TrendingUp, AlertTriangle, Lightbulb, ShieldAlert } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Pencil, Save as SaveIcon, TrendingUp, AlertTriangle, Lightbulb, ShieldAlert, Crown, Building2, Briefcase, LineChart, Users, Headphones, User } from "lucide-react";
 
 // Strategy is the single source of truth for who Prismm is, who it writes to,
 // and what its content does. Formerly split across Strategy and Audience
@@ -162,6 +162,24 @@ const SIDE_OPTIONS = [
   { value: "decision", label: "Decision maker" },
   { value: "end_user", label: "End user" },
 ];
+// Reader avatars: keyword-matched icon per role, colored by side (decision
+// maker vs end user) so the Readers grid reads at a glance instead of as a
+// plain bulleted list. Falls back to a generic person icon for roles that
+// don't match a known keyword.
+const READER_ICON_RULES: { test: RegExp; icon: typeof User }[] = [
+  { test: /ceo|president/i, icon: Crown },
+  { test: /retail|deposit|bank/i, icon: Building2 },
+  { test: /business development|bdo/i, icon: Briefcase },
+  { test: /wealth|trust/i, icon: LineChart },
+  { test: /heir|family/i, icon: Users },
+  { test: /frontline|staff/i, icon: Headphones },
+];
+const getReaderIcon = (role: string) =>
+  READER_ICON_RULES.find((r) => r.test.test(role))?.icon ?? User;
+const SIDE_COLORS: Record<string, { avatarBg: string; avatarText: string; badgeBg: string; badgeText: string }> = {
+  decision: { avatarBg: "bg-purple-50", avatarText: "text-purple-700", badgeBg: "bg-purple-50", badgeText: "text-purple-800" },
+  end_user: { avatarBg: "bg-teal-50", avatarText: "text-teal-700", badgeBg: "bg-teal-50", badgeText: "text-teal-800" },
+};
 const LANE_SCOPE_OPTIONS = [
   { value: "both", label: "Both lanes" },
   { value: "credit_union", label: "Credit union" },
@@ -1329,15 +1347,22 @@ const Strategy = () => {
             ) : readers.length === 0 ? (
               <p className="text-sm text-muted-foreground">No readers yet.</p>
             ) : (
-              <ul className="list-disc pl-5 space-y-1 text-sm">
-                {readers.map((r) => (
-                  <li key={r.id}>
-                    <span className="font-medium">{r.role || "Untitled reader"}</span>
-                    {" · "}
-                    <span className="text-muted-foreground">{SIDE_OPTIONS.find((o) => o.value === r.side)?.label ?? r.side}</span>
-                  </li>
-                ))}
-              </ul>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {readers.map((r) => {
+                  const Icon = getReaderIcon(r.role);
+                  const sideLabel = SIDE_OPTIONS.find((o) => o.value === r.side)?.label ?? r.side;
+                  const colors = SIDE_COLORS[r.side] ?? SIDE_COLORS.decision;
+                  return (
+                    <div key={r.id} className="border rounded-xl p-3 flex flex-col items-center text-center gap-2">
+                      <div className={`w-11 h-11 rounded-full flex items-center justify-center ${colors.avatarBg} ${colors.avatarText}`}>
+                        <Icon className="h-5 w-5" />
+                      </div>
+                      <p className="text-sm font-medium leading-tight">{r.role || "Untitled reader"}</p>
+                      <span className={`text-[11px] px-2 py-0.5 rounded-full ${colors.badgeBg} ${colors.badgeText}`}>{sideLabel}</span>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </CardContent>
         </Card>

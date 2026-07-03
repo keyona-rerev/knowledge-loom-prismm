@@ -20,11 +20,34 @@ const Dashboard = () => {
   });
   const [loading, setLoading] = useState(true);
   const [flaggedNewsletters, setFlaggedNewsletters] = useState<any[]>([]);
+  const [brandColors, setBrandColors] = useState({
+    primary_color: "#f9655b",
+    secondary_color: "#6658ea",
+    accent_color: "#f5c070",
+  });
 
   useEffect(() => {
     loadDashboardStats();
     loadNewsletterHealth();
+    loadBrandColors();
   }, []);
+
+  const loadBrandColors = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const { data } = await supabase
+      .from("profiles")
+      .select("primary_color, secondary_color, accent_color")
+      .eq("user_id", session.user.id)
+      .maybeSingle();
+    if (data) {
+      setBrandColors({
+        primary_color: data.primary_color || "#f9655b",
+        secondary_color: data.secondary_color || "#6658ea",
+        accent_color: data.accent_color || "#f5c070",
+      });
+    }
+  };
 
   const loadNewsletterHealth = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -104,7 +127,6 @@ const Dashboard = () => {
       description: "Newsletters, RSS, manual sources, and journal observations — everything that feeds the engine",
       icon: Rss,
       path: "/feeds",
-      color: "text-orange-500",
     },
   ];
 
@@ -114,21 +136,18 @@ const Dashboard = () => {
       description: "Brand, voice, audience, lanes, and the formats library",
       icon: Target,
       path: "/strategy",
-      color: "text-rose-500",
     },
     {
       title: "Schedule",
       description: "Cadence, upcoming posts, and what's already gone out",
       icon: CalendarClock,
       path: "/schedule",
-      color: "text-amber-500",
     },
     {
       title: "Settings",
       description: "AI provider, LinkedIn connection, and review pipeline",
       icon: Settings,
       path: "/settings",
-      color: "text-gray-500",
     },
   ];
 
@@ -227,54 +246,54 @@ The dashboard shows your review pipeline and quick access to everything else.`}
           </Card>
         )}
 
-        <div className="space-y-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
           {/* Review tier */}
           <section>
             <div className="flex items-center gap-2 mb-4">
-              <CheckCheck className="h-5 w-5 text-primary" />
+              <CheckCheck className="h-5 w-5" style={{ color: brandColors.primary_color }} />
               <h3 className="text-xl font-semibold">Review</h3>
             </div>
-            <div className="max-w-sm">
-              <Card
-                className={`cursor-pointer hover:shadow-lg transition-shadow ${stats.pendingReviews > 0 ? "border-2 border-yellow-300 bg-yellow-50" : "border-2 border-primary/20"}`}
-                onClick={() => navigate("/review")}
-              >
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <CheckCheck className="h-8 w-8 text-primary" />
-                      <CardTitle className="text-lg">Review</CardTitle>
-                    </div>
-                    {stats.pendingReviews > 0 && (
-                      <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
-                        {stats.pendingReviews} pending
-                      </Badge>
-                    )}
+            <Card
+              className={`cursor-pointer hover:shadow-lg transition-shadow ${stats.pendingReviews > 0 ? "border-2 border-yellow-300 bg-yellow-50" : "border-2"}`}
+              style={stats.pendingReviews > 0 ? undefined : { borderColor: `${brandColors.primary_color}33` }}
+              onClick={() => navigate("/review")}
+            >
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <CheckCheck className="h-8 w-8" style={{ color: brandColors.primary_color }} />
+                    <CardTitle className="text-lg">Review</CardTitle>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <CardDescription>Pending drafts, approved queue, and the rejection log</CardDescription>
-                </CardContent>
-              </Card>
-            </div>
+                  {stats.pendingReviews > 0 && (
+                    <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                      {stats.pendingReviews} pending
+                    </Badge>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                <CardDescription>Pending drafts, approved queue, and the rejection log</CardDescription>
+              </CardContent>
+            </Card>
           </section>
 
           {/* Capture tier */}
           <section>
             <div className="flex items-center gap-2 mb-4">
-              <Lightbulb className="h-5 w-5 text-primary" />
+              <Lightbulb className="h-5 w-5" style={{ color: brandColors.secondary_color }} />
               <h3 className="text-xl font-semibold">Capture</h3>
             </div>
-            <div className="grid grid-cols-1 gap-4">
+            <div className="space-y-4">
               {captureTier.map((item) => (
                 <Card
                   key={item.path}
-                  className="cursor-pointer hover:shadow-lg transition-shadow border-2 border-primary/20"
+                  className="cursor-pointer hover:shadow-lg transition-shadow border-2"
+                  style={{ borderColor: `${brandColors.secondary_color}33` }}
                   onClick={() => navigate(item.path)}
                 >
                   <CardHeader>
                     <div className="flex items-center gap-3">
-                      <item.icon className={`h-8 w-8 ${item.color}`} />
+                      <item.icon className="h-8 w-8" style={{ color: brandColors.secondary_color }} />
                       <CardTitle className="text-lg">{item.title}</CardTitle>
                     </div>
                   </CardHeader>
@@ -289,19 +308,20 @@ The dashboard shows your review pipeline and quick access to everything else.`}
           {/* Configure tier */}
           <section>
             <div className="flex items-center gap-2 mb-4">
-              <Settings className="h-5 w-5 text-primary" />
+              <Settings className="h-5 w-5" style={{ color: brandColors.accent_color }} />
               <h3 className="text-xl font-semibold">Configure</h3>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-4">
               {configureTier.map((item) => (
                 <Card
                   key={item.path}
-                  className="cursor-pointer hover:shadow-lg transition-shadow border-2 border-primary/20"
+                  className="cursor-pointer hover:shadow-lg transition-shadow border-2"
+                  style={{ borderColor: `${brandColors.accent_color}55` }}
                   onClick={() => navigate(item.path)}
                 >
                   <CardHeader>
                     <div className="flex items-center gap-3">
-                      <item.icon className={`h-8 w-8 ${item.color}`} />
+                      <item.icon className="h-8 w-8" style={{ color: brandColors.accent_color }} />
                       <CardTitle className="text-lg">{item.title}</CardTitle>
                     </div>
                   </CardHeader>
@@ -312,20 +332,19 @@ The dashboard shows your review pipeline and quick access to everything else.`}
               ))}
             </div>
           </section>
-
-          {/* Everything else */}
-          <section>
-            <h3 className="text-sm font-medium text-muted-foreground mb-3">More</h3>
-            <div className="flex flex-wrap gap-2">
-              {moreLinks.map((item) => (
-                <Button key={item.path} variant="outline" size="sm" onClick={() => navigate(item.path)}>
-                  <item.icon className="h-3.5 w-3.5 mr-2" />
-                  {item.title}
-                </Button>
-              ))}
-            </div>
-          </section>
         </div>
+
+        <section className="mt-8">
+          <h3 className="text-sm font-medium text-muted-foreground mb-3">More</h3>
+          <div className="flex flex-wrap gap-2">
+            {moreLinks.map((item) => (
+              <Button key={item.path} variant="outline" size="sm" onClick={() => navigate(item.path)}>
+                <item.icon className="h-3.5 w-3.5 mr-2" />
+                {item.title}
+              </Button>
+            ))}
+          </div>
+        </section>
       </main>
     </div>
   );

@@ -207,6 +207,7 @@ const Strategy = () => {
   const [profileId, setProfileId] = useState<string | null>(null);
   const [audienceProfileId, setAudienceProfileId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [brandEditing, setBrandEditing] = useState(false);
 
   const [brand, setBrand] = useState({
     business_name: "",
@@ -770,22 +771,54 @@ const Strategy = () => {
         {/* Brand */}
         <Card id="brand" className="mb-6 scroll-mt-20">
           <CardHeader>
-            <CardTitle>Brand</CardTitle>
-            <CardDescription>Who Prismm is and how it sounds. The first context the generator reads. The app also themes from these colors.</CardDescription>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <CardTitle>Brand</CardTitle>
+                <CardDescription>Who Prismm is and how it sounds. The first context the generator reads. The app also themes from these colors.</CardDescription>
+              </div>
+              {brandEditing ? (
+                <Button size="sm" onClick={() => setBrandEditing(false)} className="shrink-0">
+                  <SaveIcon className="h-3.5 w-3.5 mr-1.5" />Save
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => setBrandEditing(true)} className="shrink-0">
+                  <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit brand
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
-              <Label>Business name</Label>
-              <Input value={brand.business_name} onChange={(e) => setBrand((b) => ({ ...b, business_name: e.target.value }))} />
-            </div>
-            <div>
-              <Label>Business description</Label>
-              <Textarea rows={4} value={brand.business_description} onChange={(e) => setBrand((b) => ({ ...b, business_description: e.target.value }))} />
-            </div>
-            <div>
-              <Label>Brand voice</Label>
-              <Textarea rows={4} value={brand.brand_voice} onChange={(e) => setBrand((b) => ({ ...b, brand_voice: e.target.value }))} />
-            </div>
+            {brandEditing ? (
+              <>
+                <div>
+                  <Label>Business name</Label>
+                  <Input value={brand.business_name} onChange={(e) => setBrand((b) => ({ ...b, business_name: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>Business description</Label>
+                  <Textarea rows={4} value={brand.business_description} onChange={(e) => setBrand((b) => ({ ...b, business_description: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>Brand voice</Label>
+                  <Textarea rows={4} value={brand.brand_voice} onChange={(e) => setBrand((b) => ({ ...b, brand_voice: e.target.value }))} />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground mb-1">Business name</p>
+                  <p className="text-sm">{brand.business_name || "(not set)"}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground mb-1">Business description</p>
+                  <p className="text-sm whitespace-pre-wrap">{brand.business_description || "(not set)"}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground mb-1">Brand voice</p>
+                  <p className="text-sm whitespace-pre-wrap">{brand.brand_voice || "(not set)"}</p>
+                </div>
+              </>
+            )}
 
             {/* Hard rules: edited here, read by the generator and the stat trust on every run. */}
             <div className="space-y-3 rounded-lg border p-4">

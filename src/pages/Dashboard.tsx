@@ -4,9 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Rss, FileEdit, Settings, MessageCircleQuestion, LogOut,
-  CheckCheck, Lightbulb, Target, CalendarClock, AlertTriangle, Database, Plus,
+  CheckCheck, Lightbulb, Target, CalendarClock, AlertTriangle, Database, Plus, ChevronDown,
 } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
@@ -20,6 +21,7 @@ const Dashboard = () => {
   });
   const [loading, setLoading] = useState(true);
   const [flaggedNewsletters, setFlaggedNewsletters] = useState<any[]>([]);
+  const [healthOpen, setHealthOpen] = useState(false);
   const [brandColors, setBrandColors] = useState({
     primary_color: "#f9655b",
     secondary_color: "#6658ea",
@@ -211,16 +213,25 @@ The dashboard shows your review pipeline and quick access to everything else.`}
 
         {flaggedNewsletters.length > 0 && (
           <Card className="mb-8 border-orange-300 bg-orange-50">
-            <CardContent className="p-4">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="h-5 w-5 text-orange-700 mt-0.5 shrink-0" />
-                <div className="flex-1">
-                  <p className="font-medium text-orange-900">
-                    {flaggedNewsletters.length} source{flaggedNewsletters.length === 1 ? "" : "s"} flagged by the weekly health scan
-                  </p>
-                  <p className="text-sm text-orange-800 mt-0.5 mb-3">
-                    Consistently low relevance to your Strategy page. Checked every 7 days.
-                  </p>
+            <Collapsible open={healthOpen} onOpenChange={setHealthOpen}>
+              <CollapsibleTrigger asChild>
+                <button className="w-full text-left">
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <AlertTriangle className="h-5 w-5 text-orange-700 shrink-0" />
+                    <div className="flex-1">
+                      <p className="font-medium text-orange-900">
+                        {flaggedNewsletters.length} source{flaggedNewsletters.length === 1 ? "" : "s"} flagged by the weekly health scan
+                      </p>
+                      <p className="text-sm text-orange-800 mt-0.5">
+                        Consistently low relevance to your Strategy page. Checked every 7 days.
+                      </p>
+                    </div>
+                    <ChevronDown className={`h-4 w-4 text-orange-700 shrink-0 transition-transform ${healthOpen ? "rotate-180" : ""}`} />
+                  </CardContent>
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <CardContent className="px-4 pb-4 pt-0">
                   <div className="space-y-2">
                     {flaggedNewsletters.map((n) => (
                       <div key={n.sender_address} className="flex items-center justify-between gap-3 text-sm bg-white/60 rounded-md px-3 py-2">
@@ -237,12 +248,12 @@ The dashboard shows your review pipeline and quick access to everything else.`}
                       </div>
                     ))}
                   </div>
-                </div>
-                <Button size="sm" variant="outline" onClick={() => navigate("/feeds")} className="shrink-0">
-                  Go to Sources
-                </Button>
-              </div>
-            </CardContent>
+                  <Button size="sm" variant="outline" onClick={() => navigate("/feeds")} className="mt-3">
+                    Go to Sources
+                  </Button>
+                </CardContent>
+              </CollapsibleContent>
+            </Collapsible>
           </Card>
         )}
 
@@ -254,14 +265,16 @@ The dashboard shows your review pipeline and quick access to everything else.`}
               <h3 className="text-xl font-semibold">Review</h3>
             </div>
             <Card
-              className={`cursor-pointer hover:shadow-lg transition-shadow ${stats.pendingReviews > 0 ? "border-2 border-yellow-300 bg-yellow-50" : "border-2"}`}
-              style={stats.pendingReviews > 0 ? undefined : { borderColor: `${brandColors.primary_color}33` }}
+              className={`cursor-pointer hover:shadow-lg transition-shadow ${stats.pendingReviews > 0 ? "border-2 border-yellow-300 bg-yellow-50" : "border"}`}
+              style={stats.pendingReviews > 0 ? undefined : { backgroundColor: `${brandColors.primary_color}1a`, borderColor: `${brandColors.primary_color}55` }}
               onClick={() => navigate("/review")}
             >
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <CheckCheck className="h-8 w-8" style={{ color: brandColors.primary_color }} />
+                    <div className="rounded-lg p-2" style={{ backgroundColor: brandColors.primary_color }}>
+                      <CheckCheck className="h-6 w-6 text-white" />
+                    </div>
                     <CardTitle className="text-lg">Review</CardTitle>
                   </div>
                   {stats.pendingReviews > 0 && (
@@ -287,13 +300,15 @@ The dashboard shows your review pipeline and quick access to everything else.`}
               {captureTier.map((item) => (
                 <Card
                   key={item.path}
-                  className="cursor-pointer hover:shadow-lg transition-shadow border-2"
-                  style={{ borderColor: `${brandColors.secondary_color}33` }}
+                  className="cursor-pointer hover:shadow-lg transition-shadow border"
+                  style={{ backgroundColor: `${brandColors.secondary_color}1a`, borderColor: `${brandColors.secondary_color}55` }}
                   onClick={() => navigate(item.path)}
                 >
                   <CardHeader>
                     <div className="flex items-center gap-3">
-                      <item.icon className="h-8 w-8" style={{ color: brandColors.secondary_color }} />
+                      <div className="rounded-lg p-2" style={{ backgroundColor: brandColors.secondary_color }}>
+                        <item.icon className="h-6 w-6 text-white" />
+                      </div>
                       <CardTitle className="text-lg">{item.title}</CardTitle>
                     </div>
                   </CardHeader>
@@ -315,13 +330,15 @@ The dashboard shows your review pipeline and quick access to everything else.`}
               {configureTier.map((item) => (
                 <Card
                   key={item.path}
-                  className="cursor-pointer hover:shadow-lg transition-shadow border-2"
-                  style={{ borderColor: `${brandColors.accent_color}55` }}
+                  className="cursor-pointer hover:shadow-lg transition-shadow border"
+                  style={{ backgroundColor: `${brandColors.accent_color}1a`, borderColor: `${brandColors.accent_color}66` }}
                   onClick={() => navigate(item.path)}
                 >
                   <CardHeader>
                     <div className="flex items-center gap-3">
-                      <item.icon className="h-8 w-8" style={{ color: brandColors.accent_color }} />
+                      <div className="rounded-lg p-2" style={{ backgroundColor: brandColors.accent_color }}>
+                        <item.icon className="h-6 w-6 text-white" />
+                      </div>
                       <CardTitle className="text-lg">{item.title}</CardTitle>
                     </div>
                   </CardHeader>

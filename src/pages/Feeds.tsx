@@ -427,8 +427,15 @@ Reference cards are created from your sources and used for content generation.`}
 
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-lg">Recent Incoming Emails</CardTitle>
-                    <CardDescription>Emails received and processed into reference cards</CardDescription>
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <CardTitle className="text-lg">Recent Incoming Emails</CardTitle>
+                        <CardDescription>Emails received and processed into reference cards</CardDescription>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={loadRecentEmails} disabled={loadingEmails}>
+                        <RefreshCw className={`h-3.5 w-3.5 mr-2 ${loadingEmails ? "animate-spin" : ""}`} />Refresh
+                      </Button>
+                    </div>
                   </CardHeader>
                   <CardContent>
                     {loadingEmails ? (
@@ -482,8 +489,15 @@ Reference cards are created from your sources and used for content generation.`}
 
             <Card className="mt-4">
               <CardHeader>
-                <CardTitle className="text-lg">Reference Cards</CardTitle>
-                <CardDescription>Cards created from newsletters and RSS feeds</CardDescription>
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-lg">Reference Cards</CardTitle>
+                    <CardDescription>Cards created from newsletters and RSS feeds</CardDescription>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={loadAutomatedCards} disabled={loadingAutomatedCards}>
+                    <RefreshCw className={`h-3.5 w-3.5 mr-2 ${loadingAutomatedCards ? "animate-spin" : ""}`} />Refresh
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 {loadingAutomatedCards ? (

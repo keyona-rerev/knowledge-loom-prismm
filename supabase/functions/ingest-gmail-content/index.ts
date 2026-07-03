@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { assessRelevance } from "../_shared/relevance-gate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -76,6 +77,24 @@ serve(async (req) => {
       : body;
 
     console.log(`📝 Processing email: "${subject}" from ${sender} (${content.length} chars)`);
+
+    // Relevance gate: skip creating a card at all for noise (ads, digest
+    // footers, off-topic newsletters) before it eats up review-queue space.
+    const verdict = await assessRelevance(supabase, user_id, { title: subject, content });
+    if (!verdict.relevant) {
+      console.log("⏭️ Skipping irrelevant Gmail newsletter:", subject?.substring(0, 50), "-", verdict.reason);
+      await supabase.from("newsletter_emails").insert({
+        user_id,
+        from_address: sender,
+        subject: subject || "Newsletter",
+        gmail_message_id: message_id || null,
+        processing_status: "skipped_irrelevant",
+      });
+      return new Response(
+        JSON.stringify({ success: true, skipped: true, reason: verdict.reason }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Create reference card
     const { data: card, error: cardError } = await supabase

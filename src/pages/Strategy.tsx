@@ -1,4 +1,4 @@
-import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,6 @@ import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, Trash2, Pencil, Save as SaveIcon } from "lucide-react";
@@ -185,19 +184,6 @@ const slugify = (s: string): string =>
 const initialsOf = (s: string): string =>
   s.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() || "").join("") || "?";
 
-// Per-row expand/collapse for the editable-row sections below (hard rules,
-// SWOT, lanes, readers, formats, natures, jobs). Collapsed rows show a
-// one-line summary; expanded rows show the full form. Purely a UI state -
-// the page-level Save button still does the real persist.
-const expandRow = (setExpanded: Dispatch<SetStateAction<Set<string>>>, id: string) =>
-  setExpanded((prev) => new Set(prev).add(id));
-const collapseRow = (setExpanded: Dispatch<SetStateAction<Set<string>>>, id: string) =>
-  setExpanded((prev) => { const next = new Set(prev); next.delete(id); return next; });
-const truncate = (s: string, n: number): string => {
-  const t = (s || "").trim();
-  if (!t) return "(empty)";
-  return t.length > n ? `${t.slice(0, n)}…` : t;
-};
 const wordRangeText = (min: number | null, max: number | null): string =>
   min == null && max == null ? "no word range set" : `${min ?? "?"}-${max ?? "?"} words`;
 
@@ -240,10 +226,11 @@ const Strategy = () => {
   const [natures, setNatures] = useState<NatureRow[]>([]);
   const [jobs, setJobs] = useState<JobRow[]>([]);
 
-  const [expandedHardRules, setExpandedHardRules] = useState<Set<string>>(new Set());
-  const [expandedFormats, setExpandedFormats] = useState<Set<string>>(new Set());
-  const [expandedNatures, setExpandedNatures] = useState<Set<string>>(new Set());
-  const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
+  const [hardRulesEditing, setHardRulesEditing] = useState(false);
+  const [voiceProfileEditing, setVoiceProfileEditing] = useState(false);
+  const [formatsEditing, setFormatsEditing] = useState(false);
+  const [naturesEditing, setNaturesEditing] = useState(false);
+  const [jobsEditing, setJobsEditing] = useState(false);
 
   const [deletedHardRules, setDeletedHardRules] = useState<string[]>([]);
   const [deletedFormats, setDeletedFormats] = useState<string[]>([]);
@@ -265,9 +252,9 @@ const Strategy = () => {
   const [swot, setSwot] = useState<SwotRow[]>([]);
   const [readers, setReaders] = useState<ReaderRow[]>([]);
 
-  const [expandedLanes, setExpandedLanes] = useState<Set<string>>(new Set());
-  const [expandedSwot, setExpandedSwot] = useState<Set<string>>(new Set());
-  const [expandedReaders, setExpandedReaders] = useState<Set<string>>(new Set());
+  const [lanesEditing, setLanesEditing] = useState(false);
+  const [swotEditing, setSwotEditing] = useState(false);
+  const [readersEditing, setReadersEditing] = useState(false);
 
   const [deletedLanes, setDeletedLanes] = useState<string[]>([]);
   const [deletedSwot, setDeletedSwot] = useState<string[]>([]);
@@ -396,7 +383,6 @@ const Strategy = () => {
   const addHardRule = () => {
     const id = `new_${Date.now()}`;
     setHardRules((p) => [...p, { id, body: "", is_active: true, sort_order: p.length, _isNew: true }]);
-    expandRow(setExpandedHardRules, id);
   };
 
   const setVoiceRule = (i: number, value: string) =>
@@ -435,7 +421,6 @@ const Strategy = () => {
       id, key: "", name: "", definition: "",
       min_words: null, max_words: null, writing_samples: [], sort_order: p.length, _isNew: true,
     }]);
-    expandRow(setExpandedFormats, id);
   };
   const addNature = () => {
     const id = `new_${Date.now()}`;
@@ -443,7 +428,6 @@ const Strategy = () => {
       id, key: "", name: "", move: "", evidence_type: "",
       fit: "medium", rotation_mode: "evergreen", absorbs: [], writing_samples: [], sort_order: p.length, _isNew: true,
     }]);
-    expandRow(setExpandedNatures, id);
   };
   const addJob = () => {
     const id = `new_${Date.now()}`;
@@ -451,7 +435,6 @@ const Strategy = () => {
       id, key: "", name: "", description: "",
       funnel_stage: "tofu", kind: "engine_job", sort_order: p.length, _isNew: true,
     }]);
-    expandRow(setExpandedJobs, id);
   };
 
   const setLane = (i: number, patch: Partial<LaneRow>) =>
@@ -486,7 +469,6 @@ const Strategy = () => {
       id, key: "", name: "", is_wedge: false,
       description: "", vocabulary: [], sort_order: p.length, _isNew: true,
     }]);
-    expandRow(setExpandedLanes, id);
   };
   const addSwot = () => {
     const id = `new_${Date.now()}_${swot.length}`;
@@ -494,7 +476,6 @@ const Strategy = () => {
       id, quadrant: "strength", body: "",
       threat_class: "", lane_local_id: "", sort_order: p.length, _isNew: true,
     }]);
-    expandRow(setExpandedSwot, id);
   };
   const addReader = () => {
     const id = `new_${Date.now()}_${readers.length}`;
@@ -503,7 +484,6 @@ const Strategy = () => {
       is_published_to: true, lane_scope: "both", activation_trigger: "", threat_local_id: "",
       avatar_initials: "", questions: [], sort_order: p.length, _isNew: true,
     }]);
-    expandRow(setExpandedReaders, id);
   };
 
   const threatItems = swot.filter((s) => s.quadrant === "threat");
@@ -822,84 +802,112 @@ const Strategy = () => {
 
             {/* Hard rules: edited here, read by the generator and the stat trust on every run. */}
             <div className="space-y-3 rounded-lg border p-4">
-              <div>
-                <Label className="text-base">Hard rules</Label>
-                <p className="text-sm text-muted-foreground">
-                  The non-negotiable do-not-say and framing rules. The generator holds these on every run, no fader overrides them.
-                </p>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <Label className="text-base">Hard rules</Label>
+                  <p className="text-sm text-muted-foreground">
+                    The non-negotiable do-not-say and framing rules. The generator holds these on every run, no fader overrides them.
+                  </p>
+                </div>
+                {hardRulesEditing ? (
+                  <Button size="sm" onClick={() => setHardRulesEditing(false)} className="shrink-0">
+                    <SaveIcon className="h-3.5 w-3.5 mr-1.5" />Save
+                  </Button>
+                ) : (
+                  <Button variant="outline" size="sm" onClick={() => setHardRulesEditing(true)} className="shrink-0">
+                    <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit
+                  </Button>
+                )}
               </div>
-              {hardRules.map((r, i) => {
-                const expanded = expandedHardRules.has(r.id);
-                return (
-                  <Collapsible key={r.id} open={expanded} className="border rounded-md p-3">
-                    {!expanded && (
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm text-muted-foreground truncate flex-1">{truncate(r.body, 60)}</p>
-                        <Button variant="outline" size="sm" onClick={() => expandRow(setExpandedHardRules, r.id)}>
-                          <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit
-                        </Button>
-                      </div>
-                    )}
-                    <CollapsibleContent>
-                      <div className="flex items-start gap-2">
-                        <Textarea
-                          rows={2}
-                          className="flex-1"
-                          placeholder={'e.g. Never say "digital vault."'}
-                          value={r.body}
-                          onChange={(e) => setHardRule(i, { body: e.target.value })}
-                        />
-                        <Button variant="ghost" size="icon" onClick={() => removeHardRule(i)}><Trash2 className="h-4 w-4" /></Button>
-                      </div>
-                      <div className="flex justify-end mt-2">
-                        <Button size="sm" onClick={() => collapseRow(setExpandedHardRules, r.id)}>
-                          <SaveIcon className="h-3.5 w-3.5 mr-1.5" />Save
-                        </Button>
-                      </div>
-                    </CollapsibleContent>
-                  </Collapsible>
-                );
-              })}
-              {hardRules.length === 0 && (
+              {hardRulesEditing ? (
+                <>
+                  {hardRules.map((r, i) => (
+                    <div key={r.id} className="flex items-start gap-2">
+                      <Textarea
+                        rows={2}
+                        className="flex-1"
+                        placeholder={'e.g. Never say "digital vault."'}
+                        value={r.body}
+                        onChange={(e) => setHardRule(i, { body: e.target.value })}
+                      />
+                      <Button variant="ghost" size="icon" onClick={() => removeHardRule(i)}><Trash2 className="h-4 w-4" /></Button>
+                    </div>
+                  ))}
+                  <Button variant="outline" className="w-full" onClick={addHardRule}><Plus className="h-4 w-4 mr-2" />Add rule</Button>
+                </>
+              ) : hardRules.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No hard rules yet. Add the do-not-say and framing rules the writer must always hold.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {hardRules.map((r) => (
+                    <p key={r.id} className="text-sm border rounded-md px-3 py-2">{r.body || "(empty)"}</p>
+                  ))}
+                </div>
               )}
-              <Button variant="outline" className="w-full" onClick={addHardRule}><Plus className="h-4 w-4 mr-2" />Add rule</Button>
             </div>
 
             {/* Voice profile: structured rules plus the inline-attribution instruction, read
                 by the generator every run alongside the free-text Brand voice above. */}
             <div className="space-y-3 rounded-lg border p-4">
-              <div>
-                <Label className="text-base">Voice profile</Label>
-                <p className="text-sm text-muted-foreground">
-                  Structured tone and register rules, held alongside brand voice above. The generator reads these every run.
-                </p>
-              </div>
-              {voiceProfile.rules.map((rule, i) => (
-                <div key={i} className="flex items-start gap-2">
-                  <Textarea
-                    rows={2}
-                    className="flex-1"
-                    placeholder={'e.g. Calm authority. Trusted financial software with a human pulse.'}
-                    value={rule}
-                    onChange={(e) => setVoiceRule(i, e.target.value)}
-                  />
-                  <Button variant="ghost" size="icon" onClick={() => removeVoiceRule(i)}><Trash2 className="h-4 w-4" /></Button>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <Label className="text-base">Voice profile</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Structured tone and register rules, held alongside brand voice above. The generator reads these every run.
+                  </p>
                 </div>
-              ))}
-              {voiceProfile.rules.length === 0 && (
-                <p className="text-sm text-muted-foreground">No voice rules yet. Add the tone and register rules the writer must hold.</p>
-              )}
-              <Button variant="outline" className="w-full" onClick={addVoiceRule}><Plus className="h-4 w-4 mr-2" />Add voice rule</Button>
-              <div>
-                <Label className="text-xs">Inline attribution instruction</Label>
-                <Textarea
-                  rows={2}
-                  placeholder={'e.g. Weave citations into the prose, never as a parenthetical footnote.'}
-                  value={voiceProfile.inline_attribution}
-                  onChange={(e) => setVoiceProfile((p) => ({ ...p, inline_attribution: e.target.value }))}
-                />
+                {voiceProfileEditing ? (
+                  <Button size="sm" onClick={() => setVoiceProfileEditing(false)} className="shrink-0">
+                    <SaveIcon className="h-3.5 w-3.5 mr-1.5" />Save
+                  </Button>
+                ) : (
+                  <Button variant="outline" size="sm" onClick={() => setVoiceProfileEditing(true)} className="shrink-0">
+                    <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit
+                  </Button>
+                )}
               </div>
+              {voiceProfileEditing ? (
+                <>
+                  {voiceProfile.rules.map((rule, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                      <Textarea
+                        rows={2}
+                        className="flex-1"
+                        placeholder={'e.g. Calm authority. Trusted financial software with a human pulse.'}
+                        value={rule}
+                        onChange={(e) => setVoiceRule(i, e.target.value)}
+                      />
+                      <Button variant="ghost" size="icon" onClick={() => removeVoiceRule(i)}><Trash2 className="h-4 w-4" /></Button>
+                    </div>
+                  ))}
+                  <Button variant="outline" className="w-full" onClick={addVoiceRule}><Plus className="h-4 w-4 mr-2" />Add voice rule</Button>
+                  <div>
+                    <Label className="text-xs">Inline attribution instruction</Label>
+                    <Textarea
+                      rows={2}
+                      placeholder={'e.g. Weave citations into the prose, never as a parenthetical footnote.'}
+                      value={voiceProfile.inline_attribution}
+                      onChange={(e) => setVoiceProfile((p) => ({ ...p, inline_attribution: e.target.value }))}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  {voiceProfile.rules.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No voice rules yet. Add the tone and register rules the writer must hold.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {voiceProfile.rules.map((rule, i) => (
+                        <p key={i} className="text-sm border rounded-md px-3 py-2">{rule || "(empty)"}</p>
+                      ))}
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-1">Inline attribution instruction</p>
+                    <p className="text-sm">{voiceProfile.inline_attribution || "(not set)"}</p>
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1003,27 +1011,27 @@ const Strategy = () => {
 
         <Card id="swot" className="mb-6 scroll-mt-20">
           <CardHeader>
-            <CardTitle>SWOT</CardTitle>
-            <CardDescription>The terrain. Threats can be standing (always live) or triggered (held until a moment fires). Threat items can be attached to a reader below.</CardDescription>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <CardTitle>SWOT</CardTitle>
+                <CardDescription>The terrain. Threats can be standing (always live) or triggered (held until a moment fires). Threat items can be attached to a reader below.</CardDescription>
+              </div>
+              {swotEditing ? (
+                <Button size="sm" onClick={() => setSwotEditing(false)} className="shrink-0">
+                  <SaveIcon className="h-3.5 w-3.5 mr-1.5" />Save
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => setSwotEditing(true)} className="shrink-0">
+                  <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit SWOT
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {swot.map((s, i) => {
-              const expanded = expandedSwot.has(s.id);
-              return (
-                <Collapsible key={s.id} open={expanded} className="border rounded-lg p-4 space-y-3">
-                  {!expanded && (
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm truncate flex-1">
-                        <span className="font-medium">{QUADRANT_OPTIONS.find((o) => o.value === s.quadrant)?.label ?? s.quadrant}</span>
-                        {" · "}
-                        <span className="text-muted-foreground">{truncate(s.body, 60)}</span>
-                      </p>
-                      <Button variant="outline" size="sm" onClick={() => expandRow(setExpandedSwot, s.id)}>
-                        <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit
-                      </Button>
-                    </div>
-                  )}
-                  <CollapsibleContent className="space-y-3">
+            {swotEditing ? (
+              <>
+                {swot.map((s, i) => (
+                  <div key={s.id} className="border rounded-lg p-4 space-y-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 flex-1">
                         <div>
@@ -1059,16 +1067,23 @@ const Strategy = () => {
                       <Button variant="ghost" size="icon" onClick={() => removeSwot(i)}><Trash2 className="h-4 w-4" /></Button>
                     </div>
                     <Textarea rows={2} placeholder="The item" value={s.body} onChange={(e) => setSwotRow(i, { body: e.target.value })} />
-                    <div className="flex justify-end">
-                      <Button size="sm" onClick={() => collapseRow(setExpandedSwot, s.id)}>
-                        <SaveIcon className="h-3.5 w-3.5 mr-1.5" />Save
-                      </Button>
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
-              );
-            })}
-            <Button variant="outline" className="w-full" onClick={addSwot}><Plus className="h-4 w-4 mr-2" />Add SWOT item</Button>
+                  </div>
+                ))}
+                <Button variant="outline" className="w-full" onClick={addSwot}><Plus className="h-4 w-4 mr-2" />Add SWOT item</Button>
+              </>
+            ) : swot.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No SWOT items yet.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {swot.map((s) => (
+                  <p key={s.id} className="text-sm border rounded-md px-3 py-2">
+                    <span className="font-medium">{QUADRANT_OPTIONS.find((o) => o.value === s.quadrant)?.label ?? s.quadrant}</span>
+                    {" · "}
+                    <span className="text-muted-foreground">{s.body || "(empty)"}</span>
+                  </p>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -1077,26 +1092,27 @@ const Strategy = () => {
 
         <Card id="lanes" className="mb-6 scroll-mt-20">
           <CardHeader>
-            <CardTitle>Lanes</CardTitle>
-            <CardDescription>The segments Prismm serves. Mark the wedge: the lane content leads with. Lanes are also a slot dial on the schedule.</CardDescription>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <CardTitle>Lanes</CardTitle>
+                <CardDescription>The segments Prismm serves. Mark the wedge: the lane content leads with. Lanes are also a slot dial on the schedule.</CardDescription>
+              </div>
+              {lanesEditing ? (
+                <Button size="sm" onClick={() => setLanesEditing(false)} className="shrink-0">
+                  <SaveIcon className="h-3.5 w-3.5 mr-1.5" />Save
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => setLanesEditing(true)} className="shrink-0">
+                  <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit lanes
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {lanes.map((l, i) => {
-              const expanded = expandedLanes.has(l.id);
-              return (
-                <Collapsible key={l.id} open={expanded} className="border rounded-lg p-4 space-y-3">
-                  {!expanded && (
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{l.name || "Untitled lane"}</p>
-                        {l.is_wedge && <Badge variant="outline">Wedge</Badge>}
-                      </div>
-                      <Button variant="outline" size="sm" onClick={() => expandRow(setExpandedLanes, l.id)}>
-                        <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit
-                      </Button>
-                    </div>
-                  )}
-                  <CollapsibleContent className="space-y-3">
+            {lanesEditing ? (
+              <>
+                {lanes.map((l, i) => (
+                  <div key={l.id} className="border rounded-lg p-4 space-y-3">
                     <div className="flex items-center justify-between gap-3">
                       <Input className="font-medium" placeholder="Lane name (e.g. Credit unions)" value={l.name} onChange={(e) => setLane(i, { name: e.target.value })} />
                       <Button variant="ghost" size="icon" onClick={() => removeLane(i)}><Trash2 className="h-4 w-4" /></Button>
@@ -1110,42 +1126,48 @@ const Strategy = () => {
                       <Switch checked={l.is_wedge} onCheckedChange={(v) => setLane(i, { is_wedge: v })} />
                       <Label className="text-sm font-normal">Wedge lane (content leads with this one)</Label>
                     </div>
-                    <div className="flex justify-end">
-                      <Button size="sm" onClick={() => collapseRow(setExpandedLanes, l.id)}>
-                        <SaveIcon className="h-3.5 w-3.5 mr-1.5" />Save
-                      </Button>
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
-              );
-            })}
-            <Button variant="outline" className="w-full" onClick={addLane}><Plus className="h-4 w-4 mr-2" />Add lane</Button>
+                  </div>
+                ))}
+                <Button variant="outline" className="w-full" onClick={addLane}><Plus className="h-4 w-4 mr-2" />Add lane</Button>
+              </>
+            ) : lanes.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No lanes yet.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {lanes.map((l) => (
+                  <div key={l.id} className="flex items-center gap-2 text-sm border rounded-md px-3 py-2">
+                    <span className="font-medium">{l.name || "Untitled lane"}</span>
+                    {l.is_wedge && <Badge variant="outline">Wedge</Badge>}
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
         <Card id="readers" className="mb-6 scroll-mt-20">
           <CardHeader>
-            <CardTitle>Readers</CardTitle>
-            <CardDescription>The people in the room. Each carries the questions a post has to answer. Readers are an optional slot dial on the schedule; leave a slot unset to rotate.</CardDescription>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <CardTitle>Readers</CardTitle>
+                <CardDescription>The people in the room. Each carries the questions a post has to answer. Readers are an optional slot dial on the schedule; leave a slot unset to rotate.</CardDescription>
+              </div>
+              {readersEditing ? (
+                <Button size="sm" onClick={() => setReadersEditing(false)} className="shrink-0">
+                  <SaveIcon className="h-3.5 w-3.5 mr-1.5" />Save
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => setReadersEditing(true)} className="shrink-0">
+                  <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit readers
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {readers.map((r, i) => {
-              const expanded = expandedReaders.has(r.id);
-              return (
-                <Collapsible key={r.id} open={expanded} className="border rounded-lg p-4 space-y-3">
-                  {!expanded && (
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm truncate flex-1">
-                        <span className="font-medium">{r.role || "Untitled reader"}</span>
-                        {" · "}
-                        <span className="text-muted-foreground">{SIDE_OPTIONS.find((o) => o.value === r.side)?.label ?? r.side}</span>
-                      </p>
-                      <Button variant="outline" size="sm" onClick={() => expandRow(setExpandedReaders, r.id)}>
-                        <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit
-                      </Button>
-                    </div>
-                  )}
-                  <CollapsibleContent className="space-y-3">
+            {readersEditing ? (
+              <>
+                {readers.map((r, i) => (
+                  <div key={r.id} className="border rounded-lg p-4 space-y-3">
                     <div className="flex items-center justify-between gap-3">
                       <Input className="font-medium" placeholder="Role (e.g. CEO)" value={r.role} onChange={(e) => setReader(i, { role: e.target.value })} />
                       <Button variant="ghost" size="icon" onClick={() => removeReader(i)}><Trash2 className="h-4 w-4" /></Button>
@@ -1193,16 +1215,23 @@ const Strategy = () => {
                       <Switch checked={r.is_published_to} onCheckedChange={(v) => setReader(i, { is_published_to: v })} />
                       <Label className="text-sm font-normal">Published to (Prismm writes for this reader)</Label>
                     </div>
-                    <div className="flex justify-end">
-                      <Button size="sm" onClick={() => collapseRow(setExpandedReaders, r.id)}>
-                        <SaveIcon className="h-3.5 w-3.5 mr-1.5" />Save
-                      </Button>
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
-              );
-            })}
-            <Button variant="outline" className="w-full" onClick={addReader}><Plus className="h-4 w-4 mr-2" />Add reader</Button>
+                  </div>
+                ))}
+                <Button variant="outline" className="w-full" onClick={addReader}><Plus className="h-4 w-4 mr-2" />Add reader</Button>
+              </>
+            ) : readers.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No readers yet.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {readers.map((r) => (
+                  <p key={r.id} className="text-sm border rounded-md px-3 py-2">
+                    <span className="font-medium">{r.role || "Untitled reader"}</span>
+                    {" · "}
+                    <span className="text-muted-foreground">{SIDE_OPTIONS.find((o) => o.value === r.side)?.label ?? r.side}</span>
+                  </p>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -1211,27 +1240,27 @@ const Strategy = () => {
 
         <Card id="formats" className="mb-6 scroll-mt-20">
           <CardHeader>
-            <CardTitle>Formats</CardTitle>
-            <CardDescription>The platform-native artifact and how it is written. The schedule turns these on; the definitions live here.</CardDescription>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <CardTitle>Formats</CardTitle>
+                <CardDescription>The platform-native artifact and how it is written. The schedule turns these on; the definitions live here.</CardDescription>
+              </div>
+              {formatsEditing ? (
+                <Button size="sm" onClick={() => setFormatsEditing(false)} className="shrink-0">
+                  <SaveIcon className="h-3.5 w-3.5 mr-1.5" />Save
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => setFormatsEditing(true)} className="shrink-0">
+                  <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit formats
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {formats.map((f, i) => {
-              const expanded = expandedFormats.has(f.id);
-              return (
-                <Collapsible key={f.id} open={expanded} className="border rounded-lg p-4 space-y-3">
-                  {!expanded && (
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm truncate flex-1">
-                        <span className="font-medium">{f.name || "Untitled format"}</span>
-                        {" · "}
-                        <span className="text-muted-foreground">{wordRangeText(f.min_words, f.max_words)}</span>
-                      </p>
-                      <Button variant="outline" size="sm" onClick={() => expandRow(setExpandedFormats, f.id)}>
-                        <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit
-                      </Button>
-                    </div>
-                  )}
-                  <CollapsibleContent className="space-y-3">
+            {formatsEditing ? (
+              <>
+                {formats.map((f, i) => (
+                  <div key={f.id} className="border rounded-lg p-4 space-y-3">
                     <div className="flex items-center justify-between gap-3">
                       <Input className="font-medium" placeholder="Format name (e.g. Feed post)" value={f.name} onChange={(e) => setFormat(i, { name: e.target.value })} />
                       <Button variant="ghost" size="icon" onClick={() => removeFormat(i)}><Trash2 className="h-4 w-4" /></Button>
@@ -1245,42 +1274,49 @@ const Strategy = () => {
                       <Label className="text-xs">Writing samples (one per line)</Label>
                       <Textarea rows={3} className="font-mono text-xs" value={f.writing_samples.join("\n")} onChange={(e) => setFormat(i, { writing_samples: linesToArray(e.target.value) })} />
                     </div>
-                    <div className="flex justify-end">
-                      <Button size="sm" onClick={() => collapseRow(setExpandedFormats, f.id)}>
-                        <SaveIcon className="h-3.5 w-3.5 mr-1.5" />Save
-                      </Button>
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
-              );
-            })}
-            <Button variant="outline" className="w-full" onClick={addFormat}><Plus className="h-4 w-4 mr-2" />Add format</Button>
+                  </div>
+                ))}
+                <Button variant="outline" className="w-full" onClick={addFormat}><Plus className="h-4 w-4 mr-2" />Add format</Button>
+              </>
+            ) : formats.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No formats yet.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {formats.map((f) => (
+                  <p key={f.id} className="text-sm border rounded-md px-3 py-2">
+                    <span className="font-medium">{f.name || "Untitled format"}</span>
+                    {" · "}
+                    <span className="text-muted-foreground">{wordRangeText(f.min_words, f.max_words)}</span>
+                  </p>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
         <Card id="natures" className="mb-6 scroll-mt-20">
           <CardHeader>
-            <CardTitle>Natures</CardTitle>
-            <CardDescription>The rhetorical angle: how a post argues and what evidence it leans on. Fit is how well it lands with a banking committee.</CardDescription>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <CardTitle>Natures</CardTitle>
+                <CardDescription>The rhetorical angle: how a post argues and what evidence it leans on. Fit is how well it lands with a banking committee.</CardDescription>
+              </div>
+              {naturesEditing ? (
+                <Button size="sm" onClick={() => setNaturesEditing(false)} className="shrink-0">
+                  <SaveIcon className="h-3.5 w-3.5 mr-1.5" />Save
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => setNaturesEditing(true)} className="shrink-0">
+                  <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit natures
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {natures.map((n, i) => {
-              const expanded = expandedNatures.has(n.id);
-              return (
-                <Collapsible key={n.id} open={expanded} className="border rounded-lg p-4 space-y-3">
-                  {!expanded && (
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm truncate flex-1">
-                        <span className="font-medium">{n.name || "Untitled nature"}</span>
-                        {" · "}
-                        <span className="text-muted-foreground">{FIT_OPTIONS.find((o) => o.value === n.fit)?.label ?? n.fit}</span>
-                      </p>
-                      <Button variant="outline" size="sm" onClick={() => expandRow(setExpandedNatures, n.id)}>
-                        <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit
-                      </Button>
-                    </div>
-                  )}
-                  <CollapsibleContent className="space-y-3">
+            {naturesEditing ? (
+              <>
+                {natures.map((n, i) => (
+                  <div key={n.id} className="border rounded-lg p-4 space-y-3">
                     <div className="flex items-center justify-between gap-3">
                       <Input className="font-medium" placeholder="Nature name (e.g. Stat or data point)" value={n.name} onChange={(e) => setNature(i, { name: e.target.value })} />
                       <Button variant="ghost" size="icon" onClick={() => removeNature(i)}><Trash2 className="h-4 w-4" /></Button>
@@ -1314,42 +1350,49 @@ const Strategy = () => {
                       <Label className="text-xs">Writing samples (one per line)</Label>
                       <Textarea rows={3} className="font-mono text-xs" value={n.writing_samples.join("\n")} onChange={(e) => setNature(i, { writing_samples: linesToArray(e.target.value) })} />
                     </div>
-                    <div className="flex justify-end">
-                      <Button size="sm" onClick={() => collapseRow(setExpandedNatures, n.id)}>
-                        <SaveIcon className="h-3.5 w-3.5 mr-1.5" />Save
-                      </Button>
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
-              );
-            })}
-            <Button variant="outline" className="w-full" onClick={addNature}><Plus className="h-4 w-4 mr-2" />Add nature</Button>
+                  </div>
+                ))}
+                <Button variant="outline" className="w-full" onClick={addNature}><Plus className="h-4 w-4 mr-2" />Add nature</Button>
+              </>
+            ) : natures.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No natures yet.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {natures.map((n) => (
+                  <p key={n.id} className="text-sm border rounded-md px-3 py-2">
+                    <span className="font-medium">{n.name || "Untitled nature"}</span>
+                    {" · "}
+                    <span className="text-muted-foreground">{FIT_OPTIONS.find((o) => o.value === n.fit)?.label ?? n.fit}</span>
+                  </p>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
         <Card id="jobs" className="mb-6 scroll-mt-20">
           <CardHeader>
-            <CardTitle>Jobs &amp; funnel strategy</CardTitle>
-            <CardDescription>The funnel role a post performs. Engine jobs are picked by scheduled slots. Reference motions are run by hand and shown here for context.</CardDescription>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <CardTitle>Jobs &amp; funnel strategy</CardTitle>
+                <CardDescription>The funnel role a post performs. Engine jobs are picked by scheduled slots. Reference motions are run by hand and shown here for context.</CardDescription>
+              </div>
+              {jobsEditing ? (
+                <Button size="sm" onClick={() => setJobsEditing(false)} className="shrink-0">
+                  <SaveIcon className="h-3.5 w-3.5 mr-1.5" />Save
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => setJobsEditing(true)} className="shrink-0">
+                  <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit jobs
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {jobs.map((j, i) => {
-              const expanded = expandedJobs.has(j.id);
-              return (
-                <Collapsible key={j.id} open={expanded} className="border rounded-lg p-4 space-y-3">
-                  {!expanded && (
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm truncate flex-1">
-                        <span className="font-medium">{j.name || "Untitled job"}</span>
-                        {" · "}
-                        <span className="text-muted-foreground">{STAGE_OPTIONS.find((o) => o.value === j.funnel_stage)?.label ?? j.funnel_stage}</span>
-                      </p>
-                      <Button variant="outline" size="sm" onClick={() => expandRow(setExpandedJobs, j.id)}>
-                        <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit
-                      </Button>
-                    </div>
-                  )}
-                  <CollapsibleContent className="space-y-3">
+            {jobsEditing ? (
+              <>
+                {jobs.map((j, i) => (
+                  <div key={j.id} className="border rounded-lg p-4 space-y-3">
                     <div className="flex items-center justify-between gap-3">
                       <Input className="font-medium" placeholder="Job name (e.g. Symptom-awareness)" value={j.name} onChange={(e) => setJob(i, { name: e.target.value })} />
                       <Button variant="ghost" size="icon" onClick={() => removeJob(i)}><Trash2 className="h-4 w-4" /></Button>
@@ -1371,16 +1414,23 @@ const Strategy = () => {
                         </Select>
                       </div>
                     </div>
-                    <div className="flex justify-end">
-                      <Button size="sm" onClick={() => collapseRow(setExpandedJobs, j.id)}>
-                        <SaveIcon className="h-3.5 w-3.5 mr-1.5" />Save
-                      </Button>
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
-              );
-            })}
-            <Button variant="outline" className="w-full" onClick={addJob}><Plus className="h-4 w-4 mr-2" />Add job or motion</Button>
+                  </div>
+                ))}
+                <Button variant="outline" className="w-full" onClick={addJob}><Plus className="h-4 w-4 mr-2" />Add job or motion</Button>
+              </>
+            ) : jobs.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No jobs yet.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {jobs.map((j) => (
+                  <p key={j.id} className="text-sm border rounded-md px-3 py-2">
+                    <span className="font-medium">{j.name || "Untitled job"}</span>
+                    {" · "}
+                    <span className="text-muted-foreground">{STAGE_OPTIONS.find((o) => o.value === j.funnel_stage)?.label ?? j.funnel_stage}</span>
+                  </p>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 

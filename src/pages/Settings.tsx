@@ -10,12 +10,57 @@ import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Trash2, Moon, Sun, AlertTriangle, Shield, Loader2, Linkedin, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Trash2, Moon, Sun, AlertTriangle, Shield, Loader2, Linkedin, CheckCircle2, DollarSign } from "lucide-react";
 import { useTheme } from "next-themes";
 
 // Settings: appearance and AI provider only.
 // Brand, voice, audience, and content libraries live on Strategy and Audience.
 // Visual generation controls live on Visual Studio (/visual-studio).
+
+// Every place the system calls out to the configured AI provider, and what
+// triggers it. This is a map of the code, not a live spend tracker — none of
+// these functions currently log actual token counts, so the cost column is
+// an estimate based on typical prompt/response size at Claude Sonnet 4.6
+// list pricing ($3/$15 per million input/output tokens). Real cost scales
+// with your actual provider and model.
+const AI_USAGE = [
+  {
+    name: "Reference card scoring + summary",
+    trigger: "Every newsletter, RSS item, or manual source, at ingestion and whenever you click \"Process with AI\"",
+    fn: "process-reference-card",
+    est: "$0.005–$0.02 per card",
+  },
+  {
+    name: "Newsletter relevance scoring",
+    trigger: "Every incoming newsletter email, automatically, before the card is even created",
+    fn: "ingest-gmail-content",
+    est: "~$0.005 per email",
+  },
+  {
+    name: "Scheduled draft generation",
+    trigger: "Every slot that fires on the daily schedule cron, plus manual \"Run\" and test runs",
+    fn: "execute-autopilot-template",
+    est: "$0.02–$0.04 per draft",
+  },
+  {
+    name: "Manual content creation",
+    trigger: "Create Content page, per draft you generate by hand",
+    fn: "generate-content-directions / generate-content-from-card",
+    est: "$0.01–$0.03 per draft",
+  },
+  {
+    name: "Draft revision",
+    trigger: "Requesting a rewrite with feedback on a draft in Review",
+    fn: "regenerate-draft-with-feedback",
+    est: "$0.01–$0.02 per revision",
+  },
+  {
+    name: "Branded visual generation",
+    trigger: "Automatic on every draft approval, plus manual regenerate in Visual Studio",
+    fn: "generate-draft-visual",
+    est: "$0.03–$0.05 per visual — the priciest single call, and it fires on every approval",
+  },
+];
 
 const AI_PROVIDERS = [
   { value: "anthropic", label: "Claude (Anthropic)", keyLabel: "Anthropic API Key", keyPlaceholder: "sk-ant-...", modelPlaceholder: "claude-sonnet-4-6", docsUrl: "https://console.anthropic.com/settings/keys", docsLabel: "console.anthropic.com" },
@@ -221,6 +266,30 @@ const Settings = () => {
             <Button onClick={handleSave} disabled={loading}>
               {loading ? "Saving..." : "Save Settings"}
             </Button>
+          </CardContent>
+        </Card>
+
+        {/* AI usage */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <DollarSign className="h-5 w-5" />Where AI calls happen
+            </CardTitle>
+            <CardDescription>
+              Every function in the system that calls your configured AI provider, and what triggers it. Estimates are based on typical prompt size at Claude Sonnet 4.6 list pricing ($3 input / $15 output per million tokens) — this is a map of what fires, not a live spend tracker, since none of these functions log actual token usage yet.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {AI_USAGE.map((item) => (
+              <div key={item.fn} className="rounded-lg border p-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <p className="font-medium">{item.name}</p>
+                  <Badge variant="outline" className="font-mono text-xs">{item.est}</Badge>
+                </div>
+                <p className="text-sm text-muted-foreground mt-1">{item.trigger}</p>
+                <p className="text-xs text-muted-foreground mt-1 font-mono">{item.fn}</p>
+              </div>
+            ))}
           </CardContent>
         </Card>
 

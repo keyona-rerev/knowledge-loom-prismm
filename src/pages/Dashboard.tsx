@@ -265,8 +265,8 @@ The dashboard shows your review pipeline and quick access to everything else.`}
               <h3 className="text-xl font-semibold">Review</h3>
             </div>
             <Card
-              className={`cursor-pointer hover:shadow-lg transition-shadow ${stats.pendingReviews > 0 ? "border-2 border-yellow-300 bg-yellow-50" : "border"}`}
-              style={stats.pendingReviews > 0 ? undefined : { backgroundColor: `${brandColors.primary_color}1a`, borderColor: `${brandColors.primary_color}55` }}
+              className="cursor-pointer hover:shadow-lg transition-shadow border"
+              style={{ backgroundColor: `${brandColors.primary_color}1a`, borderColor: `${brandColors.primary_color}55` }}
               onClick={() => navigate("/review")}
             >
               <CardHeader>
@@ -278,7 +278,10 @@ The dashboard shows your review pipeline and quick access to everything else.`}
                     <CardTitle className="text-lg">Review</CardTitle>
                   </div>
                   {stats.pendingReviews > 0 && (
-                    <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                    <Badge
+                      variant="outline"
+                      style={{ backgroundColor: `${brandColors.primary_color}1a`, color: brandColors.primary_color, borderColor: `${brandColors.primary_color}55` }}
+                    >
                       {stats.pendingReviews} pending
                     </Badge>
                   )}

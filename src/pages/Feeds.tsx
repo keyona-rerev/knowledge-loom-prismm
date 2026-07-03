@@ -27,21 +27,16 @@ import {
   ChevronDown,
   Sparkles,
   Mail,
-  Copy,
-  CheckCircle,
-  Settings,
   ExternalLink,
   ClipboardPaste,
   Rss,
   Lightbulb,
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { parsePDF } from "@/lib/pdf-parser";
 import { ObservationsTab } from "@/components/sources/ObservationsTab";
 
@@ -69,13 +64,8 @@ const Feeds = () => {
   const [loadingRefs, setLoadingRefs] = useState(false);
   const [questionSets, setQuestionSets] = useState<any[]>([]);
 
-  const [newsletterDomain, setNewsletterDomain] = useState<string | null>(null);
-  const [userNewsletterEmail, setUserNewsletterEmail] = useState<string | null>(null);
-  const [loadingNewsletter, setLoadingNewsletter] = useState(true);
-  const [copied, setCopied] = useState(false);
   const [recentEmails, setRecentEmails] = useState<any[]>([]);
   const [loadingEmails, setLoadingEmails] = useState(false);
-  const [emailDetailsOpen, setEmailDetailsOpen] = useState(false);
 
   // Automated reference cards (rss + newsletter) are queried directly by
   // source_type rather than through source_feeds, since newsletter-sourced
@@ -130,57 +120,6 @@ const Feeds = () => {
     }
   };
 
-  const loadNewsletterConfig = async () => {
-    setLoadingNewsletter(true);
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) { setLoadingNewsletter(false); return; }
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("newsletter_domain")
-      .eq("user_id", session.user.id)
-      .single();
-
-    const domain = profile?.newsletter_domain || null;
-    setNewsletterDomain(domain);
-
-    if (!domain) { setLoadingNewsletter(false); return; }
-
-    const { data: existingEmail } = await supabase
-      .from("user_newsletter_emails")
-      .select("email_address, email_prefix")
-      .eq("user_id", session.user.id)
-      .eq("is_active", true)
-      .single();
-
-    if (existingEmail) {
-      const expectedEmail = `${existingEmail.email_prefix}@${domain}`;
-      if (existingEmail.email_address !== expectedEmail) {
-        await supabase
-          .from("user_newsletter_emails")
-          .update({ email_address: expectedEmail })
-          .eq("user_id", session.user.id)
-          .eq("is_active", true);
-        setUserNewsletterEmail(expectedEmail);
-      } else {
-        setUserNewsletterEmail(existingEmail.email_address);
-      }
-    } else {
-      const prefix = `user-${crypto.randomUUID().slice(0, 12)}`;
-      const email = `${prefix}@${domain}`;
-      const { error: insertError } = await supabase
-        .from("user_newsletter_emails")
-        .insert({ user_id: session.user.id, email_address: email, email_prefix: prefix, is_active: true });
-      if (insertError) {
-        console.error("Failed to save newsletter email:", insertError);
-        toast.error("Failed to generate newsletter email");
-      } else {
-        setUserNewsletterEmail(email);
-      }
-    }
-    setLoadingNewsletter(false);
-  };
-
   const loadRecentEmails = async () => {
     setLoadingEmails(true);
     const { data, error } = await supabase
@@ -209,7 +148,6 @@ const Feeds = () => {
   useEffect(() => {
     loadFeeds();
     loadQuestionSets();
-    loadNewsletterConfig();
     loadRecentEmails();
     loadAutomatedCards();
   }, [navigate]);
@@ -320,18 +258,6 @@ const Feeds = () => {
     }
   };
 
-  const copyEmailToClipboard = async () => {
-    if (!userNewsletterEmail) return;
-    try {
-      await navigator.clipboard.writeText(userNewsletterEmail);
-      setCopied(true);
-      toast.success("Email copied to clipboard!");
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      toast.error("Failed to copy email");
-    }
-  };
-
   const manualSources = feeds.filter((f) => f.feed_type === "manual");
 
   return (
@@ -350,7 +276,7 @@ const Feeds = () => {
         <InstructionsToggle
           instructions={`Sources brings everything that feeds the engine into one place:
 
-1. Automated: Subscribe to any newsletter using your unique email address, or pull in RSS feeds. Reference cards appear here automatically - an AI relevance gate filters out noise before a card is ever created.
+1. Automated: Newsletters are ingested automatically via the Gmail label watcher. Reference cards appear here automatically - an AI relevance gate filters out noise before a card is ever created.
 2. Manual: Paste article links, upload PDFs, or paste full article text directly
 3. Observations: Capture thesis statements, hooks, and other journal entries - each one becomes a citable reference card as soon as you save it
 
@@ -369,130 +295,75 @@ Reference cards are created from your sources and used for content generation.`}
           </TabsList>
 
           <TabsContent value="automated">
-            {loadingNewsletter ? (
-              <Card>
-                <CardContent className="py-8 text-center">
-                  <RefreshCw className="h-8 w-8 mx-auto animate-spin text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">Loading newsletter configuration...</p>
-                </CardContent>
-              </Card>
-            ) : !newsletterDomain ? (
-              <Card>
-                <CardContent className="py-8 text-center">
-                  <Mail className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">Newsletter Inbox Not Configured</h3>
-                  <p className="text-muted-foreground mb-4 max-w-md mx-auto">
-                    Set up your newsletter domain in Settings to enable automatic newsletter capture.
-                    Once configured, you'll get a unique email address to subscribe to any newsletter.
-                  </p>
-                  <Button onClick={() => navigate("/settings")}>
-                    <Settings className="mr-2 h-4 w-4" />Go to Settings
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-4">
-                <Collapsible open={emailDetailsOpen} onOpenChange={setEmailDetailsOpen}>
-                  <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
-                    <Mail className="h-4 w-4 text-muted-foreground" />
-                    <code className="flex-1 text-sm font-mono break-all">{userNewsletterEmail}</code>
-                    <Button onClick={copyEmailToClipboard} variant="ghost" size="sm">
-                      {copied ? <CheckCircle className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-                    </Button>
-                    <CollapsibleTrigger asChild>
-                      <Button variant="ghost" size="sm">
-                        <ChevronDown className={`h-4 w-4 transition-transform ${emailDetailsOpen ? "rotate-180" : ""}`} />
-                      </Button>
-                    </CollapsibleTrigger>
-                  </div>
-                  <CollapsibleContent className="mt-2">
-                    <Card>
-                      <CardContent className="pt-4 space-y-3">
-                        <div className="grid gap-2 text-sm">
-                          <div className="flex items-center gap-2"><CheckCircle className="h-4 w-4 text-green-500" /><span>Works with any newsletter (NY Times, Substack, Morning Brew, etc.)</span></div>
-                          <div className="flex items-center gap-2"><CheckCircle className="h-4 w-4 text-green-500" /><span>Articles appear automatically as reference cards</span></div>
-                          <div className="flex items-center gap-2"><CheckCircle className="h-4 w-4 text-green-500" /><span>AI analyzes content and extracts insights</span></div>
-                          <div className="flex items-center gap-2"><CheckCircle className="h-4 w-4 text-green-500" /><span>Rate limited to 50 emails/hour for protection</span></div>
-                        </div>
-                        <Alert>
-                          <AlertTriangle className="h-4 w-4" />
-                          <AlertDescription>
-                            <strong>Privacy Note:</strong> This email is unique to your account. Only use it for newsletters you trust.
-                          </AlertDescription>
-                        </Alert>
-                      </CardContent>
-                    </Card>
-                  </CollapsibleContent>
-                </Collapsible>
+            <p className="text-sm text-muted-foreground mb-4">
+              Newsletters are ingested automatically via the Gmail label watcher — no setup needed here.
+            </p>
 
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <CardTitle className="text-lg">Recent Incoming Emails</CardTitle>
-                        <CardDescription>Emails received and processed into reference cards</CardDescription>
-                      </div>
-                      <Button variant="outline" size="sm" onClick={loadRecentEmails} disabled={loadingEmails}>
-                        <RefreshCw className={`h-3.5 w-3.5 mr-2 ${loadingEmails ? "animate-spin" : ""}`} />Refresh
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {loadingEmails ? (
-                      <div className="flex items-center justify-center py-4">
-                        <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
-                      </div>
-                    ) : recentEmails.length === 0 ? (
-                      <div className="text-center py-6 text-muted-foreground">
-                        <Mail className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                        <p className="text-sm">No emails received yet.</p>
-                        <p className="text-xs mt-1">Subscribe to a newsletter using your email above to see content here.</p>
-                      </div>
-                    ) : (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Subject</TableHead>
-                            <TableHead>From</TableHead>
-                            <TableHead>Received</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead></TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {recentEmails.map((email) => (
-                            <TableRow key={email.id}>
-                              <TableCell className="font-medium max-w-[200px] truncate">{email.subject || "No subject"}</TableCell>
-                              <TableCell className="text-muted-foreground max-w-[150px] truncate">{email.from_address || "Unknown"}</TableCell>
-                              <TableCell className="text-muted-foreground text-sm">{email.received_at ? new Date(email.received_at).toLocaleDateString() : "-"}</TableCell>
-                              <TableCell>
-                                <Badge variant={email.processing_status === "success" ? "default" : "secondary"} className={email.processing_status === "success" ? "bg-green-500/10 text-green-600 border-green-500/20" : ""}>
-                                  {(email.processing_status || "pending").replace(/_/g, " ")}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                {email.reference_card_id && (
-                                  <Button variant="ghost" size="sm" onClick={() => navigate(`/cards/${email.reference_card_id}`)}>
-                                    <ExternalLink className="h-4 w-4" />
-                                  </Button>
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-            )}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-lg">Recent Incoming Emails</CardTitle>
+                    <CardDescription>Emails received and processed into reference cards</CardDescription>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={loadRecentEmails} disabled={loadingEmails}>
+                    <RefreshCw className={`h-3.5 w-3.5 mr-2 ${loadingEmails ? "animate-spin" : ""}`} />Refresh
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loadingEmails ? (
+                  <div className="flex items-center justify-center py-4">
+                    <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : recentEmails.length === 0 ? (
+                  <div className="text-center py-6 text-muted-foreground">
+                    <Mail className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No emails received yet.</p>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Subject</TableHead>
+                        <TableHead>From</TableHead>
+                        <TableHead>Received</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {recentEmails.map((email) => (
+                        <TableRow key={email.id}>
+                          <TableCell className="font-medium max-w-[200px] truncate">{email.subject || "No subject"}</TableCell>
+                          <TableCell className="text-muted-foreground max-w-[150px] truncate">{email.from_address || "Unknown"}</TableCell>
+                          <TableCell className="text-muted-foreground text-sm">{email.received_at ? new Date(email.received_at).toLocaleDateString() : "-"}</TableCell>
+                          <TableCell>
+                            <Badge variant={email.processing_status === "success" ? "default" : "secondary"} className={email.processing_status === "success" ? "bg-green-500/10 text-green-600 border-green-500/20" : ""}>
+                              {(email.processing_status || "pending").replace(/_/g, " ")}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {email.reference_card_id && (
+                              <Button variant="ghost" size="sm" onClick={() => navigate(`/cards/${email.reference_card_id}`)}>
+                                <ExternalLink className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
 
             <Card className="mt-4">
               <CardHeader>
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <CardTitle className="text-lg">Reference Cards</CardTitle>
-                    <CardDescription>Cards created from newsletters and RSS feeds</CardDescription>
+                    <CardDescription>Cards created from ingested newsletters</CardDescription>
                   </div>
                   <Button variant="outline" size="sm" onClick={loadAutomatedCards} disabled={loadingAutomatedCards}>
                     <RefreshCw className={`h-3.5 w-3.5 mr-2 ${loadingAutomatedCards ? "animate-spin" : ""}`} />Refresh

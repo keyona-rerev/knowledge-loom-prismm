@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2, Pencil, Save as SaveIcon } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Pencil, Save as SaveIcon, TrendingUp, AlertTriangle, Lightbulb, ShieldAlert } from "lucide-react";
 
 // Strategy is the single source of truth for who Prismm is, who it writes to,
 // and what its content does. Formerly split across Strategy and Audience
@@ -144,6 +144,16 @@ const QUADRANT_OPTIONS = [
   { value: "opportunity", label: "Opportunity" },
   { value: "threat", label: "Threat" },
 ];
+// Standard SWOT convention: green/red for internal (strength/weakness),
+// blue/amber for external (opportunity/threat). Same four colors used in
+// both the read-state grid and the edit-state grid below so the mental
+// map carries over between the two.
+const QUADRANT_COLORS: Record<string, { border: string; bg: string; text: string; icon: typeof TrendingUp }> = {
+  strength: { border: "border-green-300", bg: "bg-green-50", text: "text-green-800", icon: TrendingUp },
+  weakness: { border: "border-red-300", bg: "bg-red-50", text: "text-red-800", icon: AlertTriangle },
+  opportunity: { border: "border-blue-300", bg: "bg-blue-50", text: "text-blue-800", icon: Lightbulb },
+  threat: { border: "border-amber-300", bg: "bg-amber-50", text: "text-amber-800", icon: ShieldAlert },
+};
 const THREAT_CLASS_OPTIONS = [
   { value: "standing", label: "Standing" },
   { value: "triggered", label: "Triggered" },
@@ -440,8 +450,8 @@ const Strategy = () => {
 
   const setLane = (i: number, patch: Partial<LaneRow>) =>
     setLanes((p) => p.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  const setSwotRow = (i: number, patch: Partial<SwotRow>) =>
-    setSwot((p) => p.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const setSwotRow = (id: string, patch: Partial<SwotRow>) =>
+    setSwot((p) => p.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   const setReader = (i: number, patch: Partial<ReaderRow>) =>
     setReaders((p) => p.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
@@ -452,11 +462,12 @@ const Strategy = () => {
     setSwot((p) => p.map((s) => (s.lane_local_id === row.id ? { ...s, lane_local_id: "" } : s)));
     setLanes((p) => p.filter((_, idx) => idx !== i));
   };
-  const removeSwot = (i: number) => {
-    const row = swot[i];
+  const removeSwot = (id: string) => {
+    const row = swot.find((s) => s.id === id);
+    if (!row) return;
     if (!row._isNew) setDeletedSwot((d) => [...d, row.id]);
     setReaders((p) => p.map((r) => (r.threat_local_id === row.id ? { ...r, threat_local_id: "" } : r)));
-    setSwot((p) => p.filter((_, idx) => idx !== i));
+    setSwot((p) => p.filter((s) => s.id !== id));
   };
   const removeReader = (i: number) => {
     const row = readers[i];
@@ -471,10 +482,12 @@ const Strategy = () => {
       description: "", vocabulary: [], sort_order: p.length, _isNew: true,
     }]);
   };
-  const addSwot = () => {
+  // quadrant is fixed at creation since new SWOT items are always added from
+  // inside a specific quadrant's section now, not picked from a dropdown.
+  const addSwot = (quadrant: string) => {
     const id = `new_${Date.now()}_${swot.length}`;
     setSwot((p) => [...p, {
-      id, quadrant: "strength", body: "",
+      id, quadrant, body: "",
       threat_class: "", lane_local_id: "", sort_order: p.length, _isNew: true,
     }]);
   };
@@ -1104,60 +1117,79 @@ const Strategy = () => {
           </CardHeader>
           <CardContent className="space-y-4">
             {swotEditing ? (
-              <>
-                {swot.map((s, i) => (
-                  <div key={s.id} className="border rounded-lg p-4 space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 flex-1">
-                        <div>
-                          <Label className="text-xs">Quadrant</Label>
-                          <Select value={s.quadrant} onValueChange={(v) => setSwotRow(i, { quadrant: v })}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
-                            <SelectContent>{QUADRANT_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
-                          </Select>
-                        </div>
-                        {s.quadrant === "threat" && (
-                          <div>
-                            <Label className="text-xs">Threat class</Label>
-                            <Select value={s.threat_class || NONE} onValueChange={(v) => setSwotRow(i, { threat_class: v === NONE ? "" : v })}>
-                              <SelectTrigger><SelectValue placeholder="Unset" /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value={NONE}>Unset</SelectItem>
-                                {THREAT_CLASS_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-                              </SelectContent>
-                            </Select>
+              <div className="space-y-4">
+                {QUADRANT_OPTIONS.map((q) => {
+                  const colors = QUADRANT_COLORS[q.value];
+                  const Icon = colors.icon;
+                  const items = swot.filter((s) => s.quadrant === q.value);
+                  return (
+                    <div key={q.value} className={`rounded-lg border p-4 space-y-3 ${colors.border} ${colors.bg}`}>
+                      <p className={`text-sm font-medium flex items-center gap-1.5 ${colors.text}`}>
+                        <Icon className="h-4 w-4" aria-hidden="true" />{q.label}
+                      </p>
+                      {items.map((s) => (
+                        <div key={s.id} className="bg-background rounded-md border p-3 space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <Textarea rows={2} className="flex-1" placeholder="The item" value={s.body} onChange={(e) => setSwotRow(s.id, { body: e.target.value })} />
+                            <Button variant="ghost" size="icon" onClick={() => removeSwot(s.id)}><Trash2 className="h-4 w-4" /></Button>
                           </div>
-                        )}
-                        <div>
-                          <Label className="text-xs">Lane</Label>
-                          <Select value={s.lane_local_id || NONE} onValueChange={(v) => setSwotRow(i, { lane_local_id: v === NONE ? "" : v })}>
-                            <SelectTrigger><SelectValue placeholder="No lane" /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value={NONE}>No lane</SelectItem>
-                              {lanes.filter((l) => l.name.trim()).map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {q.value === "threat" && (
+                              <div>
+                                <Label className="text-xs">Threat class</Label>
+                                <Select value={s.threat_class || NONE} onValueChange={(v) => setSwotRow(s.id, { threat_class: v === NONE ? "" : v })}>
+                                  <SelectTrigger><SelectValue placeholder="Unset" /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value={NONE}>Unset</SelectItem>
+                                    {THREAT_CLASS_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )}
+                            <div>
+                              <Label className="text-xs">Lane</Label>
+                              <Select value={s.lane_local_id || NONE} onValueChange={(v) => setSwotRow(s.id, { lane_local_id: v === NONE ? "" : v })}>
+                                <SelectTrigger><SelectValue placeholder="No lane" /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value={NONE}>No lane</SelectItem>
+                                  {lanes.filter((l) => l.name.trim()).map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                      <Button variant="ghost" size="icon" onClick={() => removeSwot(i)}><Trash2 className="h-4 w-4" /></Button>
+                      ))}
+                      <Button variant="outline" size="sm" className="w-full" onClick={() => addSwot(q.value)}>
+                        <Plus className="h-3.5 w-3.5 mr-1.5" />Add {q.label.toLowerCase()}
+                      </Button>
                     </div>
-                    <Textarea rows={2} placeholder="The item" value={s.body} onChange={(e) => setSwotRow(i, { body: e.target.value })} />
-                  </div>
-                ))}
-                <Button variant="outline" className="w-full" onClick={addSwot}><Plus className="h-4 w-4 mr-2" />Add SWOT item</Button>
-              </>
+                  );
+                })}
+              </div>
             ) : swot.length === 0 ? (
               <p className="text-sm text-muted-foreground">No SWOT items yet.</p>
             ) : (
-              <ul className="list-disc pl-5 space-y-1 text-sm">
-                {swot.map((s) => (
-                  <li key={s.id}>
-                    <span className="font-medium">{QUADRANT_OPTIONS.find((o) => o.value === s.quadrant)?.label ?? s.quadrant}</span>
-                    {" · "}
-                    <span className="text-muted-foreground">{s.body || "(empty)"}</span>
-                  </li>
-                ))}
-              </ul>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {QUADRANT_OPTIONS.map((q) => {
+                  const colors = QUADRANT_COLORS[q.value];
+                  const Icon = colors.icon;
+                  const items = swot.filter((s) => s.quadrant === q.value);
+                  return (
+                    <div key={q.value} className={`rounded-lg border p-4 ${colors.border} ${colors.bg}`}>
+                      <p className={`text-sm font-medium mb-2 flex items-center gap-1.5 ${colors.text}`}>
+                        <Icon className="h-4 w-4" aria-hidden="true" />{q.label}
+                      </p>
+                      {items.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">None yet.</p>
+                      ) : (
+                        <ul className="list-disc pl-5 space-y-1 text-sm">
+                          {items.map((s) => <li key={s.id}>{s.body || "(empty)"}</li>)}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </CardContent>
         </Card>

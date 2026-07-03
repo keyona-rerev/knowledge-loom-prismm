@@ -19,10 +19,25 @@ const Dashboard = () => {
     minApprovedThreshold: 12,
   });
   const [loading, setLoading] = useState(true);
+  const [flaggedNewsletters, setFlaggedNewsletters] = useState<any[]>([]);
 
   useEffect(() => {
     loadDashboardStats();
+    loadNewsletterHealth();
   }, []);
+
+  const loadNewsletterHealth = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const { data, error } = await supabase
+      .from("newsletter_health")
+      .select("sender_address, avg_score, card_count, recommendation, reason")
+      .eq("user_id", session.user.id)
+      .neq("recommendation", "healthy")
+      .order("avg_score", { ascending: true });
+    if (error) { console.error("Failed to load newsletter health:", error); return; }
+    setFlaggedNewsletters(data || []);
+  };
 
   const loadDashboardStats = async () => {
     setLoading(true);
@@ -171,6 +186,43 @@ The dashboard shows your review pipeline and quick access to everything else.`}
               <Button size="sm" onClick={() => navigate("/review")} className="shrink-0">
                 Go to Review
               </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {flaggedNewsletters.length > 0 && (
+          <Card className="mb-8 border-orange-300 bg-orange-50">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-orange-700 mt-0.5 shrink-0" />
+                <div className="flex-1">
+                  <p className="font-medium text-orange-900">
+                    {flaggedNewsletters.length} source{flaggedNewsletters.length === 1 ? "" : "s"} flagged by the weekly health scan
+                  </p>
+                  <p className="text-sm text-orange-800 mt-0.5 mb-3">
+                    Consistently low relevance to your Strategy page. Checked every 7 days.
+                  </p>
+                  <div className="space-y-2">
+                    {flaggedNewsletters.map((n) => (
+                      <div key={n.sender_address} className="flex items-center justify-between gap-3 text-sm bg-white/60 rounded-md px-3 py-2">
+                        <div className="min-w-0">
+                          <span className="font-medium truncate block">{n.sender_address}</span>
+                          <span className="text-orange-800">{n.reason}</span>
+                        </div>
+                        <Badge
+                          variant="outline"
+                          className={n.recommendation === "unsubscribe" ? "border-destructive text-destructive shrink-0" : "border-orange-400 text-orange-700 shrink-0"}
+                        >
+                          {n.recommendation === "unsubscribe" ? "Consider unsubscribing" : "Watch"}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => navigate("/feeds")} className="shrink-0">
+                  Go to Sources
+                </Button>
+              </div>
             </CardContent>
           </Card>
         )}

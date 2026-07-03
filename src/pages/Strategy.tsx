@@ -838,11 +838,11 @@ const Strategy = () => {
               ) : hardRules.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No hard rules yet. Add the do-not-say and framing rules the writer must always hold.</p>
               ) : (
-                <div className="space-y-1.5">
+                <ul className="list-disc pl-5 space-y-1 text-sm">
                   {hardRules.map((r) => (
-                    <p key={r.id} className="text-sm border rounded-md px-3 py-2">{r.body || "(empty)"}</p>
+                    <li key={r.id}>{r.body || "(empty)"}</li>
                   ))}
-                </div>
+                </ul>
               )}
             </div>
 
@@ -896,11 +896,11 @@ const Strategy = () => {
                   {voiceProfile.rules.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No voice rules yet. Add the tone and register rules the writer must hold.</p>
                   ) : (
-                    <div className="space-y-1.5">
+                    <ul className="list-disc pl-5 space-y-1 text-sm">
                       {voiceProfile.rules.map((rule, i) => (
-                        <p key={i} className="text-sm border rounded-md px-3 py-2">{rule || "(empty)"}</p>
+                        <li key={i}>{rule || "(empty)"}</li>
                       ))}
-                    </div>
+                    </ul>
                   )}
                   <div>
                     <p className="text-xs font-medium text-muted-foreground mb-1">Inline attribution instruction</p>
@@ -1074,15 +1074,15 @@ const Strategy = () => {
             ) : swot.length === 0 ? (
               <p className="text-sm text-muted-foreground">No SWOT items yet.</p>
             ) : (
-              <div className="space-y-1.5">
+              <ul className="list-disc pl-5 space-y-1 text-sm">
                 {swot.map((s) => (
-                  <p key={s.id} className="text-sm border rounded-md px-3 py-2">
+                  <li key={s.id}>
                     <span className="font-medium">{QUADRANT_OPTIONS.find((o) => o.value === s.quadrant)?.label ?? s.quadrant}</span>
                     {" · "}
                     <span className="text-muted-foreground">{s.body || "(empty)"}</span>
-                  </p>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </CardContent>
         </Card>
@@ -1133,14 +1133,14 @@ const Strategy = () => {
             ) : lanes.length === 0 ? (
               <p className="text-sm text-muted-foreground">No lanes yet.</p>
             ) : (
-              <div className="space-y-1.5">
+              <ul className="list-disc pl-5 space-y-1 text-sm">
                 {lanes.map((l) => (
-                  <div key={l.id} className="flex items-center gap-2 text-sm border rounded-md px-3 py-2">
+                  <li key={l.id} className="flex items-center gap-2">
                     <span className="font-medium">{l.name || "Untitled lane"}</span>
                     {l.is_wedge && <Badge variant="outline">Wedge</Badge>}
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </CardContent>
         </Card>
@@ -1222,15 +1222,15 @@ const Strategy = () => {
             ) : readers.length === 0 ? (
               <p className="text-sm text-muted-foreground">No readers yet.</p>
             ) : (
-              <div className="space-y-1.5">
+              <ul className="list-disc pl-5 space-y-1 text-sm">
                 {readers.map((r) => (
-                  <p key={r.id} className="text-sm border rounded-md px-3 py-2">
+                  <li key={r.id}>
                     <span className="font-medium">{r.role || "Untitled reader"}</span>
                     {" · "}
                     <span className="text-muted-foreground">{SIDE_OPTIONS.find((o) => o.value === r.side)?.label ?? r.side}</span>
-                  </p>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </CardContent>
         </Card>
@@ -1281,15 +1281,15 @@ const Strategy = () => {
             ) : formats.length === 0 ? (
               <p className="text-sm text-muted-foreground">No formats yet.</p>
             ) : (
-              <div className="space-y-1.5">
+              <ul className="list-disc pl-5 space-y-1 text-sm">
                 {formats.map((f) => (
-                  <p key={f.id} className="text-sm border rounded-md px-3 py-2">
+                  <li key={f.id}>
                     <span className="font-medium">{f.name || "Untitled format"}</span>
                     {" · "}
                     <span className="text-muted-foreground">{wordRangeText(f.min_words, f.max_words)}</span>
-                  </p>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </CardContent>
         </Card>
@@ -1357,15 +1357,15 @@ const Strategy = () => {
             ) : natures.length === 0 ? (
               <p className="text-sm text-muted-foreground">No natures yet.</p>
             ) : (
-              <div className="space-y-1.5">
+              <ul className="list-disc pl-5 space-y-1 text-sm">
                 {natures.map((n) => (
-                  <p key={n.id} className="text-sm border rounded-md px-3 py-2">
+                  <li key={n.id}>
                     <span className="font-medium">{n.name || "Untitled nature"}</span>
                     {" · "}
                     <span className="text-muted-foreground">{FIT_OPTIONS.find((o) => o.value === n.fit)?.label ?? n.fit}</span>
-                  </p>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </CardContent>
         </Card>
@@ -1421,15 +1421,15 @@ const Strategy = () => {
             ) : jobs.length === 0 ? (
               <p className="text-sm text-muted-foreground">No jobs yet.</p>
             ) : (
-              <div className="space-y-1.5">
+              <ul className="list-disc pl-5 space-y-1 text-sm">
                 {jobs.map((j) => (
-                  <p key={j.id} className="text-sm border rounded-md px-3 py-2">
+                  <li key={j.id}>
                     <span className="font-medium">{j.name || "Untitled job"}</span>
                     {" · "}
                     <span className="text-muted-foreground">{STAGE_OPTIONS.find((o) => o.value === j.funnel_stage)?.label ?? j.funnel_stage}</span>
-                  </p>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </CardContent>
         </Card>

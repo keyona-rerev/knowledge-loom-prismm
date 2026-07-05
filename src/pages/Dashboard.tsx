@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Rss, FileEdit, Settings, MessageCircleQuestion, LogOut,
-  CheckCheck, Lightbulb, Target, CalendarClock, AlertTriangle, Database, Plus, ChevronDown,
+  CheckCheck, Lightbulb, Target, CalendarClock, AlertTriangle, Database, Plus, ChevronDown, Search,
 } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -142,6 +142,12 @@ const Dashboard = () => {
       description: "Newsletters, RSS, manual sources, and journal observations — everything that feeds the engine",
       icon: Rss,
       path: "/feeds",
+    },
+    {
+      title: "Discover Sources",
+      description: "Search the live web for new high-quality sources — every candidate is auto-scored, only the ones that clear your threshold become reference cards",
+      icon: Search,
+      path: "/discover",
     },
     {
       title: "Reference Cards",

@@ -9,6 +9,13 @@
 // Dragging a card to a different day calls reschedule-draft for real (same
 // function the "Edit time" dialog uses) — it keeps the draft's original
 // time-of-day and only changes the date.
+//
+// The header also shows a total approved-drafts count (all-time, not scoped
+// to the visible week), separate from what's rendered in the grid below.
+// Approved and "on the calendar this week" are not the same number: a draft
+// can be approved but stuck in needs_attention (no image, no resolvable
+// schedule time) and never show up here at all. Surfacing the raw approved
+// count makes that gap visible instead of silently invisible.
 import { useState, useEffect } from "react";
 import { startOfWeek, addDays, setHours, setMinutes, setSeconds, setMilliseconds } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
@@ -22,6 +29,7 @@ export const WeeklyCalendar = () => {
   const [currentWeek, setCurrentWeek] = useState(new Date());
   const [drafts, setDrafts] = useState<ScheduledDraft[]>([]);
   const [cadenceDays, setCadenceDays] = useState<Set<number>>(new Set());
+  const [approvedCount, setApprovedCount] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [rescheduling, setRescheduling] = useState<ScheduledDraft | null>(null);
 
@@ -36,7 +44,7 @@ export const WeeklyCalendar = () => {
     const weekStart = startOfWeek(currentWeek, { weekStartsOn: 0 });
     const weekEnd = addDays(weekStart, 7);
 
-    const [{ data, error }, { data: cadence }] = await Promise.all([
+    const [{ data, error }, { data: cadence }, { count: approved }] = await Promise.all([
       supabase.from("drafts")
         .select(`
           id, title, body, content_type, publish_status, scheduled_for, external_post_id,
@@ -51,6 +59,10 @@ export const WeeklyCalendar = () => {
         .select("day_of_week")
         .eq("user_id", session?.user?.id)
         .eq("is_active", true),
+      supabase.from("drafts")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", session?.user?.id)
+        .eq("approval_status", "approved"),
     ]);
 
     if (error) {
@@ -60,6 +72,7 @@ export const WeeklyCalendar = () => {
       setDrafts((data || []) as unknown as ScheduledDraft[]);
     }
     setCadenceDays(new Set((cadence || []).map((c) => c.day_of_week)));
+    setApprovedCount(approved ?? undefined);
     setLoading(false);
   };
 
@@ -115,7 +128,12 @@ export const WeeklyCalendar = () => {
 
   return (
     <div className="flex flex-col bg-gray-50">
-      <CalendarHeader currentWeek={currentWeek} onWeekChange={setCurrentWeek} onRefresh={loadScheduled} />
+      <CalendarHeader
+        currentWeek={currentWeek}
+        onWeekChange={setCurrentWeek}
+        onRefresh={loadScheduled}
+        approvedCount={approvedCount}
+      />
 
       <div className="flex-1 grid grid-cols-7 gap-4 p-6">
         {getWeekDays().map((day) => (

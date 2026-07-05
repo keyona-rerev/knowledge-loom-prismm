@@ -259,8 +259,18 @@ serve(async (req) => {
     if (!contentBlocked && textContent.length >= 100) {
       console.log("🚀 Triggering auto-processing for card:", cardData.id);
       try {
+        // userId is passed explicitly here (not just cardId) so
+        // process-reference-card's service-role path doesn't have to
+        // re-look-up this row by id right after we just inserted it. That
+        // lookup was intermittently coming back empty (visible as a 404
+        // "Card not found" in the function's own logs), silently leaving
+        // every manually-added source stuck on its placeholder score of 5
+        // — exactly the score that gets auto-deleted the moment someone
+        // sets a threshold above 5, regardless of how good the actual
+        // content was. Passing userId directly removes that lookup
+        // entirely for this call path.
         const { error: processError } = await supabase.functions.invoke("process-reference-card", {
-          body: { cardId: cardData.id },
+          body: { cardId: cardData.id, userId: user_id },
         });
 
         if (processError) {

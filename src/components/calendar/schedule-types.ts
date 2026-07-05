@@ -9,8 +9,4 @@ export interface ScheduledDraft {
   publish_status: string | null;
   scheduled_for: string;
   external_post_id: string | null;
-  schedule?: {
-    frequency: string | null;
-    format?: { name: string | null } | null;
-  } | null;
 }

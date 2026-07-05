@@ -1,16 +1,19 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ChevronLeft, ChevronRight, CheckCheck } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarCheck, AlertTriangle } from "lucide-react";
 import { format, startOfWeek, addWeeks, subWeeks } from "date-fns";
+import { useNavigate } from "react-router-dom";
 
 interface CalendarHeaderProps {
   currentWeek: Date;
   onWeekChange: (date: Date) => void;
   onRefresh?: () => void;
-  approvedCount?: number;
+  scheduledCount?: number;
+  needsAttentionCount?: number;
 }
 
-export const CalendarHeader = ({ currentWeek, onWeekChange, onRefresh, approvedCount }: CalendarHeaderProps) => {
+export const CalendarHeader = ({ currentWeek, onWeekChange, onRefresh, scheduledCount, needsAttentionCount }: CalendarHeaderProps) => {
+  const navigate = useNavigate();
   const weekStart = startOfWeek(currentWeek, { weekStartsOn: 0 });
   const weekEnd = addWeeks(weekStart, 1);
 
@@ -53,10 +56,24 @@ export const CalendarHeader = ({ currentWeek, onWeekChange, onRefresh, approvedC
       </div>
 
       <div className="flex items-center gap-3">
-        {typeof approvedCount === "number" && (
-          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 px-3 py-1.5">
-            <CheckCheck className="h-3.5 w-3.5 mr-1.5" />
-            {approvedCount} approved
+        {typeof scheduledCount === "number" && (
+          <Badge
+            variant="outline"
+            className="bg-green-50 text-green-700 border-green-200 px-3 py-1.5 cursor-pointer hover:bg-green-100"
+            onClick={() => navigate("/review?tab=approved")}
+          >
+            <CalendarCheck className="h-3.5 w-3.5 mr-1.5" />
+            {scheduledCount} scheduled
+          </Badge>
+        )}
+        {typeof needsAttentionCount === "number" && needsAttentionCount > 0 && (
+          <Badge
+            variant="outline"
+            className="bg-amber-50 text-amber-800 border-amber-300 px-3 py-1.5 cursor-pointer hover:bg-amber-100"
+            onClick={() => navigate("/review?tab=approved")}
+          >
+            <AlertTriangle className="h-3.5 w-3.5 mr-1.5" />
+            {needsAttentionCount} needs attention
           </Badge>
         )}
         <Button

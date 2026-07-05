@@ -9,6 +9,19 @@ import { getDraftImageUrl } from "../_shared/get-draft-image-url.ts";
 // (external_post_id set) is a no-op. It NEVER publishes immediately and NEVER
 // posts silently when the timing can't be resolved; such cases land in
 // publish_status = 'needs_attention' for the UI.
+//
+// The idempotency check above is read-then-act, not an atomic lock. Three
+// separate call sites (PendingTab approve, DraftDetail approve, ApprovedTab
+// retry) can all invoke this function for the same draft close enough
+// together that two both read external_post_id as null and both proceed to
+// call the provider. The provider's own duplicate-content detection then
+// rejects the second call, which used to get written straight to
+// publish_status='failed' — clobbering the first call's success, since that
+// failure write never checked whether a sibling call had meanwhile set
+// external_post_id. The write below guards against exactly that: it only
+// marks the draft failed if external_post_id is still null at write time; if
+// a concurrent call already succeeded, this reports that success back
+// instead of lying about a failure.
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -152,10 +165,35 @@ serve(async (req) => {
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Provider publish failed";
-      await supabase.from("drafts").update({
-        publish_status: "failed",
-        publish_error: msg,
-      }).eq("id", draft.id);
+
+      // Only mark failed if a concurrent call hasn't already succeeded for
+      // this same draft in the meantime (see the idempotency-race note
+      // above). The .is("external_post_id", null) guard makes this
+      // conditional on the DB, not on anything read earlier in this
+      // request, so it's safe even if that concurrent success landed
+      // between our read at the top of this function and this write.
+      const { data: updated } = await supabase
+        .from("drafts")
+        .update({ publish_status: "failed", publish_error: msg })
+        .eq("id", draft.id)
+        .is("external_post_id", null)
+        .select("id")
+        .maybeSingle();
+
+      if (!updated) {
+        const { data: current } = await supabase
+          .from("drafts")
+          .select("external_post_id, publish_status, scheduled_for")
+          .eq("id", draft.id)
+          .single();
+        return json({
+          ok: true,
+          alreadyScheduled: true,
+          externalPostId: current?.external_post_id,
+          status: current?.publish_status,
+        });
+      }
+
       return json({ ok: false, status: "failed", error: msg }, 502);
     }
   } catch (e) {

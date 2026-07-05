@@ -9,6 +9,13 @@ import { getDraftImageUrl } from "../_shared/get-draft-image-url.ts";
 //
 // Idempotent: if external_post_id is already set and publish_status is
 // "published_now", returns success immediately without re-posting.
+//
+// Same race as publish-to-zernio: the idempotency check above is read-then-
+// act, so two near-simultaneous "Post Now" clicks (or a Post Now racing an
+// automated approve-and-publish) can both pass it before either writes back.
+// The provider rejects the second as duplicate content; the failure write
+// below only applies if a concurrent call hasn't already set external_post_id
+// in the meantime, so a late rejection can't overwrite an earlier success.
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -125,10 +132,32 @@ serve(async (req) => {
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Provider publish failed";
-      await supabase
+
+      // See file header: only mark failed if a concurrent call hasn't
+      // already set external_post_id for this draft in the meantime.
+      const { data: updated } = await supabase
         .from("drafts")
         .update({ publish_status: "failed", publish_error: msg })
-        .eq("id", draft.id);
+        .eq("id", draft.id)
+        .is("external_post_id", null)
+        .select("id")
+        .maybeSingle();
+
+      if (!updated) {
+        const { data: current } = await supabase
+          .from("drafts")
+          .select("external_post_id, publish_status")
+          .eq("id", draft.id)
+          .single();
+        return json({
+          ok: true,
+          alreadyPosted: current?.publish_status === "published_now",
+          alreadyScheduled: current?.publish_status === "scheduled",
+          externalPostId: current?.external_post_id,
+          status: current?.publish_status,
+        });
+      }
+
       return json({ ok: false, status: "failed", error: msg }, 502);
     }
   } catch (e) {

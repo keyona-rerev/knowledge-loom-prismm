@@ -76,7 +76,7 @@ async function processCard(supabase: any, userId: string, cardId: string, custom
   const { data: card } = await supabase.from("reference_cards").select("*, reference_card_templates(custom_questions)").eq("id", cardId).eq("user_id", userId).single();
   if (!card) return new Response(JSON.stringify({ error: "Card not found or access denied" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-  const { data: profile } = await supabase.from("profiles").select("ai_provider, ai_model, ai_api_key, ai_endpoint").eq("user_id", userId).single();
+  const { data: profile } = await supabase.from("profiles").select("ai_provider, ai_model, ai_api_key, ai_endpoint, auto_delete_score_threshold").eq("user_id", userId).single();
 
   // Build questions
   let questions: string[] = [];
@@ -169,6 +169,26 @@ Respond ONLY with valid JSON:
     relevanceScore = verdict.score;
   } catch (err) {
     console.error("Relevance scoring failed during processing, keeping existing score:", err);
+  }
+
+  // Auto-delete rule: if the user has set a minimum score threshold and this
+  // card scored below it, delete the card outright rather than saving a
+  // summary onto something that's about to be manually cleaned up anyway.
+  // This is the single choke point every card passes through after being
+  // scored — manual/pdf/paste cards via the "Process with AI" button, and
+  // newsletter cards via ingest-gmail-content, which calls this function
+  // immediately after creating each card — so the rule applies uniformly
+  // regardless of source, with no separate enforcement path to keep in sync.
+  const threshold = profile?.auto_delete_score_threshold;
+  if (typeof threshold === "number" && relevanceScore < threshold) {
+    await supabase.from("reference_cards").delete().eq("id", cardId);
+    return new Response(JSON.stringify({
+      success: true,
+      deleted: true,
+      cardId,
+      relevanceScore,
+      reason: `Scored ${relevanceScore}, below your auto-delete threshold of ${threshold}`,
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
   await supabase.from("reference_cards").update({

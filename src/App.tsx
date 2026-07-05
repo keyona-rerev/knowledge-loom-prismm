@@ -11,6 +11,7 @@ import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
 import Strategy from "./pages/Strategy";
 import Feeds from "./pages/Feeds";
+import DiscoverSources from "./pages/DiscoverSources";
 import ReferenceCards from "./pages/ReferenceCards";
 import CardDetail from "./pages/CardDetail";
 import CreateContent from "./pages/CreateContent";
@@ -44,6 +45,7 @@ const App = () => (
               {/* Audience merged into Strategy; keep the old URL working */}
               <Route path="/audience" element={<Navigate to="/strategy" replace />} />
               <Route path="/feeds" element={<ProtectedRoute><Feeds /></ProtectedRoute>} />
+              <Route path="/discover" element={<ProtectedRoute><DiscoverSources /></ProtectedRoute>} />
               <Route path="/cards" element={<ProtectedRoute><ReferenceCards /></ProtectedRoute>} />
               <Route path="/cards/:id" element={<ProtectedRoute><CardDetail /></ProtectedRoute>} />
               <Route path="/cards/:id/edit" element={<ProtectedRoute><CardDetail /></ProtectedRoute>} />

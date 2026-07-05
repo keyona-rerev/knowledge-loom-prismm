@@ -37,13 +37,26 @@ serve(async (req) => {
       if (authError || !user) return new Response(JSON.stringify({ error: "Invalid or expired authentication token" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       userId = user.id;
     } else {
-      // Service role call from GAS ingest — get userId from body
+      // Service role call (from create-manual-source, or GAS ingest).
       const body = await req.json();
       if (!body.cardId) return new Response(JSON.stringify({ error: "cardId is required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-      const { data: card } = await supabase.from("reference_cards").select("user_id").eq("id", body.cardId).single();
-      if (!card) return new Response(JSON.stringify({ error: "Card not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      userId = card.user_id;
+      // Prefer the userId the caller already has (create-manual-source
+      // knows it — it just authenticated this same user moments ago).
+      // Falling back to a fresh SELECT-by-cardId here was intermittently
+      // returning no row immediately after the caller's own insert
+      // (visible as a "Card not found" 404 in this function's logs),
+      // silently leaving every manually-added source on its placeholder
+      // score forever. Passing userId directly skips that lookup for any
+      // caller that already knows it; the lookup remains as a fallback
+      // for older callers that don't pass it.
+      if (body.userId) {
+        userId = body.userId;
+      } else {
+        const { data: card } = await supabase.from("reference_cards").select("user_id").eq("id", body.cardId).single();
+        if (!card) return new Response(JSON.stringify({ error: "Card not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        userId = card.user_id;
+      }
 
       // Re-parse won't work after consuming body — pass values forward
       return await processCard(supabase, userId, body.cardId, body.customQuestion, corsHeaders);

@@ -169,7 +169,7 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
     const body = await req.json();
-    const { scheduleId, isTestRun = false } = body;
+    const { scheduleId, isTestRun = false, scheduledForOverride } = body;
     if (!scheduleId) return json({ error: "scheduleId is required" }, 400);
 
     const token = authHeader.replace("Bearer ", "");
@@ -193,13 +193,22 @@ serve(async (req) => {
       .single();
     if (!slot) return json({ error: "Slot not found, inactive, or access denied" }, 404);
 
-    const intendedScheduledFor = resolveNext({
-      day_of_week: slot.day_of_week,
-      frequency: slot.frequency as Frequency,
-      anchor: slot.anchor,
-      time_of_day: slot.time_of_day,
-      timezone: slot.timezone,
-    }).scheduledFor;
+    // scheduledForOverride lets a caller (the Cadence "fast-forward" batch
+    // generator) stamp a specific future occurrence of this slot instead of
+    // always the very next one. Without it, running the same slot several
+    // times in one sitting would stack every draft onto the same date;
+    // batch generation walks the slot's own cadence forward and passes a
+    // different real occurrence in on each call. Every other caller
+    // (the daily cron, the per-slot "Run" button) omits it and gets the
+    // original behavior unchanged.
+    const intendedScheduledFor = scheduledForOverride
+      ?? resolveNext({
+        day_of_week: slot.day_of_week,
+        frequency: slot.frequency as Frequency,
+        anchor: slot.anchor,
+        time_of_day: slot.time_of_day,
+        timezone: slot.timezone,
+      }).scheduledFor;
 
     const { data: profile } = await supabase
       .from("profiles")

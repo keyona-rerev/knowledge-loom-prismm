@@ -432,12 +432,21 @@ const ReferenceCards = () => {
                       {card.insight_answers && Object.keys(card.insight_answers).length > 0 && (
                         <div className="mt-4 border-t pt-4">
                           <p className="text-sm font-medium mb-2">Insight Answers:</p>
-                          {Object.entries(card.insight_answers).map(([key, value]) => (
-                            <div key={key} className="text-sm mb-2">
-                              <p className="font-medium">Q{parseInt(key) + 1}:</p>
-                              <p className="text-muted-foreground break-words">{value as string}</p>
-                            </div>
-                          ))}
+                          {Object.entries(card.insight_answers).map(([key, value]) => {
+                            // insight_answers is keyed by the literal question
+                            // text itself (see process-reference-card's
+                            // prompt: "answers": {"<question>": "answer"}),
+                            // not by numeric index. Rendering key directly.
+                            const isCustom = typeof value === "object" && value !== null && "question" in (value as any);
+                            const label = isCustom ? `Custom: ${(value as any).question}` : key;
+                            const answerText = isCustom ? (value as any).answer : (value as string);
+                            return (
+                              <div key={key} className="text-sm mb-2">
+                                <p className="font-medium">{label}</p>
+                                <p className="text-muted-foreground break-words">{answerText}</p>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>

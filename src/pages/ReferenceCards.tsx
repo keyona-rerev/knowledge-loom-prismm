@@ -137,8 +137,6 @@ const ReferenceCards = () => {
   // Selecting "all" while sorted/filtered across hundreds of cards and then
   // hitting delete should never be able to wipe out more than what's visibly
   // on screen right now.
-  const pageAllSelected = paginatedCardsRef => paginatedCardsRef.length > 0 && paginatedCardsRef.every(c => selectedCards.has(c.id));
-
   const toggleAllOnPage = (pageCards: any[]) => {
     const allSelected = pageCards.length > 0 && pageCards.every(c => selectedCards.has(c.id));
     setSelectedCards(prev => {

@@ -9,8 +9,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { ArrowLeft, Search, Edit2, ExternalLink, Trash2, ChevronDown, Sparkles, AlertCircle, Plus, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Search, Edit2, ExternalLink, Trash2, ChevronDown, Sparkles, AlertCircle, Plus, CheckCircle2, ArrowUpDown } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
+
+type SortOrder = "newest" | "score_desc" | "score_asc";
+type ApprovalFilter = "all" | "approved" | "unapproved";
 
 const ReferenceCards = () => {
   const navigate = useNavigate();
@@ -18,6 +21,15 @@ const ReferenceCards = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterSource, setFilterSource] = useState<string>("all");
+  // Separate from filterStatus (the processing pipeline state — processing/
+  // active/archived/needs_review, which is set to "active" automatically
+  // once a card finishes AI processing regardless of approval). This filters
+  // on reference_cards.approved directly, which is the field that actually
+  // gates whether a card is citable in generated content. Conflating the two
+  // is exactly why "Needs Review" (a status filter) showed nothing even
+  // though most cards are correctly unapproved.
+  const [filterApproval, setFilterApproval] = useState<ApprovalFilter>("all");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [processingCards, setProcessingCards] = useState<Set<string>>(new Set());
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
@@ -181,10 +193,21 @@ const ReferenceCards = () => {
     checkAuthAndLoad();
   }, [navigate, filterStatus, filterSource]);
 
-  const filteredCards = cards.filter(card => 
-    card.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    card.original_text?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredCards = cards
+    .filter(card =>
+      card.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      card.original_text?.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+    .filter(card => {
+      if (filterApproval === "approved") return card.approved === true;
+      if (filterApproval === "unapproved") return card.approved !== true;
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortOrder === "score_desc") return (b.global_relevance_score ?? 0) - (a.global_relevance_score ?? 0);
+      if (sortOrder === "score_asc") return (a.global_relevance_score ?? 0) - (b.global_relevance_score ?? 0);
+      return 0; // "newest" — already ordered this way by the query itself
+    });
 
   return (
     <div className="min-h-screen bg-background">
@@ -212,6 +235,8 @@ const ReferenceCards = () => {
 - Cards are created from Google Alerts, manual sources, and observations
 - Each card contains content and answers to your configured questions
 - Use filters to find specific cards by status or source type
+- The Approval filter shows approved vs. not-approved cards — this is the field that controls what's citable in generated content, separate from processing Status
+- Sort by relevance score to surface your best (or weakest) candidates first
 - Click "Process with AI" to analyze content and extract insights
 - Content warnings show when full articles couldn't be accessed
 - Click "View Details" to see the full card`}
@@ -234,7 +259,7 @@ const ReferenceCards = () => {
             <SelectContent>
               <SelectItem value="all">All Statuses</SelectItem>
               <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="needs_review">Needs Review</SelectItem>
+              <SelectItem value="needs_review">Needs Review (processing)</SelectItem>
               <SelectItem value="archived">Archived</SelectItem>
             </SelectContent>
           </Select>
@@ -249,6 +274,27 @@ const ReferenceCards = () => {
               <SelectItem value="manual">Manual</SelectItem>
               <SelectItem value="perplexity">Perplexity</SelectItem>
               <SelectItem value="observation">Observation Journal</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={filterApproval} onValueChange={(v) => setFilterApproval(v as ApprovalFilter)}>
+            <SelectTrigger className="w-full md:w-48">
+              <SelectValue placeholder="Filter by approval" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Approval States</SelectItem>
+              <SelectItem value="unapproved">Not Approved</SelectItem>
+              <SelectItem value="approved">Approved</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as SortOrder)}>
+            <SelectTrigger className="w-full md:w-56">
+              <ArrowUpDown className="h-3.5 w-3.5 mr-2 shrink-0" />
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="newest">Newest first</SelectItem>
+              <SelectItem value="score_desc">Highest score first</SelectItem>
+              <SelectItem value="score_asc">Lowest score first</SelectItem>
             </SelectContent>
           </Select>
         </div>

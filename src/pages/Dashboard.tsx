@@ -18,6 +18,7 @@ const Dashboard = () => {
     pendingReviews: 0,
     approvedDrafts: 0,
     minApprovedThreshold: 12,
+    unapprovedCards: 0,
   });
   const [loading, setLoading] = useState(true);
   const [flaggedNewsletters, setFlaggedNewsletters] = useState<any[]>([]);
@@ -82,14 +83,25 @@ const Dashboard = () => {
       const [
         { data: allDrafts, error: draftsError },
         { data: profile, error: profileError },
+        { count: unapprovedCards, error: cardsError },
       ] = await Promise.all([
         supabase.from("drafts").select("id, approval_status, publish_status, scheduled_for")
           .eq("user_id", userId),
         supabase.from("profiles").select("min_approved_threshold")
           .eq("user_id", userId).maybeSingle(),
+        // reference_cards.approved gates what generation can cite at all
+        // ("Only approved cards are trusted, citable sources for
+        // generation"). This count is the reason the Reference Cards tile
+        // exists on the dashboard: without visibility into how many cards
+        // are sitting unreviewed, it's easy to ingest hundreds of sources
+        // and never approve more than a handful, which silently caps
+        // generated content to whatever the few approved cards say.
+        supabase.from("reference_cards").select("id", { count: "exact", head: true })
+          .eq("approved", false),
       ]);
       if (draftsError) throw draftsError;
       if (profileError) throw profileError;
+      if (cardsError) throw cardsError;
 
       const drafts = allDrafts || [];
       const pendingReviews = drafts.filter(d => d.approval_status === "pending" || d.approval_status === "needs_revision").length;
@@ -104,6 +116,7 @@ const Dashboard = () => {
         pendingReviews,
         approvedDrafts,
         minApprovedThreshold: (profile as any)?.min_approved_threshold ?? 12,
+        unapprovedCards: unapprovedCards ?? 0,
       });
     } catch (error) {
       console.error("Error loading dashboard stats:", error);
@@ -129,6 +142,13 @@ const Dashboard = () => {
       description: "Newsletters, RSS, manual sources, and journal observations — everything that feeds the engine",
       icon: Rss,
       path: "/feeds",
+    },
+    {
+      title: "Reference Cards",
+      description: "Approve sources so they're citable in generated content — only approved cards can be cited",
+      icon: Database,
+      path: "/cards",
+      badge: stats.unapprovedCards > 0 ? `${stats.unapprovedCards} need review` : undefined,
     },
   ];
 
@@ -185,9 +205,10 @@ const Dashboard = () => {
         <InstructionsToggle
           instructions={`Getting started:
 1. Set up a source or capture an observation directly in Sources
-2. Create content from your insights
-3. Approve drafts in Review; approval automatically schedules them to LinkedIn
-4. Drag a post to a different day on the Schedule page's Upcoming tab if a time needs to move
+2. Approve the reference cards you trust in Reference Cards — only approved cards can be cited in generated content
+3. Create content from your insights
+4. Approve drafts in Review; approval automatically schedules them to LinkedIn
+5. Drag a post to a different day on the Schedule page's Upcoming tab if a time needs to move
 
 The dashboard shows your review pipeline and quick access to everything else.`}
         />
@@ -308,11 +329,21 @@ The dashboard shows your review pipeline and quick access to everything else.`}
                   onClick={() => navigate(item.path)}
                 >
                   <CardHeader>
-                    <div className="flex items-center gap-3">
-                      <div className="rounded-lg p-2" style={{ backgroundColor: brandColors.secondary_color }}>
-                        <item.icon className="h-6 w-6 text-white" />
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="rounded-lg p-2" style={{ backgroundColor: brandColors.secondary_color }}>
+                          <item.icon className="h-6 w-6 text-white" />
+                        </div>
+                        <CardTitle className="text-lg">{item.title}</CardTitle>
                       </div>
-                      <CardTitle className="text-lg">{item.title}</CardTitle>
+                      {item.badge && (
+                        <Badge
+                          variant="outline"
+                          style={{ backgroundColor: `${brandColors.secondary_color}1a`, color: brandColors.secondary_color, borderColor: `${brandColors.secondary_color}55` }}
+                        >
+                          {item.badge}
+                        </Badge>
+                      )}
                     </div>
                   </CardHeader>
                   <CardContent>

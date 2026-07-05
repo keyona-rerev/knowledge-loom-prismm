@@ -397,14 +397,20 @@ const CardDetail = () => {
                         </Card>
                       );
                     } else {
-                      // Standard question from question set
-                      const questionIndex = parseInt(key);
-                      const question = questions[questionIndex];
+                      // Standard question from a question set. insight_answers
+                      // is keyed by the literal question text itself (see
+                      // process-reference-card's prompt construction:
+                      // "answers": {"<question text>": "answer"}), not a
+                      // numeric index — the key IS the question, so it's
+                      // rendered directly rather than looked up by parseInt
+                      // against the locally-loaded questions array (which
+                      // silently produced "QNaN" for every card, since a
+                      // full sentence never parses as a number).
                       return (
                         <Card key={key}>
                           <CardHeader>
                             <CardTitle className="text-base">
-                              Q{questionIndex + 1}: {question || "Question not found"}
+                              {key}
                             </CardTitle>
                           </CardHeader>
                           <CardContent>

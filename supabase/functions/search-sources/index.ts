@@ -94,7 +94,7 @@ serve(async (req) => {
 
     const userPrompt = `${context}
 
-Search the web for ${Math.min(targetCount * 3, 15)} distinct, real, currently-live articles or reports that would make strong, citable source material for this company's content strategy. Prioritize substantive, specific, recently published pieces (news, research, data, industry analysis) over generic evergreen listicles. Every URL must come from an actual search result — never invent or guess a URL.${excludeBlock}
+Search the web for ${Math.min(targetCount * 2, 15)} distinct, real, currently-live articles or reports that would make strong, citable source material for this company's content strategy. Prioritize substantive, specific, recently published pieces (news, research, data, industry analysis) over generic evergreen listicles. Every URL must come from an actual search result — never invent or guess a URL.${excludeBlock}
 
 Respond with ONLY minified JSON, no other text: {"candidates":[{"title":"...","url":"...","reason":"one short phrase on why this fits"}]}`;
 

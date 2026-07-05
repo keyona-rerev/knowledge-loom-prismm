@@ -3,13 +3,14 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { ArrowLeft, Search, Edit2, ExternalLink, Trash2, ChevronDown, ChevronLeft, ChevronRight, Sparkles, AlertCircle, Plus, CheckCircle2, ArrowUpDown } from "lucide-react";
+import { ArrowLeft, Search, Edit2, ExternalLink, Trash2, ChevronDown, ChevronLeft, ChevronRight, Sparkles, AlertCircle, Plus, CheckCircle2, ArrowUpDown, ShieldAlert } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 
 type SortOrder = "newest" | "score_desc" | "score_asc";
@@ -38,6 +39,51 @@ const ReferenceCards = () => {
   const [processingCards, setProcessingCards] = useState<Set<string>>(new Set());
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
   const [questionSets, setQuestionSets] = useState<any[]>([]);
+
+  // Auto-delete rule: cards scoring below this threshold are deleted the
+  // moment process-reference-card scores them, instead of sitting around
+  // as low-quality cards requiring manual cleanup. Stored on the user's
+  // profile so it applies uniformly whether a card was processed via the
+  // "Process with AI" button here or via the automated newsletter path,
+  // since both ultimately call the same edge function. Empty = disabled.
+  const [autoDeleteThreshold, setAutoDeleteThreshold] = useState<string>("");
+  const [savingThreshold, setSavingThreshold] = useState(false);
+
+  const loadAutoDeleteThreshold = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const { data } = await supabase
+      .from("profiles")
+      .select("auto_delete_score_threshold")
+      .eq("user_id", session.user.id)
+      .maybeSingle();
+    if (data?.auto_delete_score_threshold != null) {
+      setAutoDeleteThreshold(String(data.auto_delete_score_threshold));
+    }
+  };
+
+  const saveAutoDeleteThreshold = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const trimmed = autoDeleteThreshold.trim();
+    const value = trimmed === "" ? null : Math.max(1, Math.min(10, Math.round(Number(trimmed))));
+    if (trimmed !== "" && (Number.isNaN(value) || value === null)) {
+      toast.error("Enter a number from 1 to 10, or leave blank to disable");
+      return;
+    }
+    setSavingThreshold(true);
+    const { error } = await supabase
+      .from("profiles")
+      .update({ auto_delete_score_threshold: value })
+      .eq("user_id", session.user.id);
+    setSavingThreshold(false);
+    if (error) {
+      toast.error("Failed to save auto-delete threshold");
+    } else {
+      setAutoDeleteThreshold(value === null ? "" : String(value));
+      toast.success(value === null ? "Auto-delete disabled" : `Cards scoring below ${value} will be auto-deleted when scored`);
+    }
+  };
 
   const loadCards = async () => {
     let query = supabase
@@ -99,6 +145,9 @@ const ReferenceCards = () => {
     } else if (data?.error) {
       console.error("Process card data error:", data.error);
       toast.error("AI processing failed: " + data.error);
+    } else if (data?.deleted) {
+      toast.warning(data.reason || "Card auto-deleted for low relevance score");
+      loadCards();
     } else {
       toast.success("Card processed successfully!");
       loadCards();
@@ -202,6 +251,7 @@ const ReferenceCards = () => {
         return;
       }
       loadCards();
+      loadAutoDeleteThreshold();
     };
     checkAuthAndLoad();
   }, [navigate, filterStatus, filterSource]);
@@ -264,10 +314,41 @@ const ReferenceCards = () => {
 - The Approval filter shows approved vs. not-approved cards — this is the field that controls what's citable in generated content, separate from processing Status
 - Sort by relevance score to surface your best (or weakest) candidates first
 - Results are paginated (10/15/20/50 per page). "Select all" only selects the current page, so bulk delete can never wipe out more than what's visibly on screen
+- Set an auto-delete score threshold below to automatically remove low-relevance cards the moment they're scored, from any source
 - Click "Process with AI" to analyze content and extract insights
 - Content warnings show when full articles couldn't be accessed
 - Click "View Details" to see the full card`}
         />
+
+        <Card className="mb-6 border-amber-200 bg-amber-50/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2 shrink-0">
+                <ShieldAlert className="h-4 w-4 text-amber-700" />
+                <Label htmlFor="auto-delete-threshold" className="text-sm font-medium whitespace-nowrap">
+                  Auto-delete cards scoring below
+                </Label>
+              </div>
+              <Input
+                id="auto-delete-threshold"
+                type="number"
+                min={1}
+                max={10}
+                placeholder="off"
+                value={autoDeleteThreshold}
+                onChange={(e) => setAutoDeleteThreshold(e.target.value)}
+                className="w-20"
+              />
+              <span className="text-sm text-muted-foreground">/ 10 (blank = disabled)</span>
+              <Button size="sm" onClick={saveAutoDeleteThreshold} disabled={savingThreshold}>
+                {savingThreshold ? "Saving..." : "Save"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Applies the moment any card gets scored — via "Process with AI" here, or automatically for incoming newsletters. Cards below the threshold are deleted outright, not just flagged.
+            </p>
+          </CardContent>
+        </Card>
 
         <div className="flex flex-col md:flex-row gap-4 mb-4">
           <div className="relative flex-1">

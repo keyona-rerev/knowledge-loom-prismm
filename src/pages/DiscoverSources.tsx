@@ -178,8 +178,10 @@ const DiscoverSources = () => {
       setRunning(false);
     }
 
-    if (kept === 0) {
-      toast.error("Found candidates but none scored well enough to keep — try again, or check Reference Cards Settings for how strict your threshold is.");
+    if (kept === 0 && totalTried === 0) {
+      toast.error("No candidates found — try again in a moment, or check that your Strategy/Audience pages have enough context to search against.");
+    } else if (kept === 0) {
+      toast.error(`Checked ${totalTried} candidate${totalTried === 1 ? "" : "s"} but kept none — see the results below for why (scored too low, or never got scored). Try again, or check Reference Cards Settings for how strict your threshold is.`);
     } else if (kept < targetCount) {
       toast.warning(`Kept ${kept} of ${targetCount} requested — ran out of qualifying candidates after ${round} search round${round === 1 ? "" : "s"}.`);
     } else {

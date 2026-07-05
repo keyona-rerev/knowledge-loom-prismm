@@ -9,11 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { ArrowLeft, Search, Edit2, ExternalLink, Trash2, ChevronDown, Sparkles, AlertCircle, Plus, CheckCircle2, ArrowUpDown } from "lucide-react";
+import { ArrowLeft, Search, Edit2, ExternalLink, Trash2, ChevronDown, ChevronLeft, ChevronRight, Sparkles, AlertCircle, Plus, CheckCircle2, ArrowUpDown } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 
 type SortOrder = "newest" | "score_desc" | "score_asc";
 type ApprovalFilter = "all" | "approved" | "unapproved";
+
+const PAGE_SIZE_OPTIONS = [10, 15, 20, 50];
 
 const ReferenceCards = () => {
   const navigate = useNavigate();
@@ -30,6 +32,8 @@ const ReferenceCards = () => {
   // though most cards are correctly unapproved.
   const [filterApproval, setFilterApproval] = useState<ApprovalFilter>("all");
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
+  const [pageSize, setPageSize] = useState<number>(20);
+  const [currentPage, setCurrentPage] = useState<number>(1);
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [processingCards, setProcessingCards] = useState<Set<string>>(new Set());
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
@@ -129,12 +133,23 @@ const ReferenceCards = () => {
     });
   };
 
-  const toggleAllCards = () => {
-    if (selectedCards.size === filteredCards.length) {
-      setSelectedCards(new Set());
-    } else {
-      setSelectedCards(new Set(filteredCards.map(c => c.id)));
-    }
+  // Scoped to the current page only, deliberately — not every filtered card.
+  // Selecting "all" while sorted/filtered across hundreds of cards and then
+  // hitting delete should never be able to wipe out more than what's visibly
+  // on screen right now.
+  const pageAllSelected = paginatedCardsRef => paginatedCardsRef.length > 0 && paginatedCardsRef.every(c => selectedCards.has(c.id));
+
+  const toggleAllOnPage = (pageCards: any[]) => {
+    const allSelected = pageCards.length > 0 && pageCards.every(c => selectedCards.has(c.id));
+    setSelectedCards(prev => {
+      const next = new Set(prev);
+      if (allSelected) {
+        pageCards.forEach(c => next.delete(c.id));
+      } else {
+        pageCards.forEach(c => next.add(c.id));
+      }
+      return next;
+    });
   };
 
   const bulkDeleteCards = async () => {
@@ -193,6 +208,12 @@ const ReferenceCards = () => {
     checkAuthAndLoad();
   }, [navigate, filterStatus, filterSource]);
 
+  // Any change that reshuffles or shrinks the result set should land back on
+  // page 1 rather than risk sitting on a now-empty or mismatched page.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filterStatus, filterSource, filterApproval, sortOrder, pageSize]);
+
   const filteredCards = cards
     .filter(card =>
       card.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -208,6 +229,13 @@ const ReferenceCards = () => {
       if (sortOrder === "score_asc") return (a.global_relevance_score ?? 0) - (b.global_relevance_score ?? 0);
       return 0; // "newest" — already ordered this way by the query itself
     });
+
+  const totalPages = Math.max(1, Math.ceil(filteredCards.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const pageStart = (safePage - 1) * pageSize;
+  const paginatedCards = filteredCards.slice(pageStart, pageStart + pageSize);
+  const isPageAllSelected = paginatedCards.length > 0 && paginatedCards.every(c => selectedCards.has(c.id));
+  const selectedOnPageCount = paginatedCards.filter(c => selectedCards.has(c.id)).length;
 
   return (
     <div className="min-h-screen bg-background">
@@ -237,12 +265,13 @@ const ReferenceCards = () => {
 - Use filters to find specific cards by status or source type
 - The Approval filter shows approved vs. not-approved cards — this is the field that controls what's citable in generated content, separate from processing Status
 - Sort by relevance score to surface your best (or weakest) candidates first
+- Results are paginated (10/15/20/50 per page). "Select all" only selects the current page, so bulk delete can never wipe out more than what's visibly on screen
 - Click "Process with AI" to analyze content and extract insights
 - Content warnings show when full articles couldn't be accessed
 - Click "View Details" to see the full card`}
         />
 
-        <div className="flex flex-col md:flex-row gap-4 mb-6">
+        <div className="flex flex-col md:flex-row gap-4 mb-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
             <Input
@@ -299,14 +328,36 @@ const ReferenceCards = () => {
           </Select>
         </div>
 
-        {filteredCards.length > 0 && (
+        <div className="flex items-center justify-between mb-6 flex-wrap gap-2">
+          <p className="text-sm text-muted-foreground">
+            {filteredCards.length} card{filteredCards.length === 1 ? "" : "s"} match{filteredCards.length === 1 ? "es" : ""} your filters
+          </p>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Show</span>
+            <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+              <SelectTrigger className="w-20">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="text-sm text-muted-foreground">per page</span>
+          </div>
+        </div>
+
+        {paginatedCards.length > 0 && (
           <div className="flex items-center gap-4 mb-4 p-4 bg-muted rounded-lg">
             <Checkbox 
-              checked={selectedCards.size === filteredCards.length}
-              onCheckedChange={toggleAllCards}
+              checked={isPageAllSelected}
+              onCheckedChange={() => toggleAllOnPage(paginatedCards)}
             />
             <span className="text-sm font-medium">
-              {selectedCards.size > 0 ? `${selectedCards.size} selected` : "Select all"}
+              {selectedOnPageCount > 0
+                ? `${selectedOnPageCount} selected on this page`
+                : `Select all on this page (${paginatedCards.length})`}
             </span>
             {selectedCards.size > 0 && (
               <Button 
@@ -315,14 +366,14 @@ const ReferenceCards = () => {
                 onClick={bulkDeleteCards}
               >
                 <Trash2 className="h-4 w-4 mr-1" />
-                Delete Selected
+                Delete {selectedCards.size} Selected
               </Button>
             )}
           </div>
         )}
 
         <div className="grid gap-4">
-          {filteredCards.map((card) => (
+          {paginatedCards.map((card) => (
             <Card key={card.id} className="hover:shadow-md transition-shadow overflow-hidden">
               <CardHeader>
                 <div className="flex justify-between items-start gap-3">
@@ -460,6 +511,37 @@ const ReferenceCards = () => {
         {filteredCards.length === 0 && (
           <div className="text-center py-12 text-muted-foreground">
             No reference cards found. Set up Google Alerts or add manual sources to get started.
+          </div>
+        )}
+
+        {filteredCards.length > 0 && (
+          <div className="flex items-center justify-between mt-6">
+            <p className="text-sm text-muted-foreground">
+              Showing {pageStart + 1}-{Math.min(pageStart + pageSize, filteredCards.length)} of {filteredCards.length}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={safePage <= 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                Previous
+              </Button>
+              <span className="text-sm text-muted-foreground px-2">
+                Page {safePage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={safePage >= totalPages}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Next
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
           </div>
         )}
       </main>

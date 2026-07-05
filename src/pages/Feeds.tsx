@@ -39,7 +39,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { parsePDF } from "@/lib/pdf-parser";
 import { ObservationsTab } from "@/components/sources/ObservationsTab";
-import { ReferenceCardsBlock } from "@/components/sources/ReferenceCardsBlock";
 
 const VALID_TABS = ["automated", "manual", "observations"];
 
@@ -281,10 +280,8 @@ const Feeds = () => {
 2. Manual: Paste article links, upload PDFs, or paste full article text directly
 3. Observations: Capture thesis statements, hooks, and other journal entries - each one becomes a citable reference card as soon as you save it
 
-Reference cards are created from your sources and used for content generation. Only approved reference cards are actually citable — approve them in the Reference Cards block below.`}
+Reference cards are created from your sources and used for content generation.`}
         />
-
-        <ReferenceCardsBlock />
 
         <Tabs value={activeTab} onValueChange={(v) => setSearchParams({ tab: v })}>
           <TabsList className="mb-4">

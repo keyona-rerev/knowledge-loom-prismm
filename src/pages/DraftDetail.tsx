@@ -54,7 +54,7 @@ const DraftDetail = () => {
 
     if (error) {
       toast.error("Failed to load draft");
-      navigate("/drafts");
+      navigate("/review");
       return;
     }
 
@@ -305,7 +305,15 @@ const DraftDetail = () => {
 
   const isApproved = draft.approval_status === "approved";
   const isPostedNow = draft.publish_status === "published_now";
-  const isScheduled = draft.publish_status === "scheduled" && draft.scheduled_for;
+  // A "scheduled" post whose scheduled_for has already passed has, in
+  // practice, already gone out — Zernio fired it. Posted tab already treats
+  // this case as posted (its filter is publish_status=published_now OR
+  // (scheduled AND scheduled_for < now)); this page needs to agree with that
+  // definition, or it keeps showing Approve/Reject/Cancel Schedule/Post Now
+  // as live actions on something that's already on LinkedIn.
+  const isPastScheduled = draft.publish_status === "scheduled" && !!draft.scheduled_for && new Date(draft.scheduled_for).getTime() < Date.now();
+  const isActuallyPosted = isPostedNow || isPastScheduled;
+  const isScheduled = draft.publish_status === "scheduled" && draft.scheduled_for && !isPastScheduled;
   const reuseAngles = Array.isArray(draft.reuse_angles_used) ? draft.reuse_angles_used as string[] : [];
   const reuseRemaining = (draft.max_reuse_count || 0) - (draft.reuse_count || 0);
 
@@ -313,8 +321,8 @@ const DraftDetail = () => {
     <div className="min-h-screen bg-background">
       <header className="border-b">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <Button variant="ghost" onClick={() => navigate("/drafts")}>
-            <ArrowLeft className="mr-2 h-4 w-4" />Back to Drafts
+          <Button variant="ghost" onClick={() => navigate("/review")}>
+            <ArrowLeft className="mr-2 h-4 w-4" />Back to Review
           </Button>
           <div className="flex gap-2">
             {isEditing ? (
@@ -328,17 +336,23 @@ const DraftDetail = () => {
                   {copied ? <Check className="mr-2 h-4 w-4 text-green-500" /> : <Copy className="mr-2 h-4 w-4" />}
                   {copied ? "Copied" : "Copy"}
                 </Button>
-                <Button variant="outline" onClick={handleApprove}>Approve</Button>
-                <Button variant="destructive" onClick={handleReject}>Reject</Button>
+                {!isActuallyPosted && (
+                  <>
+                    <Button variant="outline" onClick={handleApprove}>Approve</Button>
+                    <Button variant="destructive" onClick={handleReject}>Reject</Button>
+                  </>
+                )}
                 <Button
                   onClick={handlePostNow}
-                  disabled={postingNow || isPostedNow}
+                  disabled={postingNow || isActuallyPosted}
                   style={{ backgroundColor: "#f9655b", color: "#ffffff" }}
                 >
                   <Send className="mr-2 h-4 w-4" />
-                  {postingNow ? "Posting..." : isPostedNow ? "Posted" : "Post Now"}
+                  {postingNow ? "Posting..." : isActuallyPosted ? "Posted" : "Post Now"}
                 </Button>
-                <Button onClick={() => setIsEditing(true)}><Edit className="mr-2 h-4 w-4" />Edit</Button>
+                {!isActuallyPosted && (
+                  <Button onClick={() => setIsEditing(true)}><Edit className="mr-2 h-4 w-4" />Edit</Button>
+                )}
               </>
             )}
           </div>
@@ -382,13 +396,13 @@ const DraftDetail = () => {
                   <Clock className="h-3 w-3" />
                   Last updated {formatDistanceToNow(new Date(draft.updated_at), { addSuffix: true })}
                 </CardDescription>
-                {isPostedNow && (
+                {isActuallyPosted && (
                   <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: "#f9655b" }}>
                     <Send className="h-4 w-4" />
                     Posted to LinkedIn
                   </p>
                 )}
-                {!isPostedNow && isScheduled && (
+                {!isActuallyPosted && isScheduled && (
                   <div className="mt-2 flex items-center gap-3">
                     <p className="flex items-center gap-1.5 text-sm font-semibold text-green-700">
                       <CalendarCheck className="h-4 w-4" />
@@ -433,7 +447,7 @@ const DraftDetail = () => {
               <Badge variant="default">{draft.status?.replace("_", " ") || "draft"}</Badge>
               <Badge variant="outline">{draft.content_type || "ad-hoc"}</Badge>
               {draft.revision_count > 0 && <Badge variant="secondary">v{draft.revision_count + 1}</Badge>}
-              {isPostedNow && (
+              {isActuallyPosted && (
                 <Badge style={{ backgroundColor: "#f9655b", color: "#ffffff" }}>
                   Posted to LinkedIn
                 </Badge>

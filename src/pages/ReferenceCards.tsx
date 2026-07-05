@@ -277,7 +277,7 @@ const ReferenceCards = () => {
 
         <div className="grid gap-4">
           {filteredCards.map((card) => (
-            <Card key={card.id} className="hover:shadow-md transition-shadow">
+            <Card key={card.id} className="hover:shadow-md transition-shadow overflow-hidden">
               <CardHeader>
                 <div className="flex justify-between items-start gap-3">
                   <Checkbox 
@@ -285,9 +285,9 @@ const ReferenceCards = () => {
                     onCheckedChange={() => toggleCardSelection(card.id)}
                     className="mt-1"
                   />
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-start gap-2 mb-2">
-                      <CardTitle className="text-lg flex-1">{card.title || "Untitled"}</CardTitle>
+                      <CardTitle className="text-lg flex-1 break-words">{card.title || "Untitled"}</CardTitle>
                       {card.source_url && (
                         <a 
                           href={card.source_url} 
@@ -328,7 +328,7 @@ const ReferenceCards = () => {
                     {card.content_warning && (
                       <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
                         <AlertCircle className="h-4 w-4" />
-                        <span>{card.content_warning}</span>
+                        <span className="break-words">{card.content_warning}</span>
                       </div>
                     )}
                   </div>
@@ -361,16 +361,16 @@ const ReferenceCards = () => {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="min-w-0">
                 <Collapsible open={expandedCards.has(card.id)} onOpenChange={() => toggleCardExpanded(card.id)}>
-                  <div>
+                  <div className="min-w-0">
                     {card.ai_summary && (
-                      <div className="mb-3 p-3 bg-muted rounded-md">
+                      <div className="mb-3 p-3 bg-muted rounded-md min-w-0">
                         <p className="text-sm font-medium mb-1">AI Summary:</p>
-                        <p className="text-sm text-muted-foreground">{card.ai_summary}</p>
+                        <p className="text-sm text-muted-foreground break-words">{card.ai_summary}</p>
                       </div>
                     )}
-                    <p className="text-sm text-muted-foreground line-clamp-3">
+                    <p className="text-sm text-muted-foreground line-clamp-3 break-words">
                       {card.original_text}
                     </p>
                   </div>
@@ -381,15 +381,15 @@ const ReferenceCards = () => {
                     </Button>
                   </CollapsibleTrigger>
                   <CollapsibleContent>
-                    <div className="mt-4 space-y-2">
-                      <p className="text-sm whitespace-pre-wrap">{card.original_text}</p>
+                    <div className="mt-4 space-y-2 min-w-0">
+                      <p className="text-sm whitespace-pre-wrap break-words">{card.original_text}</p>
                       {card.insight_answers && Object.keys(card.insight_answers).length > 0 && (
                         <div className="mt-4 border-t pt-4">
                           <p className="text-sm font-medium mb-2">Insight Answers:</p>
                           {Object.entries(card.insight_answers).map(([key, value]) => (
                             <div key={key} className="text-sm mb-2">
                               <p className="font-medium">Q{parseInt(key) + 1}:</p>
-                              <p className="text-muted-foreground">{value as string}</p>
+                              <p className="text-muted-foreground break-words">{value as string}</p>
                             </div>
                           ))}
                         </div>

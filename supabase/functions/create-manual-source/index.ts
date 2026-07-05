@@ -53,7 +53,12 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-    // Rate limiting: 50 manual sources per hour per user
+    // Rate limiting: 200 manual sources per hour per user. Raised from the
+    // original 50 once Discover Sources started calling this function in
+    // bulk (a single search can legitimately try 20-30 candidate URLs to
+    // find enough that clear the relevance threshold) — 50/hour was sized
+    // for one person pasting one link at a time and left almost no
+    // headroom for a single discovery run, let alone a few in a row.
     const windowStart = new Date();
     windowStart.setMinutes(windowStart.getMinutes() - 60);
 
@@ -64,10 +69,10 @@ serve(async (req) => {
       .eq("action", "manual_source")
       .gte("created_at", windowStart.toISOString());
 
-    if (!rateError && (rateCount || 0) >= 50) {
+    if (!rateError && (rateCount || 0) >= 200) {
       console.log("❌ Rate limit exceeded for user:", user_id);
       return new Response(
-        JSON.stringify({ error: "Rate limit exceeded. Maximum 50 manual sources per hour." }),
+        JSON.stringify({ error: "Rate limit exceeded. Maximum 200 manual sources per hour." }),
         { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

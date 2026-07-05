@@ -10,8 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "sonner";
-import { Plus, Trash2, Loader2, Play, RefreshCw, Calendar, RotateCcw, CalendarClock, Pencil, Save as SaveIcon } from "lucide-react";
-import { resolveNext } from "@/lib/scheduleResolver";
+import { Plus, Trash2, Loader2, Play, RefreshCw, Calendar, RotateCcw, CalendarClock, Pencil, Save as SaveIcon, FastForward } from "lucide-react";
+import { resolveNext, nextOccurrence } from "@/lib/scheduleResolver";
 import { ScheduleWeekGrid } from "@/components/ScheduleWeekGrid";
 
 const DAYS_OF_WEEK = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -103,6 +103,46 @@ interface EligibleParent {
   reuse_window_days: number | null;
 }
 
+// One future occurrence of one slot, produced by walking the slot's own
+// cadence forward from now. This is the unit the fast-forward queue is built
+// from: each item becomes exactly one execute-autopilot-template call,
+// stamped with that specific date instead of always "the next one."
+interface QueueItem {
+  slot: Slot;
+  date: Date;
+}
+
+// Walks every active, non-"as needed" slot's own cadence forward from now
+// and collects every future occurrence within `daysAhead`, capped per slot
+// at `perSlotCap` so one slot with a dense pattern can't crowd out the
+// others. Sorted chronologically across all slots combined, so approving
+// in order later lines up with the order the posts will actually go out.
+function buildUpcomingQueue(activeSlots: Slot[], daysAhead = 90, perSlotCap = 12): QueueItem[] {
+  const items: QueueItem[] = [];
+  const horizon = new Date(Date.now() + daysAhead * 86400000);
+  for (const slot of activeSlots) {
+    if (slot.frequency === "as_needed") continue;
+    let from = new Date();
+    for (let i = 0; i < perSlotCap; i++) {
+      const occ = nextOccurrence(
+        {
+          day_of_week: slot.day_of_week,
+          frequency: slot.frequency as never,
+          anchor: slot.anchor,
+          time_of_day: slot.time_of_day,
+          timezone: slot.timezone,
+        },
+        from,
+      );
+      if (!occ || occ.getTime() > horizon.getTime()) break;
+      items.push({ slot, date: occ });
+      from = new Date(occ.getTime() + 1000);
+    }
+  }
+  items.sort((a, b) => a.date.getTime() - b.date.getTime());
+  return items;
+}
+
 export const CadenceTab = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -121,6 +161,16 @@ export const CadenceTab = () => {
   const [readers, setReaders] = useState<NamedRow[]>([]);
 
   const [eligibleParents, setEligibleParents] = useState<EligibleParent[]>([]);
+
+  // Fast-forward: generate a whole batch of upcoming posts right now, using
+  // the cadence already set up below, instead of waiting on the daily cron
+  // or clicking "Run" on one slot at a time. Each run in the batch is
+  // stamped with a real, distinct upcoming date (see buildUpcomingQueue),
+  // so approving them later schedules each one on its own day rather than
+  // piling every draft onto the same next occurrence.
+  const [batchTarget, setBatchTarget] = useState<number>(12);
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number; label: string } | null>(null);
 
   useEffect(() => {
     loadAll();
@@ -267,6 +317,65 @@ export const CadenceTab = () => {
 
   const nameOf = (rows: NamedRow[], id: string | null) => rows.find((r) => r.id === id)?.name;
 
+  // Fills the whole target count at once, using every active weekly/recurring
+  // slot's own cadence walked forward. Runs are sequential (not parallel) on
+  // purpose: each one is a real AI call, and a live progress line here is
+  // more honest than a spinner with no feedback for a couple of minutes.
+  // A single failed run is logged and skipped rather than aborting the rest
+  // of the batch.
+  const runFastForward = async () => {
+    if (isDirty) {
+      toast.error("You have unsaved cadence changes — save them first so fast-forward uses the current setup");
+      return;
+    }
+    const activeSlots = slots.filter((s) => s.is_active && !s._isNew && s.frequency !== "as_needed");
+    if (!activeSlots.length) {
+      toast.error("No active weekly/recurring slots to fast-forward. Add or activate one below first.");
+      return;
+    }
+    const queue = buildUpcomingQueue(activeSlots);
+    if (!queue.length) {
+      toast.error("Couldn't find upcoming occurrences for your active slots.");
+      return;
+    }
+
+    setBatchRunning(true);
+    let created = 0;
+    let attempted = 0;
+    let failed = 0;
+    try {
+      for (const item of queue) {
+        if (created >= batchTarget) break;
+        attempted++;
+        const label = `${nameOf(natures, item.slot.nature_id) ?? "…"} ${nameOf(formats, item.slot.format_id) ?? "…"} — ${item.date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}`;
+        setBatchProgress({ done: created, total: batchTarget, label });
+
+        const { data, error } = await supabase.functions.invoke("execute-autopilot-template", {
+          body: { scheduleId: item.slot.id, isTestRun: false, scheduledForOverride: item.date.toISOString() },
+        });
+
+        if (error) {
+          console.error("Fast-forward run failed for slot", item.slot.id, error);
+          failed++;
+          continue;
+        }
+        created += data?.draftsCreated ?? 0;
+      }
+    } finally {
+      setBatchRunning(false);
+      setBatchProgress(null);
+    }
+
+    if (created === 0) {
+      toast.error("No drafts were generated — check the AI provider key in Settings and try again.");
+    } else {
+      toast.success(`Generated ${created} draft${created === 1 ? "" : "s"} across ${attempted} run${attempted === 1 ? "" : "s"}${failed ? `, ${failed} run${failed === 1 ? "" : "s"} failed` : ""}`, {
+        description: "Review them in Review > Pending, then approve — each one keeps the future date it was generated for.",
+      });
+    }
+    await loadAll();
+  };
+
   const slotsByDay = DAYS_ORDER.map((day) => ({
     day,
     daySlots: slots.filter((s) => s.day_of_week === day),
@@ -300,6 +409,45 @@ export const CadenceTab = () => {
           </Button>
         </div>
       </div>
+
+      <Card className="mb-6 border-primary/40 bg-primary/5">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <FastForward className="h-4 w-4" />Fast-forward: generate upcoming posts now
+          </CardTitle>
+          <CardDescription>
+            Runs your active cadence slots ahead of schedule, right now, instead of waiting on the daily run. Each draft is stamped with a real future date from that slot's own cadence, so approving them later schedules each one on its own day.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-3 flex-wrap">
+            <Label htmlFor="batch-target" className="text-sm font-medium whitespace-nowrap">Generate</Label>
+            <Input
+              id="batch-target"
+              type="number"
+              min={1}
+              max={40}
+              value={batchTarget}
+              onChange={(e) => setBatchTarget(Math.max(1, Math.min(40, parseInt(e.target.value) || 1)))}
+              className="w-20"
+              disabled={batchRunning}
+            />
+            <span className="text-sm text-muted-foreground">posts total, across all active slots</span>
+            <Button onClick={runFastForward} disabled={batchRunning} className="ml-auto">
+              {batchRunning ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating...</>
+              ) : (
+                <><FastForward className="h-4 w-4 mr-2" />Generate now</>
+              )}
+            </Button>
+          </div>
+          {batchProgress && (
+            <p className="text-xs text-muted-foreground mt-3">
+              {batchProgress.done} of {batchProgress.total} so far — working on: {batchProgress.label}
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Week-at-a-glance grid — only renders when there are active slots */}
       <ScheduleWeekGrid

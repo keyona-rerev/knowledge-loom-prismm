@@ -145,6 +145,12 @@ const CardDetail = () => {
     } else if (data?.error) {
       console.error("Process card data error:", data.error);
       toast.error("AI processing failed: " + data.error);
+    } else if (data?.deleted) {
+      // The card scored below the user's configured auto-delete threshold
+      // (see process-reference-card) and no longer exists — nothing left
+      // here to reload, so leave the detail page entirely.
+      toast.warning(data.reason || "Card auto-deleted for low relevance score");
+      navigate("/cards");
     } else {
       toast.success("Card processed successfully!");
       loadCard();
@@ -196,6 +202,13 @@ const CardDetail = () => {
     } else if (data?.error) {
       console.error("Custom question data error:", data.error);
       toast.error("AI processing failed: " + data.error);
+    } else if (data?.deleted) {
+      // Answering a custom question still rescoring the card through the
+      // same relevance check — a card below the auto-delete threshold gets
+      // removed rather than answered. Surface why, since the question
+      // itself never got saved anywhere.
+      toast.warning(data.reason || "Card auto-deleted for low relevance score before the question could be answered");
+      navigate("/cards");
     } else {
       toast.success("Custom question answered and saved to card!");
       setCustomQuestion("");

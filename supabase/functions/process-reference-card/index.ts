@@ -53,7 +53,12 @@ serve(async (req) => {
       if (body.userId) {
         userId = body.userId;
       } else {
-        const { data: card } = await supabase.from("reference_cards").select("user_id").eq("id", body.cardId).single();
+        let card: any = null;
+        for (let attempt = 0; attempt < 4 && !card; attempt++) {
+          if (attempt > 0) await new Promise((r) => setTimeout(r, 250 * attempt));
+          const { data } = await supabase.from("reference_cards").select("user_id").eq("id", body.cardId).single();
+          card = data;
+        }
         if (!card) return new Response(JSON.stringify({ error: "Card not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         userId = card.user_id;
       }
@@ -86,7 +91,18 @@ async function processCard(supabase: any, userId: string, cardId: string, custom
 
   await supabase.from('rate_limit_logs').insert({ user_id: userId, action: 'process_card' });
 
-  const { data: card } = await supabase.from("reference_cards").select("*, reference_card_templates(custom_questions)").eq("id", cardId).eq("user_id", userId).single();
+  // This lookup has been intermittently missing the row immediately after
+  // the caller (create-manual-source) commits its own insert — a brief
+  // read-after-write visibility gap on this specific server-to-server call
+  // path, not a real "card doesn't exist" case. A couple of short retries
+  // resolves it without making every normal call pay a delay: the loop
+  // exits on the very first successful read.
+  let card: any = null;
+  for (let attempt = 0; attempt < 4 && !card; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 250 * attempt));
+    const { data } = await supabase.from("reference_cards").select("*, reference_card_templates(custom_questions)").eq("id", cardId).eq("user_id", userId).single();
+    card = data;
+  }
   if (!card) return new Response(JSON.stringify({ error: "Card not found or access denied" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   const { data: profile } = await supabase.from("profiles").select("ai_provider, ai_model, ai_api_key, ai_endpoint").eq("user_id", userId).single();

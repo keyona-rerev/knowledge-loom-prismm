@@ -16,6 +16,17 @@
 // can be approved but stuck in needs_attention (no image, no resolvable
 // schedule time) and never show up here at all. Surfacing the raw approved
 // count makes that gap visible instead of silently invisible.
+//
+// The drafts query intentionally does NOT embed content_schedules/formats.
+// content_schedules has two separate foreign keys to formats (format_id and
+// child_format_id, for the reuse/child-post feature), so an unqualified
+// `format:formats(name)` embed is ambiguous and PostgREST rejects it outright
+// rather than guessing — that's what previously surfaced as "Failed to load
+// schedule" on every load. Nothing in this view renders that data anyway
+// (ScheduleEntryCard only uses title/content_type/scheduled_for), so it's
+// removed rather than disambiguated. If schedule frequency/format ever needs
+// to be shown here, re-add it with an explicit FK hint, e.g.
+// `format:formats!content_schedules_format_id_fkey(name)`.
 import { useState, useEffect } from "react";
 import { startOfWeek, addDays, setHours, setMinutes, setSeconds, setMilliseconds } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
@@ -46,10 +57,7 @@ export const WeeklyCalendar = () => {
 
     const [{ data, error }, { data: cadence }, { count: approved }] = await Promise.all([
       supabase.from("drafts")
-        .select(`
-          id, title, body, content_type, publish_status, scheduled_for, external_post_id,
-          schedule:content_schedules ( frequency, format:formats ( name ) )
-        `)
+        .select("id, title, body, content_type, publish_status, scheduled_for, external_post_id")
         .eq("user_id", session?.user?.id)
         .eq("publish_status", "scheduled")
         .gte("scheduled_for", weekStart.toISOString())

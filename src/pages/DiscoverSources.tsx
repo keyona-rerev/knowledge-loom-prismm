@@ -26,8 +26,13 @@ interface CandidateRow {
   error?: string;
 }
 
+// The old flat cap of 30 meant a request for even 1-2 sources could still
+// burn through 30 candidates if scoring was strict. The cap now scales with
+// what was actually asked for — twice the requested count — so "find 3"
+// tries at most 6, not 30. Still floored at a sane ceiling so a request for
+// the max (15) doesn't run away either.
 const MAX_ROUNDS = 3;
-const MAX_TOTAL_CANDIDATES = 30;
+const candidateCap = (targetCount: number) => Math.min(targetCount * 2, 15);
 
 const DiscoverSources = () => {
   const navigate = useNavigate();
@@ -78,9 +83,10 @@ const DiscoverSources = () => {
     let kept = 0;
     let round = 0;
     let totalTried = 0;
+    const maxCandidates = candidateCap(targetCount);
 
     try {
-      while (kept < targetCount && round < MAX_ROUNDS && totalTried < MAX_TOTAL_CANDIDATES) {
+      while (kept < targetCount && round < MAX_ROUNDS && totalTried < maxCandidates) {
         round++;
         const { data, error } = await supabase.functions.invoke("search-sources", {
           body: { targetCount: targetCount - kept, excludeUrls: Array.from(seenUrls) },
@@ -99,7 +105,7 @@ const DiscoverSources = () => {
         if (!candidates.length) break; // nothing more to try this round
 
         for (const c of candidates) {
-          if (kept >= targetCount || totalTried >= MAX_TOTAL_CANDIDATES) break;
+          if (kept >= targetCount || totalTried >= maxCandidates) break;
           if (seenUrls.has(c.url)) continue; // dedupe against existing cards + already-tried this run
           seenUrls.add(c.url);
           totalTried++;

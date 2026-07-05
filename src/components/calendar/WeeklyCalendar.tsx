@@ -10,12 +10,17 @@
 // function the "Edit time" dialog uses) — it keeps the draft's original
 // time-of-day and only changes the date.
 //
-// The header also shows a total approved-drafts count (all-time, not scoped
-// to the visible week), separate from what's rendered in the grid below.
-// Approved and "on the calendar this week" are not the same number: a draft
-// can be approved but stuck in needs_attention (no image, no resolvable
-// schedule time) and never show up here at all. Surfacing the raw approved
-// count makes that gap visible instead of silently invisible.
+// The header shows two counts, not one raw "approved" count. A flat approved
+// count is close to meaningless here: approval_status=approved covers drafts
+// that already posted weeks ago, drafts permanently rejected by Zernio as
+// duplicate content, and drafts stuck in needs_attention (e.g. over LinkedIn's
+// character limit) that never got scheduled at all, none of which are
+// "upcoming." scheduledCount is the real forward-looking number: approved,
+// publish_status=scheduled, AND scheduled_for still in the future.
+// needsAttentionCount surfaces the failed/needs_attention drafts directly
+// here instead of only in Review's Approved tab, since those are exactly the
+// approved-but-not-actually-going-out drafts that made the calendar look
+// broken. Both counts are computed fresh on every load, not hardcoded.
 //
 // The drafts query intentionally does NOT embed content_schedules/formats.
 // content_schedules has two separate foreign keys to formats (format_id and
@@ -40,7 +45,8 @@ export const WeeklyCalendar = () => {
   const [currentWeek, setCurrentWeek] = useState(new Date());
   const [drafts, setDrafts] = useState<ScheduledDraft[]>([]);
   const [cadenceDays, setCadenceDays] = useState<Set<number>>(new Set());
-  const [approvedCount, setApprovedCount] = useState<number | undefined>(undefined);
+  const [scheduledCount, setScheduledCount] = useState<number | undefined>(undefined);
+  const [needsAttentionCount, setNeedsAttentionCount] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [rescheduling, setRescheduling] = useState<ScheduledDraft | null>(null);
 
@@ -54,8 +60,9 @@ export const WeeklyCalendar = () => {
 
     const weekStart = startOfWeek(currentWeek, { weekStartsOn: 0 });
     const weekEnd = addDays(weekStart, 7);
+    const nowIso = new Date().toISOString();
 
-    const [{ data, error }, { data: cadence }, { count: approved }] = await Promise.all([
+    const [{ data, error }, { data: cadence }, { count: scheduled }, { count: needsAttention }] = await Promise.all([
       supabase.from("drafts")
         .select("id, title, body, content_type, publish_status, scheduled_for, external_post_id")
         .eq("user_id", session?.user?.id)
@@ -70,7 +77,14 @@ export const WeeklyCalendar = () => {
       supabase.from("drafts")
         .select("id", { count: "exact", head: true })
         .eq("user_id", session?.user?.id)
-        .eq("approval_status", "approved"),
+        .eq("approval_status", "approved")
+        .eq("publish_status", "scheduled")
+        .gt("scheduled_for", nowIso),
+      supabase.from("drafts")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", session?.user?.id)
+        .eq("approval_status", "approved")
+        .in("publish_status", ["needs_attention", "failed"]),
     ]);
 
     if (error) {
@@ -80,7 +94,8 @@ export const WeeklyCalendar = () => {
       setDrafts((data || []) as unknown as ScheduledDraft[]);
     }
     setCadenceDays(new Set((cadence || []).map((c) => c.day_of_week)));
-    setApprovedCount(approved ?? undefined);
+    setScheduledCount(scheduled ?? undefined);
+    setNeedsAttentionCount(needsAttention ?? undefined);
     setLoading(false);
   };
 
@@ -140,7 +155,8 @@ export const WeeklyCalendar = () => {
         currentWeek={currentWeek}
         onWeekChange={setCurrentWeek}
         onRefresh={loadScheduled}
-        approvedCount={approvedCount}
+        scheduledCount={scheduledCount}
+        needsAttentionCount={needsAttentionCount}
       />
 
       <div className="flex-1 grid grid-cols-7 gap-4 p-6">

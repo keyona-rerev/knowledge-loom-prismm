@@ -74,6 +74,57 @@ OUTPUT RULES:
 - Navy background (#1b2b45) as the base
 - The 10-word-or-fewer statement must be the insight extracted from the draft, NOT a copy of its opening line`;
 
+// Renders HTML to a PNG via the prismm-renderer service (real headless
+// Chromium via Puppeteer: page.setContent + waitUntil networkidle0, then
+// page.screenshot). This is a deterministic, full-fidelity conversion of the
+// HTML/CSS into pixels, not an approximation, and it runs entirely
+// server-side so it never depends on a browser tab staying open.
+//
+// Best-effort: if the renderer is unreachable or misconfigured, this returns
+// null and the visual still saves with status "ready" and no image_url. The
+// client's ensureVisualImageUploaded (html2canvas-based) remains as a
+// fallback capture path for that case, so a renderer outage degrades
+// gracefully instead of blocking visual generation entirely.
+async function renderToPng(html: string): Promise<Uint8Array | null> {
+  const rendererUrl = Deno.env.get("RENDERER_URL");
+  const rendererApiKey = Deno.env.get("RENDERER_API_KEY");
+  if (!rendererUrl || !rendererApiKey) {
+    console.error("RENDERER_URL or RENDERER_API_KEY not configured; skipping server-side render.");
+    return null;
+  }
+
+  try {
+    const res = await fetch(`${rendererUrl}/render`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": rendererApiKey,
+      },
+      body: JSON.stringify({ html, width: 1200, height: 627 }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      console.error(`Renderer returned ${res.status}: ${errText}`);
+      return null;
+    }
+
+    const body = await res.json();
+    if (!body?.success || !body?.image) {
+      console.error("Renderer response missing image data:", JSON.stringify(body));
+      return null;
+    }
+
+    const binary = atob(body.image);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  } catch (err) {
+    console.error("Renderer call failed:", err);
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -197,13 +248,36 @@ serve(async (req) => {
       );
     }
 
+    // Render server-side (real Chromium via prismm-renderer) and upload,
+    // so image_url is populated in the same request that marks the visual
+    // ready — no client capture step required for the common case.
+    let imageUrl: string | null = null;
+    const pngBytes = await renderToPng(parsed.html);
+    if (pngBytes) {
+      const path = `${userId}/${visual.id}.png`;
+      const { error: uploadError } = await supabase.storage
+        .from("draft-visuals")
+        .upload(path, pngBytes, { contentType: "image/png", upsert: true });
+      if (uploadError) {
+        console.error("Server-side image upload failed:", uploadError);
+      } else {
+        const { data: pub } = supabase.storage.from("draft-visuals").getPublicUrl(path);
+        imageUrl = pub?.publicUrl ?? null;
+      }
+    }
+
     await supabase
       .from("draft_visuals")
-      .update({ visual_type: parsed.visual_type, html_content: parsed.html, status: "ready" })
+      .update({
+        visual_type: parsed.visual_type,
+        html_content: parsed.html,
+        status: "ready",
+        image_url: imageUrl,
+      })
       .eq("id", visual.id);
 
     return new Response(
-      JSON.stringify({ success: true, visualId: visual.id, visualType: parsed.visual_type }),
+      JSON.stringify({ success: true, visualId: visual.id, visualType: parsed.visual_type, imageUrl }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {

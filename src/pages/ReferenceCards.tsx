@@ -10,7 +10,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { ArrowLeft, Search, Edit2, ExternalLink, Trash2, ChevronDown, ChevronLeft, ChevronRight, Sparkles, AlertCircle, Plus, CheckCircle2, ArrowUpDown, ShieldAlert } from "lucide-react";
+import { ArrowLeft, Search, Edit2, ExternalLink, Trash2, ChevronDown, ChevronLeft, ChevronRight, Sparkles, AlertCircle, Plus, CheckCircle2, ArrowUpDown, ShieldAlert, Settings } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 
 type SortOrder = "newest" | "score_desc" | "score_asc";
@@ -39,6 +39,12 @@ const ReferenceCards = () => {
   const [processingCards, setProcessingCards] = useState<Set<string>>(new Set());
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
   const [questionSets, setQuestionSets] = useState<any[]>([]);
+
+  // Settings section is collapsed by default — this page is meant to be
+  // reviewed quickly and often, and a growing list of configuration options
+  // (auto-delete threshold now, more later) shouldn't compete with that for
+  // space every time the page loads.
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Auto-delete rule: cards scoring below this threshold are deleted the
   // moment process-reference-card scores them, instead of sitting around
@@ -314,41 +320,66 @@ const ReferenceCards = () => {
 - The Approval filter shows approved vs. not-approved cards — this is the field that controls what's citable in generated content, separate from processing Status
 - Sort by relevance score to surface your best (or weakest) candidates first
 - Results are paginated (10/15/20/50 per page). "Select all" only selects the current page, so bulk delete can never wipe out more than what's visibly on screen
-- Set an auto-delete score threshold below to automatically remove low-relevance cards the moment they're scored, from any source
+- Open Settings below to configure the auto-delete score threshold and other card-management rules
 - Click "Process with AI" to analyze content and extract insights
 - Content warnings show when full articles couldn't be accessed
 - Click "View Details" to see the full card`}
         />
 
-        <Card className="mb-6 border-amber-200 bg-amber-50/50">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-2 shrink-0">
-                <ShieldAlert className="h-4 w-4 text-amber-700" />
-                <Label htmlFor="auto-delete-threshold" className="text-sm font-medium whitespace-nowrap">
-                  Auto-delete cards scoring below
-                </Label>
-              </div>
-              <Input
-                id="auto-delete-threshold"
-                type="number"
-                min={1}
-                max={10}
-                placeholder="off"
-                value={autoDeleteThreshold}
-                onChange={(e) => setAutoDeleteThreshold(e.target.value)}
-                className="w-20"
-              />
-              <span className="text-sm text-muted-foreground">/ 10 (blank = disabled)</span>
-              <Button size="sm" onClick={saveAutoDeleteThreshold} disabled={savingThreshold}>
-                {savingThreshold ? "Saving..." : "Save"}
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              Applies the moment any card gets scored — via "Process with AI" here, or automatically for incoming newsletters. Cards below the threshold are deleted outright, not just flagged.
-            </p>
-          </CardContent>
-        </Card>
+        <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen} className="mb-6">
+          <Card className="border-amber-200 bg-amber-50/50">
+            <CollapsibleTrigger asChild>
+              <button className="w-full text-left">
+                <CardContent className="p-4 flex items-center gap-3">
+                  <Settings className="h-4 w-4 text-amber-700 shrink-0" />
+                  <div className="flex-1">
+                    <span className="text-sm font-medium">Settings</span>
+                    {autoDeleteThreshold && (
+                      <span className="text-xs text-muted-foreground ml-2">
+                        (auto-delete below {autoDeleteThreshold})
+                      </span>
+                    )}
+                  </div>
+                  <ChevronDown className={`h-4 w-4 text-amber-700 shrink-0 transition-transform ${settingsOpen ? "rotate-180" : ""}`} />
+                </CardContent>
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent className="px-4 pb-4 pt-0 space-y-4">
+                <div className="border-t border-amber-200 pt-4">
+                  <div className="flex items-center gap-4 flex-wrap">
+                    <div className="flex items-center gap-2 shrink-0">
+                      <ShieldAlert className="h-4 w-4 text-amber-700" />
+                      <Label htmlFor="auto-delete-threshold" className="text-sm font-medium whitespace-nowrap">
+                        Auto-delete cards scoring below
+                      </Label>
+                    </div>
+                    <Input
+                      id="auto-delete-threshold"
+                      type="number"
+                      min={1}
+                      max={10}
+                      placeholder="off"
+                      value={autoDeleteThreshold}
+                      onChange={(e) => setAutoDeleteThreshold(e.target.value)}
+                      className="w-20"
+                    />
+                    <span className="text-sm text-muted-foreground">/ 10 (blank = disabled)</span>
+                    <Button size="sm" onClick={saveAutoDeleteThreshold} disabled={savingThreshold}>
+                      {savingThreshold ? "Saving..." : "Save"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Applies the moment any card gets scored — via "Process with AI" here, or automatically for incoming newsletters. Cards below the threshold are deleted outright, not just flagged.
+                  </p>
+                </div>
+                {/* Future settings go here, as additional bordered sections
+                    inside this same collapsible, rather than as new
+                    always-visible blocks on the page. */}
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
 
         <div className="flex flex-col md:flex-row gap-4 mb-4">
           <div className="relative flex-1">

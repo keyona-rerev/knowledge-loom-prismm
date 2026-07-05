@@ -92,21 +92,25 @@ const ReferenceCards = () => {
 
     setAutoDeleteThreshold(value === null ? "" : String(value));
 
-    // Changing the number on this profile doesn't touch any reference_cards
-    // row by itself, so the enforce_relevance_threshold trigger (which fires
-    // on insert/update of a card, not of a profile) never sees the new
-    // value until something else happens to touch each card again. Force
-    // that re-check now, for every one of this user's cards, so raising or
-    // lowering the threshold takes effect immediately instead of silently
-    // waiting on the next unrelated edit or reprocess.
+    // Retroactive half of the rule. Rather than nudging every card's
+    // updated_at and hoping the enforce_relevance_threshold trigger (which
+    // fires on insert/update of a card, not of a profile) happens to re-fire
+    // for each one, call sweep_relevance_threshold() directly: a single
+    // atomic DB function that deletes every one of this user's cards
+    // already below the just-saved number and returns exactly how many it
+    // removed. Deterministic and verifiable, instead of depending on an
+    // incidental side effect of touching an unrelated column.
+    let deletedCount = 0;
     if (value !== null) {
-      const { error: sweepError } = await supabase
-        .from("reference_cards")
-        .update({ updated_at: new Date().toISOString() })
-        .eq("user_id", session.user.id);
+      const { data: sweepResult, error: sweepError } = await supabase.rpc("sweep_relevance_threshold");
       if (sweepError) {
         console.error("Failed to sweep existing cards against new threshold:", sweepError);
+        toast.error("Threshold saved, but re-checking existing cards failed — try Save again");
+        setSavingThreshold(false);
+        await loadCards();
+        return;
       }
+      deletedCount = sweepResult ?? 0;
     }
 
     setSavingThreshold(false);
@@ -115,8 +119,12 @@ const ReferenceCards = () => {
     if (value === null) {
       toast.success("Auto-delete disabled");
     } else {
-      toast.success(`Threshold set to ${value} — existing cards re-checked now`, {
-        description: "Any card already scoring below this has been removed.",
+      // Spell out both halves of the rule explicitly every time, so this
+      // is never misread as "only applies to cards scored from now on."
+      toast.success(`Auto-delete threshold set to ${value}`, {
+        description: deletedCount > 0
+          ? `${deletedCount} existing card${deletedCount === 1 ? "" : "s"} already scoring below ${value} ${deletedCount === 1 ? "was" : "were"} deleted just now. Any card scoring below ${value} going forward — via "Process with AI" or incoming newsletters — will be deleted the same way.`
+          : `No existing cards scored below ${value}. Any card scoring below ${value} going forward — via "Process with AI" or incoming newsletters — will be deleted the same way.`,
       });
     }
   };
@@ -400,7 +408,7 @@ const ReferenceCards = () => {
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground mt-2">
-                    Applies immediately: saving re-checks every existing card against the new number, and any future score (via "Process with AI" here, or automatically for incoming newsletters) is checked the same way. Cards below the threshold are deleted outright, not just flagged.
+                    Applies both ways, immediately: saving deletes every existing card already scoring below this number right now, and any card that scores below it going forward — via "Process with AI" here, or automatically for incoming newsletters — is deleted the same way. Cards below the threshold are deleted outright, not just flagged.
                   </p>
                 </div>
                 {/* Future settings go here, as additional bordered sections

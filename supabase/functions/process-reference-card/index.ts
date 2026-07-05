@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAI } from "../_shared/ai-caller.ts";
+import { scoreRelevance } from "../_shared/relevance-scorer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -151,14 +152,34 @@ Respond ONLY with valid JSON:
     updatedAnswers = { ...existing, [`[Custom - ${new Date().toLocaleDateString()}] ${customQuestion}`]: result.answers?.[customQuestion] || Object.values(result.answers || {})[0] || "" };
   }
 
+  // Real relevance scoring. create-manual-source (and older ingestion paths)
+  // insert every card with a hardcoded global_relevance_score of 5 as a
+  // placeholder — this is the one place non-automated cards ever get
+  // processed after creation, so it's also the one place that placeholder
+  // can actually get replaced with a real, AI-graded score against this
+  // company's strategy. Fails open to the existing score (not a fresh
+  // guess) if scoring itself fails, so a scorer outage never overwrites a
+  // real score with noise.
+  let relevanceScore = card.global_relevance_score;
+  try {
+    const verdict = await scoreRelevance(supabase, userId, {
+      title: card.title || "",
+      content: card.original_text || "",
+    });
+    relevanceScore = verdict.score;
+  } catch (err) {
+    console.error("Relevance scoring failed during processing, keeping existing score:", err);
+  }
+
   await supabase.from("reference_cards").update({
     ai_summary: result.summary,
     insight_answers: updatedAnswers,
     content_quality: contentQuality,
     content_warning: contentWarning,
     status: "active",
+    global_relevance_score: relevanceScore,
     updated_at: new Date().toISOString()
   }).eq("id", cardId);
 
-  return new Response(JSON.stringify({ success: true, cardId, summary: result.summary, answers: updatedAnswers, quality: contentQuality }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  return new Response(JSON.stringify({ success: true, cardId, summary: result.summary, answers: updatedAnswers, quality: contentQuality, relevanceScore }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }

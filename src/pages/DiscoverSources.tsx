@@ -128,22 +128,34 @@ const DiscoverSources = () => {
 
           const cardId = createData?.cardId;
           // create-manual-source already awaits process-reference-card
-          // internally, so by the time it returns the card has a real
-          // score and the enforce_relevance_threshold trigger has already
-          // had its chance to delete it if that score was too low. Check
-          // whether it's still there rather than re-scoring here.
+          // internally, so by the time it returns the card has either a
+          // real score (survived or was auto-deleted by the threshold
+          // trigger) or, if that internal call itself failed (e.g. the AI
+          // provider's own rate limit under back-to-back calls), the row
+          // still exists but with global_relevance_score left null — never
+          // actually judged. Checking existence alone can't tell those
+          // apart, so the score itself is the real signal: null means
+          // "failed to process," not "passed."
           const { data: stillThere } = await supabase
             .from("reference_cards")
             .select("id, global_relevance_score")
             .eq("id", cardId)
             .maybeSingle();
 
-          if (stillThere) {
+          if (stillThere && stillThere.global_relevance_score !== null) {
             kept++;
             upsertRow(c.url, { status: "kept", cardId });
+          } else if (stillThere) {
+            upsertRow(c.url, { status: "failed", cardId, error: "Created but never scored — likely hit an AI rate limit. Use \"Process with AI\" on the card to retry." });
           } else {
             upsertRow(c.url, { status: "filtered" });
           }
+
+          // A short pause between candidates. Each one triggers two AI
+          // calls back-to-back (summary+answers, then relevance scoring);
+          // firing the next candidate immediately after is exactly what
+          // produced a burst of provider rate-limit failures in testing.
+          await new Promise((r) => setTimeout(r, 600));
         }
       }
     } finally {
@@ -161,8 +173,8 @@ const DiscoverSources = () => {
     }
   };
 
-  const statusBadge = (status: CandidateStatus) => {
-    switch (status) {
+  const statusBadge = (row: CandidateRow) => {
+    switch (row.status) {
       case "checking":
         return <Badge variant="outline" className="gap-1"><Loader2 className="h-3 w-3 animate-spin" />Checking</Badge>;
       case "kept":
@@ -170,7 +182,9 @@ const DiscoverSources = () => {
       case "filtered":
         return <Badge variant="secondary" className="gap-1"><XCircle className="h-3 w-3" />Scored too low</Badge>;
       case "failed":
-        return <Badge variant="destructive" className="gap-1"><XCircle className="h-3 w-3" />Couldn't fetch</Badge>;
+        return row.cardId
+          ? <Badge variant="destructive" className="gap-1"><XCircle className="h-3 w-3" />Never scored</Badge>
+          : <Badge variant="destructive" className="gap-1"><XCircle className="h-3 w-3" />Couldn't fetch</Badge>;
     }
   };
 
@@ -261,8 +275,8 @@ const DiscoverSources = () => {
                     {row.error && <p className="text-xs text-destructive mt-0.5">{row.error}</p>}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    {statusBadge(row.status)}
-                    {row.status === "kept" && row.cardId && (
+                    {statusBadge(row)}
+                    {(row.status === "kept" || row.status === "failed") && row.cardId && (
                       <Button size="sm" variant="outline" onClick={() => navigate(`/cards/${row.cardId}`)}>
                         View
                       </Button>

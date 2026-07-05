@@ -233,7 +233,16 @@ serve(async (req) => {
       source_type: sourceType,
       source_feed_id: feedData?.id,
       status: (type === "url" && contentBlocked) ? "needs_review" : "processing",
-      global_relevance_score: 5,
+      // Explicitly null, not a placeholder number. The auto-delete trigger
+      // (enforce_relevance_threshold) is written to skip rows where
+      // global_relevance_score is null — that's its intended way of saying
+      // "not scored yet, don't judge it." A hardcoded placeholder of 5 here
+      // defeated that entirely: the trigger fired on THIS insert, saw 5,
+      // and deleted the row immediately whenever the threshold was above 5
+      // — before process-reference-card ever got a chance to compute the
+      // real score. The column itself even has a default of 5, so leaving
+      // this key out isn't enough; it must be set to null explicitly.
+      global_relevance_score: null,
       user_id: user_id,
       content_quality: contentQuality,
       content_warning: contentWarning,
@@ -266,14 +275,7 @@ serve(async (req) => {
       try {
         // userId is passed explicitly here (not just cardId) so
         // process-reference-card's service-role path doesn't have to
-        // re-look-up this row by id right after we just inserted it. That
-        // lookup was intermittently coming back empty (visible as a 404
-        // "Card not found" in the function's own logs), silently leaving
-        // every manually-added source stuck on its placeholder score of 5
-        // — exactly the score that gets auto-deleted the moment someone
-        // sets a threshold above 5, regardless of how good the actual
-        // content was. Passing userId directly removes that lookup
-        // entirely for this call path.
+        // re-look-up this row by id right after we just inserted it.
         const { error: processError } = await supabase.functions.invoke("process-reference-card", {
           body: { cardId: cardData.id, userId: user_id },
         });

@@ -14,7 +14,6 @@ import Feeds from "./pages/Feeds";
 import ReferenceCards from "./pages/ReferenceCards";
 import CardDetail from "./pages/CardDetail";
 import CreateContent from "./pages/CreateContent";
-import Drafts from "./pages/Drafts";
 import DraftDetail from "./pages/DraftDetail";
 import QuestionSettings from "./pages/QuestionSettings";
 import Auth from "./pages/Auth";
@@ -49,7 +48,10 @@ const App = () => (
               <Route path="/cards/:id" element={<ProtectedRoute><CardDetail /></ProtectedRoute>} />
               <Route path="/cards/:id/edit" element={<ProtectedRoute><CardDetail /></ProtectedRoute>} />
               <Route path="/create" element={<ProtectedRoute><CreateContent /></ProtectedRoute>} />
-              <Route path="/drafts" element={<ProtectedRoute><Drafts /></ProtectedRoute>} />
+              {/* Drafts list page decommissioned: it approved drafts without ever
+                  triggering visual generation or publishing, a dead end that
+                  looked identical to a working approval. Review is the real one. */}
+              <Route path="/drafts" element={<Navigate to="/review" replace />} />
               <Route path="/drafts/:id" element={<ProtectedRoute><DraftDetail /></ProtectedRoute>} />
               <Route path="/questions" element={<ProtectedRoute><QuestionSettings /></ProtectedRoute>} />
               {/* Journal merged into the Sources page's Observations tab; keep the old URL working */}

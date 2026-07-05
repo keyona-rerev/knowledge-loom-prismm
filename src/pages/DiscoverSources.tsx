@@ -86,10 +86,18 @@ const DiscoverSources = () => {
     const maxCandidates = candidateCap(targetCount);
 
     try {
+      // Phase model: search for exactly the number still needed, pause,
+      // then score that whole batch one at a time before ever searching
+      // again. No overlap between "finding candidates" and "vetting
+      // candidates" — each batch fully finishes one phase before the next
+      // starts, and a new search round only happens if the batch just
+      // scored didn't produce enough keepers.
       while (kept < targetCount && round < MAX_ROUNDS && totalTried < maxCandidates) {
         round++;
+        const stillNeeded = targetCount - kept;
+
         const { data, error } = await supabase.functions.invoke("search-sources", {
-          body: { targetCount: targetCount - kept, excludeUrls: Array.from(seenUrls) },
+          body: { targetCount: stillNeeded, excludeUrls: Array.from(seenUrls) },
         });
 
         if (error) {
@@ -101,12 +109,19 @@ const DiscoverSources = () => {
           break;
         }
 
-        const candidates: { title: string; url: string; reason: string }[] = data?.candidates || [];
-        if (!candidates.length) break; // nothing more to try this round
+        const candidates: { title: string; url: string; reason: string }[] = (data?.candidates || [])
+          .filter((c: any) => !seenUrls.has(c.url));
+        if (!candidates.length) break; // nothing new found this round
 
+        // Brief pause between the search phase finishing and scoring
+        // starting, so the two phases read as genuinely sequential rather
+        // than blurring together.
+        await new Promise((r) => setTimeout(r, 400));
+
+        // Scoring phase: work through this batch fully, one candidate at a
+        // time, before the loop is allowed to search again.
         for (const c of candidates) {
           if (kept >= targetCount || totalTried >= maxCandidates) break;
-          if (seenUrls.has(c.url)) continue; // dedupe against existing cards + already-tried this run
           seenUrls.add(c.url);
           totalTried++;
 
@@ -151,11 +166,12 @@ const DiscoverSources = () => {
             upsertRow(c.url, { status: "filtered" });
           }
 
-          // A short pause between candidates. Each one triggers two AI
-          // calls back-to-back (summary+answers, then relevance scoring);
-          // firing the next candidate immediately after is exactly what
-          // produced a burst of provider rate-limit failures in testing.
-          await new Promise((r) => setTimeout(r, 600));
+          // Paced, not rushed: each candidate fires two AI calls back-to-back
+          // (summary+answers, then relevance scoring). This pause between
+          // candidates is what keeps the scoring phase from looking like
+          // everything happening on top of itself, and gives the provider's
+          // own rate limit real breathing room.
+          await new Promise((r) => setTimeout(r, 1200));
         }
       }
     } finally {

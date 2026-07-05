@@ -162,12 +162,14 @@ export const CadenceTab = () => {
 
   const [eligibleParents, setEligibleParents] = useState<EligibleParent[]>([]);
 
-  // Fast-forward: generate a whole batch of upcoming posts right now, using
-  // the cadence already set up below, instead of waiting on the daily cron
-  // or clicking "Run" on one slot at a time. Each run in the batch is
-  // stamped with a real, distinct upcoming date (see buildUpcomingQueue),
-  // so approving them later schedules each one on its own day rather than
-  // piling every draft onto the same next occurrence.
+  // Fast-forward: run a batch of upcoming cadence slot-occurrences right
+  // now, instead of waiting on the daily cron or clicking "Run" on one slot
+  // at a time. The number entered is how many scheduled occurrences to work
+  // through (not a total draft count — a slot with a required child produces
+  // two drafts per occurrence, so the actual draft count can run higher).
+  // Each occurrence is stamped with a real, distinct upcoming date (see
+  // buildUpcomingQueue), so approving them later schedules each one on its
+  // own day rather than piling every draft onto the same next occurrence.
   const [batchTarget, setBatchTarget] = useState<number>(12);
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number; label: string } | null>(null);
@@ -345,7 +347,7 @@ export const CadenceTab = () => {
     let failed = 0;
     try {
       for (const item of queue) {
-        if (created >= batchTarget) break;
+        if (attempted >= batchTarget) break;
         attempted++;
         const label = `${nameOf(natures, item.slot.nature_id) ?? "…"} ${nameOf(formats, item.slot.format_id) ?? "…"} — ${item.date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}`;
         setBatchProgress({ done: created, total: batchTarget, label });
@@ -416,12 +418,12 @@ export const CadenceTab = () => {
             <FastForward className="h-4 w-4" />Fast-forward: generate upcoming posts now
           </CardTitle>
           <CardDescription>
-            Runs your active cadence slots ahead of schedule, right now, instead of waiting on the daily run. Each draft is stamped with a real future date from that slot's own cadence, so approving them later schedules each one on its own day.
+            Runs your active cadence slots ahead of schedule, right now, instead of waiting on the daily run. Each occurrence is stamped with a real future date from that slot's own cadence, so approving them later schedules each one on its own day.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-3 flex-wrap">
-            <Label htmlFor="batch-target" className="text-sm font-medium whitespace-nowrap">Generate</Label>
+            <Label htmlFor="batch-target" className="text-sm font-medium whitespace-nowrap">Go through the next</Label>
             <Input
               id="batch-target"
               type="number"
@@ -432,7 +434,7 @@ export const CadenceTab = () => {
               className="w-20"
               disabled={batchRunning}
             />
-            <span className="text-sm text-muted-foreground">posts total, across all active slots</span>
+            <span className="text-sm text-muted-foreground">scheduled slot-occurrences, across all active slots, in cadence order</span>
             <Button onClick={runFastForward} disabled={batchRunning} className="ml-auto">
               {batchRunning ? (
                 <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating...</>

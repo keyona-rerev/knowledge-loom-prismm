@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Search, Loader2, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
+import { ArrowLeft, Search, Loader2, CheckCircle2, XCircle, ExternalLink, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 
 // One candidate URL as it moves through the pipeline on screen:
@@ -34,6 +34,11 @@ interface CandidateRow {
 const MAX_ROUNDS = 3;
 const candidateCap = (targetCount: number) => Math.min(targetCount * 2, 15);
 
+// If a saved session still says "running" but hasn't been touched in this
+// long, treat it as abandoned (tab closed or reloaded mid-run) rather than
+// leaving the UI stuck on "Searching..." forever.
+const STALE_RUN_MS = 90_000;
+
 const DiscoverSources = () => {
   const navigate = useNavigate();
   const [targetCount, setTargetCount] = useState<number>(5);
@@ -41,11 +46,44 @@ const DiscoverSources = () => {
   const [rows, setRows] = useState<CandidateRow[]>([]);
   const [defaultQuestionSetId, setDefaultQuestionSetId] = useState<string>("");
   const [existingUrls, setExistingUrls] = useState<Set<string>>(new Set());
+  // Per-row action in flight ("Retry" or "Keep anyway"), separate from the
+  // main `running` search loop so a single-row retry doesn't disable the
+  // whole page.
+  const [busyUrl, setBusyUrl] = useState<string | null>(null);
+
+  // Source of truth for "what's on screen right now," kept outside React
+  // state so the search loop (a single long-running async function) always
+  // persists the latest rows to Supabase even across renders, and so a
+  // fresh mount of this page can tell "I started this run" apart from "I'm
+  // just resuming a view of one already in progress elsewhere."
+  const liveRowsRef = useRef<CandidateRow[]>([]);
+  const startedHereRef = useRef(false);
+  const userIdRef = useRef<string>("");
+
+  const persistSession = async (rowsSnapshot: CandidateRow[], runningFlag: boolean, count: number) => {
+    if (!userIdRef.current) return;
+    await supabase.from("discover_sessions" as any).upsert(
+      {
+        user_id: userIdRef.current,
+        target_count: count,
+        running: runningFlag,
+        rows: rowsSnapshot as any,
+      },
+      { onConflict: "user_id" }
+    );
+  };
+
+  const commitRows = (newRows: CandidateRow[], runningFlag: boolean) => {
+    liveRowsRef.current = newRows;
+    setRows(newRows);
+    persistSession(newRows, runningFlag, targetCount);
+  };
 
   useEffect(() => {
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { navigate("/auth"); return; }
+      userIdRef.current = session.user.id;
 
       // Default question set: same "is_global first, then oldest active"
       // rule process-reference-card falls back to, so discovered cards get
@@ -67,17 +105,160 @@ const DiscoverSources = () => {
         .eq("user_id", session.user.id)
         .not("source_url", "is", null);
       setExistingUrls(new Set((existing || []).map((r: any) => r.source_url).filter(Boolean)));
+
+      // Restore whatever was last found, so leaving this page and coming
+      // back doesn't throw away results worth reviewing or overriding.
+      const { data: saved } = await supabase
+        .from("discover_sessions" as any)
+        .select("*")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+
+      if (saved) {
+        const savedRows = ((saved as any).rows as CandidateRow[]) || [];
+        liveRowsRef.current = savedRows;
+        setRows(savedRows);
+        if ((saved as any).target_count) setTargetCount((saved as any).target_count);
+
+        const updatedAt = new Date((saved as any).updated_at as string).getTime();
+        const stale = (saved as any).running && Date.now() - updatedAt > STALE_RUN_MS;
+
+        if ((saved as any).running && !stale) {
+          // Plausibly still running (e.g. resumed after navigating within
+          // the app) — reflect that and poll for updates below.
+          setRunning(true);
+        } else if ((saved as any).running && stale) {
+          await supabase.from("discover_sessions" as any).update({ running: false }).eq("user_id", session.user.id);
+          toast.info("A previous search looks like it was interrupted — showing what it found so far.");
+        }
+      }
     };
     init();
   }, [navigate]);
 
-  const upsertRow = (url: string, patch: Partial<CandidateRow>) => {
-    setRows((prev) => prev.map((r) => (r.url === url ? { ...r, ...patch } : r)));
+  // If we're showing "running" but didn't start the loop in this exact
+  // mount (resumed from a saved session), poll the DB for progress instead
+  // of just sitting on stale results until the user refreshes.
+  useEffect(() => {
+    if (!running || startedHereRef.current) return;
+    const interval = setInterval(async () => {
+      if (!userIdRef.current) return;
+      const { data: saved } = await supabase
+        .from("discover_sessions" as any)
+        .select("*")
+        .eq("user_id", userIdRef.current)
+        .maybeSingle();
+      if (!saved) { setRunning(false); return; }
+      const savedRows = ((saved as any).rows as CandidateRow[]) || [];
+      liveRowsRef.current = savedRows;
+      setRows(savedRows);
+      if (!(saved as any).running) setRunning(false);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [running]);
+
+  const upsertRow = (url: string, patch: Partial<CandidateRow>, runningFlag: boolean = true) => {
+    const updated = liveRowsRef.current.map((r) => (r.url === url ? { ...r, ...patch } : r));
+    commitRows(updated, runningFlag);
+  };
+
+  const clearResults = async () => {
+    liveRowsRef.current = [];
+    setRows([]);
+    if (userIdRef.current) {
+      await supabase.from("discover_sessions" as any).delete().eq("user_id", userIdRef.current);
+    }
+  };
+
+  const checkOneCandidate = async (c: { title: string; url: string; reason: string }, forceKeep: boolean) => {
+    const { data: createData, error: createError } = await supabase.functions.invoke("create-manual-source", {
+      body: {
+        type: "url",
+        url: c.url,
+        question_set_id: defaultQuestionSetId || undefined,
+        from_company: false,
+        force_keep: forceKeep,
+      },
+    });
+
+    if (createError || createData?.error) {
+      return { status: "failed" as const, error: createError?.message || createData?.error };
+    }
+
+    const cardId = createData?.cardId;
+    if (forceKeep) {
+      // We told the pipeline to bypass the threshold, so if the insert
+      // succeeded the card is definitely still there.
+      return { status: "kept" as const, cardId };
+    }
+
+    // create-manual-source already awaits process-reference-card
+    // internally, so by the time it returns the card has either a
+    // real score (survived or was auto-deleted by the threshold
+    // trigger) or, if that internal call itself failed (e.g. the AI
+    // provider's own rate limit under back-to-back calls), the row
+    // still exists but with global_relevance_score left null — never
+    // actually judged. Checking existence alone can't tell those
+    // apart, so the score itself is the real signal: null means
+    // "failed to process," not "passed."
+    const { data: stillThere } = await supabase
+      .from("reference_cards")
+      .select("id, global_relevance_score")
+      .eq("id", cardId)
+      .maybeSingle();
+
+    if (stillThere && stillThere.global_relevance_score !== null) {
+      return { status: "kept" as const, cardId };
+    } else if (stillThere) {
+      return {
+        status: "failed" as const,
+        cardId,
+        error: "Created but never scored — likely hit an AI rate limit. Use \"Process with AI\" on the card to retry.",
+      };
+    }
+    return { status: "filtered" as const };
+  };
+
+  const retryRow = async (row: CandidateRow) => {
+    setBusyUrl(row.url);
+    upsertRow(row.url, { status: "checking", error: undefined }, running);
+    try {
+      const result = await checkOneCandidate(row, false);
+      upsertRow(row.url, { ...result }, running);
+      if (result.status === "kept") toast.success("Kept after retry.");
+      else if (result.status === "failed") toast.error("Retry failed again: " + (result.error || "unknown error"));
+      else toast.info("Retried — scored too low again.");
+    } finally {
+      setBusyUrl(null);
+    }
+  };
+
+  const keepAnyway = async (row: CandidateRow) => {
+    setBusyUrl(row.url);
+    upsertRow(row.url, { status: "checking", error: undefined }, running);
+    try {
+      // The original card was already deleted by the auto-delete trigger
+      // the moment it scored too low, so this recreates it — this time
+      // with force_keep set, which tells that same trigger to leave it
+      // alone regardless of score.
+      const result = await checkOneCandidate(row, true);
+      upsertRow(row.url, { ...result }, running);
+      if (result.status === "kept") {
+        toast.success("Kept — this source now bypasses the score threshold.", {
+          description: "Head to Reference Cards to review and approve it.",
+        });
+      } else {
+        toast.error("Couldn't recreate this source: " + (result.error || "unknown error"));
+      }
+    } finally {
+      setBusyUrl(null);
+    }
   };
 
   const runDiscovery = async () => {
+    startedHereRef.current = true;
     setRunning(true);
-    setRows([]);
+    commitRows([], true);
 
     const seenUrls = new Set<string>(existingUrls);
     let kept = 0;
@@ -138,46 +319,11 @@ const DiscoverSources = () => {
           seenUrls.add(c.url);
           totalTried++;
 
-          setRows((prev) => [...prev, { ...c, status: "checking" }]);
+          commitRows([...liveRowsRef.current, { ...c, status: "checking" }], true);
 
-          const { data: createData, error: createError } = await supabase.functions.invoke("create-manual-source", {
-            body: {
-              type: "url",
-              url: c.url,
-              question_set_id: defaultQuestionSetId || undefined,
-              from_company: false,
-            },
-          });
-
-          if (createError || createData?.error) {
-            upsertRow(c.url, { status: "failed", error: createError?.message || createData?.error });
-            continue;
-          }
-
-          const cardId = createData?.cardId;
-          // create-manual-source already awaits process-reference-card
-          // internally, so by the time it returns the card has either a
-          // real score (survived or was auto-deleted by the threshold
-          // trigger) or, if that internal call itself failed (e.g. the AI
-          // provider's own rate limit under back-to-back calls), the row
-          // still exists but with global_relevance_score left null — never
-          // actually judged. Checking existence alone can't tell those
-          // apart, so the score itself is the real signal: null means
-          // "failed to process," not "passed."
-          const { data: stillThere } = await supabase
-            .from("reference_cards")
-            .select("id, global_relevance_score")
-            .eq("id", cardId)
-            .maybeSingle();
-
-          if (stillThere && stillThere.global_relevance_score !== null) {
-            kept++;
-            upsertRow(c.url, { status: "kept", cardId });
-          } else if (stillThere) {
-            upsertRow(c.url, { status: "failed", cardId, error: "Created but never scored — likely hit an AI rate limit. Use \"Process with AI\" on the card to retry." });
-          } else {
-            upsertRow(c.url, { status: "filtered" });
-          }
+          const result = await checkOneCandidate(c, false);
+          if (result.status === "kept") kept++;
+          upsertRow(c.url, { ...result }, true);
 
           // Paced, not rushed: each candidate fires two AI calls back-to-back
           // (summary+answers, then relevance scoring). This pause between
@@ -189,6 +335,8 @@ const DiscoverSources = () => {
       }
     } finally {
       setRunning(false);
+      persistSession(liveRowsRef.current, false, targetCount);
+      startedHereRef.current = false;
     }
 
     if (kept === 0 && totalTried === 0) {
@@ -241,8 +389,10 @@ const DiscoverSources = () => {
 - Enter how many high-quality sources you want, then Search
 - It searches the live web (via your existing Anthropic key's built-in web search — no separate account needed) using your Strategy and Audience pages as the brief
 - Every candidate gets fetched and scored through the exact same pipeline as any other source — the same relevance scorer, the same auto-delete threshold you set in Reference Cards' Settings
-- Anything that doesn't score well enough is dropped automatically. You only ever see what's kept.
+- Anything that doesn't score well enough is dropped automatically, but the row stays in this list — use "Keep anyway" on a "Scored too low" row to override that and keep it regardless
+- If a candidate couldn't be fetched or never got scored, use "Retry" on that row to try it again without re-running the whole search
 - If not enough candidates clear the bar, it searches again for more, up to a few rounds, so you get close to what you asked for without needing to babysit it
+- Results stay here across navigation until you hit "Clear results" — come back anytime to review or override what was found
 - Kept cards land in Reference Cards exactly like any other source — approve them from there before they can be cited`}
         />
 
@@ -282,10 +432,19 @@ const DiscoverSources = () => {
 
         {rows.length > 0 && (
           <Card>
-            <CardHeader className="pb-3">
+            <CardHeader className="pb-3 flex flex-row items-center justify-between gap-3 space-y-0">
               <CardTitle className="text-base">
                 Results {running ? "(in progress...)" : `— ${keptCount} kept of ${rows.length} checked`}
               </CardTitle>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={clearResults}
+                disabled={running}
+                className="text-muted-foreground gap-1"
+              >
+                <Trash2 className="h-3.5 w-3.5" />Clear results
+              </Button>
             </CardHeader>
             <CardContent className="space-y-2">
               {rows.map((row) => (
@@ -310,6 +469,30 @@ const DiscoverSources = () => {
                     {(row.status === "kept" || row.status === "failed") && row.cardId && (
                       <Button size="sm" variant="outline" onClick={() => navigate(`/cards/${row.cardId}`)}>
                         View
+                      </Button>
+                    )}
+                    {row.status === "failed" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1"
+                        disabled={busyUrl === row.url || running}
+                        onClick={() => retryRow(row)}
+                      >
+                        {busyUrl === row.url ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+                        Retry
+                      </Button>
+                    )}
+                    {row.status === "filtered" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1"
+                        disabled={busyUrl === row.url || running}
+                        onClick={() => keepAnyway(row)}
+                      >
+                        {busyUrl === row.url ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />}
+                        Keep anyway
                       </Button>
                     )}
                   </div>

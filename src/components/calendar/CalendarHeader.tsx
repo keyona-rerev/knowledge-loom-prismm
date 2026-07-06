@@ -1,56 +1,83 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ChevronLeft, ChevronRight, CalendarCheck, AlertTriangle } from "lucide-react";
-import { format, startOfWeek, addWeeks, subWeeks } from "date-fns";
+import { ChevronLeft, ChevronRight, CalendarCheck, AlertTriangle, CalendarDays, CalendarRange } from "lucide-react";
+import { format, startOfWeek, addWeeks, subWeeks, addMonths, subMonths } from "date-fns";
 import { useNavigate } from "react-router-dom";
 
+export type ScheduleViewMode = "week" | "month";
+
 interface CalendarHeaderProps {
-  currentWeek: Date;
-  onWeekChange: (date: Date) => void;
+  currentDate: Date;
+  viewMode: ScheduleViewMode;
+  onDateChange: (date: Date) => void;
+  onViewModeChange: (mode: ScheduleViewMode) => void;
   onRefresh?: () => void;
   scheduledCount?: number;
   needsAttentionCount?: number;
 }
 
-export const CalendarHeader = ({ currentWeek, onWeekChange, onRefresh, scheduledCount, needsAttentionCount }: CalendarHeaderProps) => {
+// Generalized over week/month so both grids share one nav+toggle+counts
+// bar. Label and step size are derived from viewMode rather than the caller
+// computing them, so ScheduleCalendar just hands over the current anchor
+// date and doesn't need to know week/month date-math itself.
+export const CalendarHeader = ({
+  currentDate,
+  viewMode,
+  onDateChange,
+  onViewModeChange,
+  onRefresh,
+  scheduledCount,
+  needsAttentionCount,
+}: CalendarHeaderProps) => {
   const navigate = useNavigate();
-  const weekStart = startOfWeek(currentWeek, { weekStartsOn: 0 });
-  const weekEnd = addWeeks(weekStart, 1);
 
-  const goToPreviousWeek = () => {
-    onWeekChange(subWeeks(currentWeek, 1));
-  };
+  const label = viewMode === "week"
+    ? (() => {
+        const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 });
+        const weekEnd = addWeeks(weekStart, 1);
+        return `${format(weekStart, "MMM d")} - ${format(weekEnd, "MMM d, yyyy")}`;
+      })()
+    : format(currentDate, "MMMM yyyy");
 
-  const goToNextWeek = () => {
-    onWeekChange(addWeeks(currentWeek, 1));
-  };
-
-  const goToToday = () => {
-    onWeekChange(new Date());
-  };
+  const goToPrevious = () => onDateChange(viewMode === "week" ? subWeeks(currentDate, 1) : subMonths(currentDate, 1));
+  const goToNext = () => onDateChange(viewMode === "week" ? addWeeks(currentDate, 1) : addMonths(currentDate, 1));
+  const goToToday = () => onDateChange(new Date());
 
   return (
-    <div className="flex items-center justify-between p-6 border-b bg-white">
-      <div className="flex items-center gap-4">
+    <div className="flex items-center justify-between p-6 border-b bg-white flex-wrap gap-4">
+      <div className="flex items-center gap-4 flex-wrap">
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={goToPreviousWeek}
-          >
+          <Button variant="outline" size="sm" onClick={goToPrevious}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          
+
           <div className="text-lg font-semibold min-w-[200px] text-center">
-            {format(weekStart, 'MMM d')} - {format(weekEnd, 'MMM d, yyyy')}
+            {label}
           </div>
-          
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={goToNextWeek}
-          >
+
+          <Button variant="outline" size="sm" onClick={goToNext}>
             <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="flex items-center rounded-md border overflow-hidden">
+          <Button
+            type="button"
+            variant={viewMode === "week" ? "default" : "ghost"}
+            size="sm"
+            className="rounded-none"
+            onClick={() => onViewModeChange("week")}
+          >
+            <CalendarRange className="h-3.5 w-3.5 mr-1.5" />Week
+          </Button>
+          <Button
+            type="button"
+            variant={viewMode === "month" ? "default" : "ghost"}
+            size="sm"
+            className="rounded-none"
+            onClick={() => onViewModeChange("month")}
+          >
+            <CalendarDays className="h-3.5 w-3.5 mr-1.5" />Month
           </Button>
         </div>
       </div>
@@ -76,19 +103,9 @@ export const CalendarHeader = ({ currentWeek, onWeekChange, onRefresh, scheduled
             {needsAttentionCount} needs attention
           </Badge>
         )}
-        <Button
-          variant="outline"
-          onClick={goToToday}
-        >
-          Today
-        </Button>
+        <Button variant="outline" onClick={goToToday}>Today</Button>
         {onRefresh && (
-          <Button
-            variant="outline"
-            onClick={onRefresh}
-          >
-            Refresh
-          </Button>
+          <Button variant="outline" onClick={onRefresh}>Refresh</Button>
         )}
       </div>
     </div>

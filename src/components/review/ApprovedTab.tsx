@@ -29,8 +29,9 @@ const ALL = "__all__";
 
 // Approved tab: everything the user has said yes to. Includes drafts that
 // haven't posted yet, drafts scheduled or posted, and the ones that got
-// stuck (needs_attention / failed) — those still need a fix + retry, so
-// they stay visible here rather than disappearing once approved.
+// stuck (needs_attention / failed / silently never-handed-off) — those
+// still need a fix + retry, so they stay visible here rather than
+// disappearing once approved.
 export const ApprovedTab = () => {
   const navigate = useNavigate();
   const [drafts, setDrafts] = useState<Draft[]>([]);
@@ -135,12 +136,50 @@ export const ApprovedTab = () => {
     return null;
   };
 
-  const attentionDrafts = drafts.filter(d => d.publish_status === "needs_attention" || d.publish_status === "failed");
+  // "Stuck" covers three shapes, all meaning the same thing to the user
+  // (approved, but nothing is actually going out) even though they arrive
+  // differently:
+  //  - failed: publish-to-zernio ran and the provider rejected it
+  //  - needs_attention: publish-to-zernio ran and caught a known blocker
+  //    (char limit, no LinkedIn connection, no schedule slot, etc.)
+  //  - null publish_status: publish-to-zernio never actually ran to
+  //    completion at all — the approve action's fire-and-forget invoke()
+  //    call dropped (network blip, tab closed, cold-start timeout) before
+  //    the function's own status-writing logic ever executed. This is the
+  //    "silent limbo" case: scheduled_for can still be populated (stamped
+  //    at generation time, independent of the handoff), which is what made
+  //    it look superficially like a real schedule.
+  // Note: a draft sits in the null-status bucket for the few seconds
+  // between approval and publish-to-zernio actually completing even in the
+  // success case — a brief false positive here is expected and harmless
+  // (Retry is idempotent against an in-flight or already-succeeded call);
+  // the alternative (silently missing real limbo cases) is worse.
+  const isStuck = (d: Draft) =>
+    d.publish_status === "needs_attention" || d.publish_status === "failed" || !d.publish_status;
+
+  const attentionDrafts = drafts.filter(isStuck);
+  const attentionIds = new Set(attentionDrafts.map((d) => d.id));
+
+  const getAttentionMeta = (draft: Draft) => {
+    if (draft.publish_status === "failed") {
+      return { label: "Provider error", badgeClass: "bg-red-50 text-red-700 border-red-200", message: draft.publish_error || "No reason recorded." };
+    }
+    if (draft.publish_status === "needs_attention") {
+      return { label: "Not scheduled", badgeClass: "bg-amber-100 text-amber-800 border-amber-300", message: draft.publish_error || "No reason recorded." };
+    }
+    // publish_status is null/undefined — never actually reached the scheduler.
+    return {
+      label: "Never sent to scheduler",
+      badgeClass: "bg-orange-100 text-orange-800 border-orange-300",
+      message: draft.publish_error || "Approved, but the request to schedule it never completed (dropped network request, closed tab, or a timed-out request during approval). Nothing has posted — retry below.",
+    };
+  };
 
   const formatById = new Map(formats.map((f) => [f.id, f]));
   const platforms = Array.from(new Set(formats.map((f) => f.platform))).sort();
   const formatOptionsForPlatform = platformFilter === ALL ? formats : formats.filter((f) => f.platform === platformFilter);
   const visibleDrafts = drafts.filter((d) => {
+    if (attentionIds.has(d.id)) return false; // already shown in the Needs attention card above
     const fmt = d.format_id ? formatById.get(d.format_id) : undefined;
     if (platformFilter !== ALL && fmt?.platform !== platformFilter) return false;
     if (formatFilter !== ALL && d.format_id !== formatFilter) return false;
@@ -165,27 +204,30 @@ export const ApprovedTab = () => {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {attentionDrafts.map((draft) => (
-              <div key={draft.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-md border border-amber-200 bg-white p-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Badge variant="outline" className={draft.publish_status === "failed" ? "bg-red-50 text-red-700 border-red-200" : "bg-amber-100 text-amber-800 border-amber-300"}>
-                      {draft.publish_status === "failed" ? "Provider error" : "Not scheduled"}
-                    </Badge>
-                    <span className="font-medium truncate">{draft.title || draft.seed_insight}</span>
+            {attentionDrafts.map((draft) => {
+              const meta = getAttentionMeta(draft);
+              return (
+                <div key={draft.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-md border border-amber-200 bg-white p-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge variant="outline" className={meta.badgeClass}>
+                        {meta.label}
+                      </Badge>
+                      <span className="font-medium truncate">{draft.title || draft.seed_insight}</span>
+                    </div>
+                    <p className="text-sm text-amber-900">{meta.message}</p>
                   </div>
-                  <p className="text-sm text-amber-900">{draft.publish_error || "No reason recorded."}</p>
+                  <div className="flex gap-2 shrink-0">
+                    <Button size="sm" variant="outline" onClick={() => navigate(`/drafts/${draft.id}`)}>
+                      <ExternalLink className="h-4 w-4 mr-1" />View
+                    </Button>
+                    <Button size="sm" onClick={() => handleRetrySchedule(draft.id)} disabled={retryingId === draft.id}>
+                      <RefreshCw className="h-4 w-4 mr-1" />{retryingId === draft.id ? "Retrying..." : "Retry"}
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex gap-2 shrink-0">
-                  <Button size="sm" variant="outline" onClick={() => navigate(`/drafts/${draft.id}`)}>
-                    <ExternalLink className="h-4 w-4 mr-1" />View
-                  </Button>
-                  <Button size="sm" onClick={() => handleRetrySchedule(draft.id)} disabled={retryingId === draft.id}>
-                    <RefreshCw className="h-4 w-4 mr-1" />{retryingId === draft.id ? "Retrying..." : "Retry"}
-                  </Button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </CardContent>
         </Card>
       )}
@@ -211,7 +253,7 @@ export const ApprovedTab = () => {
             <Button variant="ghost" size="sm" onClick={() => { setPlatformFilter(ALL); setFormatFilter(ALL); }}>Clear filter</Button>
           )}
           {(platformFilter !== ALL || formatFilter !== ALL) && (
-            <span className="text-xs text-muted-foreground">{visibleDrafts.length} of {drafts.length} shown</span>
+            <span className="text-xs text-muted-foreground">{visibleDrafts.length} of {drafts.length - attentionDrafts.length} shown</span>
           )}
         </div>
       )}
@@ -226,7 +268,7 @@ export const ApprovedTab = () => {
         </Card>
       ) : visibleDrafts.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground">
-          <p className="text-sm">No approved drafts match this filter.</p>
+          <p className="text-sm">{attentionDrafts.length > 0 && drafts.length === attentionDrafts.length ? "Every approved draft needs attention right now (see above)." : "No approved drafts match this filter."}</p>
         </div>
       ) : (
         <div className="space-y-2">

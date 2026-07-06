@@ -10,6 +10,17 @@
 // function the "Edit time" dialog uses) — it keeps the draft's original
 // time-of-day and only changes the date.
 //
+// The drafts query requires external_post_id to be set, not just
+// publish_status = "scheduled". A draft can end up with publish_status
+// "scheduled" in the DB without ever actually being scheduled with the
+// provider (e.g. an interrupted write), and reschedule-draft immediately
+// 409s on those with "Draft is not scheduled yet" — which looked, from drag
+// and drop, exactly like reschedule silently being broken, when the real
+// problem was this view showing a card that was never actually draggable in
+// the first place. Those drafts still surface in Approved's "Needs
+// attention" section; they just don't belong on a calendar of what's
+// actually going out.
+//
 // The header shows two counts, not one raw "approved" count. A flat approved
 // count is close to meaningless here: approval_status=approved covers drafts
 // that already posted weeks ago, drafts permanently rejected by Zernio as
@@ -35,6 +46,7 @@
 import { useState, useEffect } from "react";
 import { startOfWeek, addDays, setHours, setMinutes, setSeconds, setMilliseconds } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
+import { describeInvokeError } from "@/lib/edgeFunctionError";
 import { CalendarHeader } from "./CalendarHeader";
 import { CalendarDayColumn } from "./CalendarDayColumn";
 import { RescheduleDialog } from "./RescheduleDialog";
@@ -67,6 +79,7 @@ export const WeeklyCalendar = () => {
         .select("id, title, body, content_type, publish_status, scheduled_for, external_post_id")
         .eq("user_id", session?.user?.id)
         .eq("publish_status", "scheduled")
+        .not("external_post_id", "is", null)
         .gte("scheduled_for", weekStart.toISOString())
         .lt("scheduled_for", weekEnd.toISOString())
         .order("scheduled_for"),
@@ -128,8 +141,9 @@ export const WeeklyCalendar = () => {
       const { data, error } = await supabase.functions.invoke("reschedule-draft", {
         body: { draftId, newScheduledFor: newDate.toISOString(), timezone },
       });
-      if (error) throw error;
-      if (data?.ok) {
+      if (error) {
+        toast.error("Reschedule failed: " + (await describeInvokeError(error)));
+      } else if (data?.ok) {
         toast.success("Rescheduled");
       } else {
         toast.error(data?.error || "Reschedule failed");

@@ -42,6 +42,24 @@ type TransitionState = "approving" | "approved" | "rejecting" | "rejected" | "re
 // visible before the row is actually removed from the list.
 const SETTLE_MS = 900;
 
+// Fallback status written when the fire-and-forget publish-to-zernio call
+// itself throws (network drop, tab closed, cold-start timeout) before the
+// edge function's own status-writing logic ever runs. Without this, the
+// draft is left with scheduled_for stamped at generation time but
+// publish_status/external_post_id still null — invisible to Approved's
+// needs_attention filter. Guarded on both columns still being null so it
+// never clobbers a real result from a concurrent/retried call.
+const markUnreachedScheduler = async (draftId: string) => {
+  await supabase.from("drafts")
+    .update({
+      publish_status: "needs_attention",
+      publish_error: "Approval didn't reach the scheduler (the request failed before a response came back). Retry from the Approved tab.",
+    })
+    .eq("id", draftId)
+    .is("publish_status", null)
+    .is("external_post_id", null);
+};
+
 // Pending tab: drafts awaiting a first decision, plus drafts that were sent
 // back for AI revision (needs_revision) and haven't resurfaced as pending
 // yet. Both land here because both still need something from the user —
@@ -164,6 +182,7 @@ export const PendingTab = () => {
         }
       } catch (err) {
         console.error("Publish error:", err);
+        await markUnreachedScheduler(draftId);
       }
     })();
   };
@@ -273,7 +292,10 @@ export const PendingTab = () => {
             console.error("Visual generation error:", err);
           }
           supabase.functions.invoke("publish-to-zernio", { body: { draftId } })
-            .catch((err) => console.error("Publish error:", err));
+            .catch((err) => {
+              console.error("Publish error:", err);
+              markUnreachedScheduler(draftId);
+            });
         })();
       }
     }

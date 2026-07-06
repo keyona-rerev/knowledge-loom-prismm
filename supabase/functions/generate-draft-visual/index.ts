@@ -8,7 +8,8 @@ const corsHeaders = {
 };
 
 // Default design rules. These are overridden per-user if visual_design_rules is
-// set on profiles. Edit them from the Settings page instead of touching this file.
+// set on profiles, and superseded entirely by visual_studio_config once a user
+// has saved anything from the Visual Studio page (see buildSystemPrompt below).
 const DEFAULT_DESIGN_RULES = `DESIGN RULES (read every rule before generating):
 
 WHAT THIS GRAPHIC IS:
@@ -47,7 +48,14 @@ FORBIDDEN:
 - No em-dashes
 - Never mention probate`;
 
-const BASE_SYSTEM_PROMPT = `You are a visual designer for Prismm, inheritance infrastructure for community banks and credit unions.
+// Legacy hardcoded brand block. Used ONLY as a fallback for users who have
+// never saved anything from the Visual Studio page (profiles.visual_studio_config
+// is null/empty) — this keeps every existing user's output byte-identical to
+// before Visual Studio was wired in. The moment a user saves Visual Studio
+// once, buildSystemPrompt below stops using this entirely and switches to
+// their config as the permanent source, with no path back to these hardcoded
+// values short of them explicitly re-editing Visual Studio itself.
+const LEGACY_BASE_SYSTEM_PROMPT = `You are a visual designer for Prismm, inheritance infrastructure for community banks and credit unions.
 
 BRAND:
 - Colors: Navy #1b2b45 (background base), Coral #f9655b (accent/energy), Purple #6658ea (highlights), Yellow #f5c070 (sparingly), White #ffffff, Paper #f4f1ea
@@ -74,6 +82,71 @@ OUTPUT RULES:
 - Navy background (#1b2b45) as the base
 - The 10-word-or-fewer statement must be the insight extracted from the draft, NOT a copy of its opening line`;
 
+interface DesignRule { id: string; text: string; tag: "do" | "avoid"; }
+interface VisualConfig {
+  color_navy: string; color_coral: string; color_purple: string; color_yellow: string;
+  display_font: string; body_font: string;
+  logo_url: string; logo_min_height: number;
+  canvas_width: number; canvas_height: number;
+  design_rules: DesignRule[];
+  enabled_visual_types: string[];
+}
+
+// Builds the full system prompt (brand block + design rules + output rules)
+// from a Visual Studio config. This is the ONLY place Visual Studio's saved
+// settings actually reach the AI — everything here used to be hardcoded
+// text in this file, disconnected from the Visual Studio page entirely.
+//
+// NOTE: Visual Studio's enabled_visual_types uses a different vocabulary
+// (stat_graphic, quote_card, pillar_statement, human_moment, comparison,
+// timeline, checklist, branded_announcement) than the AI's actual visual
+// type selection below (hero_number, before_after, logic_diagram,
+// transformation) — the two were never reconciled. This function does not
+// attempt to bridge that gap; it only wires colors/fonts/logo/canvas/design
+// rules through. See HARDCODED_VALUES_AUDIT.md for the full note on this.
+function buildSystemPromptFromConfig(config: VisualConfig): string {
+  const rulesLines: string[] = ["DESIGN RULES (read every rule before generating):"];
+  const dos = config.design_rules.filter((r) => r.tag === "do");
+  const avoids = config.design_rules.filter((r) => r.tag === "avoid");
+  if (dos.length) {
+    rulesLines.push("", "DO:");
+    for (const r of dos) rulesLines.push(`- ${r.text}`);
+  }
+  if (avoids.length) {
+    rulesLines.push("", "AVOID:");
+    for (const r of avoids) rulesLines.push(`- ${r.text}`);
+  }
+
+  const brandBlock = `You are a visual designer for Prismm, inheritance infrastructure for community banks and credit unions.
+
+BRAND:
+- Colors: Navy ${config.color_navy} (background base), Coral ${config.color_coral} (accent/energy), Purple ${config.color_purple} (highlights), Yellow ${config.color_yellow} (sparingly)
+- Fonts: ${config.display_font} (display) + ${config.body_font} (body) via Google Fonts
+- Logo: ${config.logo_url} — bottom-left, minimum ${config.logo_min_height}px height, visually prominent
+- Tone: calm authority. Trusted financial software with a human pulse. Direct, trustworthy, human.
+- ${config.color_navy} base. Soft radial or linear gradients of ${config.color_purple} or ${config.color_coral} as background texture. No harsh lines.
+
+VISUAL TYPES:
+1. hero_number — one large stat or number dominates the canvas, 10-word-or-fewer statement below
+2. before_after — canvas split into two halves showing contrast (without Prismm vs with, old way vs new way)
+3. logic_diagram — 2-3 connected nodes or steps showing how something works, minimal labels only
+4. transformation — a single symbolic visual (icon, shape, arrow) at large scale showing change or direction
+
+SELECTION RULE: Pick the type that makes the post's core idea land visually. If the post has a number or stat, use hero_number. If it's about a problem being solved, use before_after. If it explains a process, use logic_diagram. Otherwise, transformation.
+
+OUTPUT RULES:
+- Return ONLY a JSON object, no markdown, no backticks
+- JSON must have exactly two keys: "visual_type" (string) and "html" (string)
+- The html must be a complete self-contained HTML document
+- Include Google Fonts import for ${config.display_font} and ${config.body_font}
+- Fixed width ${config.canvas_width}px, height ${config.canvas_height}px (LinkedIn landscape)
+- Inline CSS only, no external stylesheets
+- ${config.color_navy} background as the base
+- The 10-word-or-fewer statement must be the insight extracted from the draft, NOT a copy of its opening line`;
+
+  return `${brandBlock}\n\n${rulesLines.join("\n")}`;
+}
+
 // Renders HTML to a PNG via the prismm-renderer service (real headless
 // Chromium via Puppeteer: page.setContent + waitUntil networkidle0, then
 // page.screenshot). This is a deterministic, full-fidelity conversion of the
@@ -85,7 +158,7 @@ OUTPUT RULES:
 // client's ensureVisualImageUploaded (html2canvas-based) remains as a
 // fallback capture path for that case, so a renderer outage degrades
 // gracefully instead of blocking visual generation entirely.
-async function renderToPng(html: string): Promise<Uint8Array | null> {
+async function renderToPng(html: string, width: number, height: number): Promise<Uint8Array | null> {
   const rendererUrl = Deno.env.get("RENDERER_URL");
   const rendererApiKey = Deno.env.get("RENDERER_API_KEY");
   if (!rendererUrl || !rendererApiKey) {
@@ -100,7 +173,7 @@ async function renderToPng(html: string): Promise<Uint8Array | null> {
         "Content-Type": "application/json",
         "x-api-key": rendererApiKey,
       },
-      body: JSON.stringify({ html, width: 1200, height: 627 }),
+      body: JSON.stringify({ html, width, height }),
     });
 
     if (!res.ok) {
@@ -158,7 +231,7 @@ serve(async (req) => {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("ai_provider, ai_model, ai_api_key, ai_endpoint, visual_design_rules")
+      .select("ai_provider, ai_model, ai_api_key, ai_endpoint, visual_design_rules, visual_studio_config")
       .eq("user_id", userId)
       .single();
 
@@ -169,13 +242,33 @@ serve(async (req) => {
       );
     }
 
-    // Use user-edited design rules if set, otherwise fall back to the defaults above
-    const designRules: string =
-      (profile as any).visual_design_rules?.trim()
-        ? (profile as any).visual_design_rules.trim()
-        : DEFAULT_DESIGN_RULES;
-
-    const systemPrompt = `${BASE_SYSTEM_PROMPT}\n\n${designRules}`;
+    // Visual Studio's saved config is the permanent source once it exists —
+    // no path back to the legacy hardcoded prompt below short of a user
+    // explicitly clearing it. Until a user has saved Visual Studio at least
+    // once, behavior is byte-identical to before it was wired in (legacy
+    // prompt + visual_design_rules override, exactly as before).
+    let systemPrompt: string;
+    let canvasWidth = 1200;
+    let canvasHeight = 627;
+    const rawConfig = (profile as any).visual_studio_config as string | null | undefined;
+    if (rawConfig && rawConfig.trim()) {
+      try {
+        const config = JSON.parse(rawConfig) as VisualConfig;
+        systemPrompt = buildSystemPromptFromConfig(config);
+        canvasWidth = config.canvas_width || 1200;
+        canvasHeight = config.canvas_height || 627;
+      } catch (e) {
+        console.error("Failed to parse visual_studio_config, falling back to legacy prompt:", e);
+        const designRules = (profile as any).visual_design_rules?.trim() || DEFAULT_DESIGN_RULES;
+        systemPrompt = `${LEGACY_BASE_SYSTEM_PROMPT}\n\n${designRules}`;
+      }
+    } else {
+      const designRules: string =
+        (profile as any).visual_design_rules?.trim()
+          ? (profile as any).visual_design_rules.trim()
+          : DEFAULT_DESIGN_RULES;
+      systemPrompt = `${LEGACY_BASE_SYSTEM_PROMPT}\n\n${designRules}`;
+    }
 
     // Insert generating placeholder
     const { data: visual } = await supabase
@@ -252,7 +345,7 @@ serve(async (req) => {
     // so image_url is populated in the same request that marks the visual
     // ready — no client capture step required for the common case.
     let imageUrl: string | null = null;
-    const pngBytes = await renderToPng(parsed.html);
+    const pngBytes = await renderToPng(parsed.html, canvasWidth, canvasHeight);
     if (pngBytes) {
       const path = `${userId}/${visual.id}.png`;
       const { error: uploadError } = await supabase.storage

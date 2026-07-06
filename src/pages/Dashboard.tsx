@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Rss, FileEdit, Settings, MessageCircleQuestion, LogOut,
-  CheckCheck, Lightbulb, Target, CalendarClock, AlertTriangle, Database, Plus, ChevronDown, Search,
+  CheckCheck, Lightbulb, Target, CalendarClock, AlertTriangle, Database, Plus, ChevronDown, Search, Palette,
 } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -170,6 +170,12 @@ const Dashboard = () => {
       description: "Cadence, upcoming posts, and what's already gone out",
       icon: CalendarClock,
       path: "/schedule",
+    },
+    {
+      title: "Visual Studio",
+      description: "Colors, fonts, and design rules for every generated graphic — the real source, not a preview",
+      icon: Palette,
+      path: "/visual-studio",
     },
     {
       title: "Settings",

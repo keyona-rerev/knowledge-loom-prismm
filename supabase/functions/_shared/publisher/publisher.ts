@@ -46,6 +46,18 @@ export interface PostAnalytics {
   impressions: number | null;
 }
 
+// Result of asking the provider directly what actually happened to a post.
+// `status` is the provider's own raw status string (not normalized here —
+// callers interpret it, since "posted" vocabulary can vary by provider).
+// `notFound` is set when the provider has no record of the post at all
+// (e.g. a 404), which for a post whose scheduled time has passed usually
+// means it never fired rather than a transient lookup problem.
+export interface PostStatus {
+  status: string;
+  publishedAt: string | null;
+  notFound: boolean;
+}
+
 export interface Publisher {
   readonly name: string;
   // Begin an OAuth connect for a platform; returns the URL to send the user to.
@@ -66,4 +78,9 @@ export interface Publisher {
   // Cancel a scheduled post. A post that's already gone (e.g. already fired,
   // or already cancelled) is treated as success, not an error.
   cancel(postId: string): Promise<void>;
+  // Ask the provider directly what actually happened to a post. Used for
+  // reconciliation: the app previously assumed "scheduled_for is in the
+  // past" meant "posted," without ever confirming with the provider. This
+  // is the confirmation.
+  getPost(postId: string): Promise<PostStatus>;
 }

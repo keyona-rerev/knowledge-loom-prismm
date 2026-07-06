@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "sonner";
-import { ArrowLeft, Search, Loader2, CheckCircle2, XCircle, ExternalLink, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
+import { ArrowLeft, Search, Loader2, CheckCircle2, XCircle, ExternalLink, RotateCcw, ShieldCheck, Trash2, ChevronDown, ChevronRight, X } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 
 // One candidate URL as it moves through the pipeline on screen:
@@ -15,7 +16,9 @@ import { InstructionsToggle } from "@/components/InstructionsToggle";
 // create-manual-source + process-reference-card pipeline) -> kept (survived
 // the auto-delete threshold, now a real reference card) or filtered
 // (auto-deleted for scoring too low, same as any other low-scoring source).
-type CandidateStatus = "checking" | "kept" | "filtered" | "failed";
+// "removed" is a kept row whose card was deleted right here on this page
+// after an inline review.
+type CandidateStatus = "checking" | "kept" | "filtered" | "failed" | "removed";
 
 interface CandidateRow {
   title: string;
@@ -24,6 +27,24 @@ interface CandidateRow {
   status: CandidateStatus;
   cardId?: string;
   error?: string;
+}
+
+// Cached reference_cards fields for the inline expand panel on a "kept"
+// row, so approving/rejecting a source doesn't require leaving this page.
+interface CardDetail {
+  id: string;
+  title: string;
+  ai_summary: string | null;
+  original_text: string | null;
+  source_url: string | null;
+  approved: boolean;
+}
+
+interface LastRun {
+  completedAt: string | null;
+  target: number;
+  kept: number;
+  checked: number;
 }
 
 // The old flat cap of 30 meant a request for even 1-2 sources could still
@@ -50,6 +71,20 @@ const DiscoverSources = () => {
   // main `running` search loop so a single-row retry doesn't disable the
   // whole page.
   const [busyUrl, setBusyUrl] = useState<string | null>(null);
+
+  // Inline card review, so a "kept" row's Approve/Reject can happen right
+  // here instead of navigating to Reference Cards and back. expandedUrl is
+  // which row (by url) is currently open; cardDetails caches what's been
+  // fetched so re-expanding a row doesn't re-fetch; cardBusy is the cardId
+  // currently mid-Approve/Reject.
+  const [expandedUrl, setExpandedUrl] = useState<string | null>(null);
+  const [cardDetails, setCardDetails] = useState<Record<string, CardDetail>>({});
+  const [cardBusy, setCardBusy] = useState<string | null>(null);
+
+  // Standing "last run" summary, independent of the live rows list, so
+  // hitting Clear results doesn't also erase the answer to "did this run
+  // recently and find anything." Same idea as Cadence's Fast-forward line.
+  const [lastRun, setLastRun] = useState<LastRun | null>(null);
 
   // Source of truth for "what's on screen right now," kept outside React
   // state so the search loop (a single long-running async function) always
@@ -115,19 +150,24 @@ const DiscoverSources = () => {
         .maybeSingle();
 
       if (saved) {
-        const savedRows = ((saved as any).rows as CandidateRow[]) || [];
+        const s = saved as any;
+        const savedRows = (s.rows as CandidateRow[]) || [];
         liveRowsRef.current = savedRows;
         setRows(savedRows);
-        if ((saved as any).target_count) setTargetCount((saved as any).target_count);
+        if (s.target_count) setTargetCount(s.target_count);
 
-        const updatedAt = new Date((saved as any).updated_at as string).getTime();
-        const stale = (saved as any).running && Date.now() - updatedAt > STALE_RUN_MS;
+        if (s.completed_at) {
+          setLastRun({ completedAt: s.completed_at, target: s.last_target ?? 0, kept: s.last_kept ?? 0, checked: s.last_checked ?? 0 });
+        }
 
-        if ((saved as any).running && !stale) {
+        const updatedAt = new Date(s.updated_at as string).getTime();
+        const stale = s.running && Date.now() - updatedAt > STALE_RUN_MS;
+
+        if (s.running && !stale) {
           // Plausibly still running (e.g. resumed after navigating within
           // the app) — reflect that and poll for updates below.
           setRunning(true);
-        } else if ((saved as any).running && stale) {
+        } else if (s.running && stale) {
           await supabase.from("discover_sessions" as any).update({ running: false }).eq("user_id", session.user.id);
           toast.info("A previous search looks like it was interrupted — showing what it found so far.");
         }
@@ -149,10 +189,16 @@ const DiscoverSources = () => {
         .eq("user_id", userIdRef.current)
         .maybeSingle();
       if (!saved) { setRunning(false); return; }
-      const savedRows = ((saved as any).rows as CandidateRow[]) || [];
+      const s = saved as any;
+      const savedRows = (s.rows as CandidateRow[]) || [];
       liveRowsRef.current = savedRows;
       setRows(savedRows);
-      if (!(saved as any).running) setRunning(false);
+      if (!s.running) {
+        setRunning(false);
+        if (s.completed_at) {
+          setLastRun({ completedAt: s.completed_at, target: s.last_target ?? 0, kept: s.last_kept ?? 0, checked: s.last_checked ?? 0 });
+        }
+      }
     }, 3000);
     return () => clearInterval(interval);
   }, [running]);
@@ -162,11 +208,15 @@ const DiscoverSources = () => {
     commitRows(updated, runningFlag);
   };
 
+  // Only clears the visible list, not the standing "last run" summary —
+  // those are two different questions ("what did it just find" vs "did
+  // this run recently at all").
   const clearResults = async () => {
     liveRowsRef.current = [];
     setRows([]);
+    setExpandedUrl(null);
     if (userIdRef.current) {
-      await supabase.from("discover_sessions" as any).delete().eq("user_id", userIdRef.current);
+      await supabase.from("discover_sessions" as any).update({ rows: [] as any }).eq("user_id", userIdRef.current);
     }
   };
 
@@ -255,10 +305,60 @@ const DiscoverSources = () => {
     }
   };
 
+  // Toggles the inline review panel open/closed for a "kept" row, fetching
+  // the card's live approved state the first time (cached after that, so
+  // re-opening doesn't hit the DB again until an action changes it).
+  const toggleExpanded = async (row: CandidateRow) => {
+    if (expandedUrl === row.url) { setExpandedUrl(null); return; }
+    setExpandedUrl(row.url);
+    if (!row.cardId || cardDetails[row.cardId]) return;
+    const { data } = await supabase
+      .from("reference_cards")
+      .select("id, title, ai_summary, original_text, source_url, approved")
+      .eq("id", row.cardId)
+      .maybeSingle();
+    if (data) setCardDetails((prev) => ({ ...prev, [data.id]: data as CardDetail }));
+  };
+
+  const approveCard = async (cardId: string) => {
+    setCardBusy(cardId);
+    const { error } = await supabase.from("reference_cards").update({ approved: true }).eq("id", cardId);
+    setCardBusy(null);
+    if (error) { toast.error("Failed to approve"); return; }
+    setCardDetails((prev) => ({ ...prev, [cardId]: { ...prev[cardId], approved: true } }));
+    toast.success("Approved — citable in generated content now.");
+  };
+
+  const unapproveCard = async (cardId: string) => {
+    setCardBusy(cardId);
+    const { error } = await supabase.from("reference_cards").update({ approved: false }).eq("id", cardId);
+    setCardBusy(null);
+    if (error) { toast.error("Failed to update"); return; }
+    setCardDetails((prev) => ({ ...prev, [cardId]: { ...prev[cardId], approved: false } }));
+    toast.info("Approval removed.");
+  };
+
+  // Rejecting here means the source shouldn't exist at all, not just
+  // "not approved" (which is already the default for every new card) — so
+  // this deletes the reference card outright rather than leaving an
+  // unapproved one sitting around to review again later.
+  const rejectCard = async (row: CandidateRow) => {
+    if (!row.cardId) return;
+    if (!confirm("Remove this source? This permanently deletes the reference card.")) return;
+    setCardBusy(row.cardId);
+    const { error } = await supabase.from("reference_cards").delete().eq("id", row.cardId);
+    setCardBusy(null);
+    if (error) { toast.error("Failed to remove card"); return; }
+    upsertRow(row.url, { status: "removed" }, running);
+    setExpandedUrl(null);
+    toast.success("Source removed.");
+  };
+
   const runDiscovery = async () => {
     startedHereRef.current = true;
     setRunning(true);
     commitRows([], true);
+    setExpandedUrl(null);
 
     const seenUrls = new Set<string>(existingUrls);
     let kept = 0;
@@ -335,8 +435,24 @@ const DiscoverSources = () => {
       }
     } finally {
       setRunning(false);
-      persistSession(liveRowsRef.current, false, targetCount);
       startedHereRef.current = false;
+      const completedAt = new Date().toISOString();
+      if (userIdRef.current) {
+        await supabase.from("discover_sessions" as any).upsert(
+          {
+            user_id: userIdRef.current,
+            target_count: targetCount,
+            running: false,
+            rows: liveRowsRef.current as any,
+            completed_at: completedAt,
+            last_target: targetCount,
+            last_kept: kept,
+            last_checked: totalTried,
+          },
+          { onConflict: "user_id" }
+        );
+      }
+      setLastRun({ completedAt, target: targetCount, kept, checked: totalTried });
     }
 
     if (kept === 0 && totalTried === 0) {
@@ -360,6 +476,8 @@ const DiscoverSources = () => {
         return <Badge className="gap-1 bg-green-600 hover:bg-green-600"><CheckCircle2 className="h-3 w-3" />Kept</Badge>;
       case "filtered":
         return <Badge variant="secondary" className="gap-1"><XCircle className="h-3 w-3" />Scored too low</Badge>;
+      case "removed":
+        return <Badge variant="outline" className="gap-1 text-muted-foreground"><Trash2 className="h-3 w-3" />Removed</Badge>;
       case "failed":
         return row.cardId
           ? <Badge variant="destructive" className="gap-1"><XCircle className="h-3 w-3" />Never scored</Badge>
@@ -391,9 +509,10 @@ const DiscoverSources = () => {
 - Every candidate gets fetched and scored through the exact same pipeline as any other source — the same relevance scorer, the same auto-delete threshold you set in Reference Cards' Settings
 - Anything that doesn't score well enough is dropped automatically, but the row stays in this list — use "Keep anyway" on a "Scored too low" row to override that and keep it regardless
 - If a candidate couldn't be fetched or never got scored, use "Retry" on that row to try it again without re-running the whole search
+- Click a "Kept" row to expand it — read the summary and Approve or Remove it right here, no need to leave this page
 - If not enough candidates clear the bar, it searches again for more, up to a few rounds, so you get close to what you asked for without needing to babysit it
 - Results stay here across navigation until you hit "Clear results" — come back anytime to review or override what was found
-- Kept cards land in Reference Cards exactly like any other source — approve them from there before they can be cited`}
+- Kept cards land in Reference Cards exactly like any other source — approve them from there, or right here, before they can be cited`}
         />
 
         <Card className="mb-6">
@@ -427,6 +546,20 @@ const DiscoverSources = () => {
                 )}
               </Button>
             </div>
+            {!running && lastRun && (
+              <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground">
+                <span>
+                  Last search: {lastRun.completedAt ? new Date(lastRun.completedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "unknown time"}
+                  {" — "}kept {lastRun.kept} of {lastRun.checked} checked (asked for {lastRun.target})
+                </span>
+                <button
+                  onClick={() => navigate("/cards")}
+                  className="inline-flex items-center gap-0.5 text-primary hover:underline shrink-0"
+                >
+                  Go to Reference Cards<ChevronRight className="h-3 w-3" />
+                </button>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -447,57 +580,121 @@ const DiscoverSources = () => {
               </Button>
             </CardHeader>
             <CardContent className="space-y-2">
-              {rows.map((row) => (
-                <div key={row.url} className="flex items-center justify-between gap-3 p-3 bg-muted/40 rounded-md">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <a
-                        href={row.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm font-medium truncate hover:underline flex items-center gap-1"
-                      >
-                        {row.title || row.url}
-                        <ExternalLink className="h-3 w-3 shrink-0" />
-                      </a>
+              {rows.map((row) => {
+                const canExpand = row.status === "kept" && !!row.cardId;
+                const isExpanded = expandedUrl === row.url;
+                const detail = row.cardId ? cardDetails[row.cardId] : undefined;
+                return (
+                  <div key={row.url} className="bg-muted/40 rounded-md overflow-hidden">
+                    <div
+                      className={`flex items-center justify-between gap-3 p-3 ${canExpand ? "cursor-pointer" : ""}`}
+                      onClick={canExpand ? () => toggleExpanded(row) : undefined}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          {canExpand && (
+                            <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                          )}
+                          <a
+                            href={row.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-sm font-medium truncate hover:underline flex items-center gap-1"
+                          >
+                            {row.title || row.url}
+                            <ExternalLink className="h-3 w-3 shrink-0" />
+                          </a>
+                        </div>
+                        {row.reason && <p className="text-xs text-muted-foreground mt-0.5 truncate">{row.reason}</p>}
+                        {row.error && <p className="text-xs text-destructive mt-0.5">{row.error}</p>}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        {statusBadge(row)}
+                        {row.status === "failed" && row.cardId && (
+                          <Button size="sm" variant="outline" onClick={() => navigate(`/cards/${row.cardId}`)}>
+                            View
+                          </Button>
+                        )}
+                        {row.status === "failed" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1"
+                            disabled={busyUrl === row.url || running}
+                            onClick={() => retryRow(row)}
+                          >
+                            {busyUrl === row.url ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+                            Retry
+                          </Button>
+                        )}
+                        {row.status === "filtered" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1"
+                            disabled={busyUrl === row.url || running}
+                            onClick={() => keepAnyway(row)}
+                          >
+                            {busyUrl === row.url ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />}
+                            Keep anyway
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                    {row.reason && <p className="text-xs text-muted-foreground mt-0.5 truncate">{row.reason}</p>}
-                    {row.error && <p className="text-xs text-destructive mt-0.5">{row.error}</p>}
+
+                    {canExpand && (
+                      <Collapsible open={isExpanded}>
+                        <CollapsibleContent>
+                          <div className="px-3 pb-3 pt-0 border-t border-background">
+                            {!detail ? (
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground py-3">
+                                <Loader2 className="h-3 w-3 animate-spin" />Loading card...
+                              </div>
+                            ) : (
+                              <div className="pt-3 space-y-2">
+                                {detail.ai_summary && (
+                                  <p className="text-sm text-foreground/90">{detail.ai_summary}</p>
+                                )}
+                                {!detail.ai_summary && detail.original_text && (
+                                  <p className="text-sm text-muted-foreground line-clamp-3">{detail.original_text}</p>
+                                )}
+                                <div className="flex items-center gap-2 pt-1">
+                                  <Badge variant={detail.approved ? "default" : "outline"}>
+                                    {detail.approved ? "Approved source" : "Not approved"}
+                                  </Badge>
+                                  <Button
+                                    size="sm"
+                                    variant={detail.approved ? "outline" : "default"}
+                                    disabled={cardBusy === detail.id}
+                                    onClick={() => detail.approved ? unapproveCard(detail.id) : approveCard(detail.id)}
+                                    className="gap-1"
+                                  >
+                                    {cardBusy === detail.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                                    {detail.approved ? "Unapprove" : "Approve"}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="gap-1 text-red-600 border-red-200 hover:bg-red-50"
+                                    disabled={cardBusy === detail.id}
+                                    onClick={() => rejectCard(row)}
+                                  >
+                                    <X className="h-3 w-3" />Reject
+                                  </Button>
+                                  <Button size="sm" variant="ghost" onClick={() => navigate(`/cards/${detail.id}`)}>
+                                    Full card
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {statusBadge(row)}
-                    {(row.status === "kept" || row.status === "failed") && row.cardId && (
-                      <Button size="sm" variant="outline" onClick={() => navigate(`/cards/${row.cardId}`)}>
-                        View
-                      </Button>
-                    )}
-                    {row.status === "failed" && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="gap-1"
-                        disabled={busyUrl === row.url || running}
-                        onClick={() => retryRow(row)}
-                      >
-                        {busyUrl === row.url ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
-                        Retry
-                      </Button>
-                    )}
-                    {row.status === "filtered" && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="gap-1"
-                        disabled={busyUrl === row.url || running}
-                        onClick={() => keepAnyway(row)}
-                      >
-                        {busyUrl === row.url ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />}
-                        Keep anyway
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </CardContent>
           </Card>
         )}

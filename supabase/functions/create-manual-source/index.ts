@@ -82,7 +82,7 @@ serve(async (req) => {
     const requestBody = await req.json();
     console.log("📦 Request body keys:", Object.keys(requestBody));
 
-    const { type, url, pdf_text, pdf_title, paste_text, paste_title, question_set_id, from_company } = requestBody;
+    const { type, url, pdf_text, pdf_title, paste_text, paste_title, question_set_id, from_company, force_keep } = requestBody;
 
     // Validate required fields per type
     if (!type) {
@@ -247,6 +247,11 @@ serve(async (req) => {
       content_quality: contentQuality,
       content_warning: contentWarning,
       from_company: from_company === true,
+      // Manual human override (e.g. "Keep anyway" on a Discover Sources
+      // candidate that scored too low). Read by trg_enforce_relevance_threshold,
+      // which otherwise deletes the row the instant it's scored below the
+      // account's auto-delete threshold.
+      force_keep: force_keep === true,
     };
 
     if (question_set_id && question_set_id.trim() !== "") {

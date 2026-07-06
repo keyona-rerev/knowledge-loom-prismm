@@ -9,8 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { toast } from "sonner";
-import { ArrowLeft, Trash2, Moon, Sun, AlertTriangle, Shield, Loader2, Linkedin, CheckCircle2, DollarSign } from "lucide-react";
+import { ArrowLeft, Trash2, Moon, Sun, AlertTriangle, Shield, Loader2, Linkedin, CheckCircle2, DollarSign, Eye, ChevronDown } from "lucide-react";
 import { useTheme } from "next-themes";
 
 // Settings: appearance and AI provider only.
@@ -38,7 +39,7 @@ const AI_USAGE = [
   },
   {
     name: "Scheduled draft generation",
-    trigger: "Every slot that fires on the daily schedule cron, plus manual \"Run\" and test runs",
+    trigger: "Every slot that fires on the daily schedule cron, plus manual \"Run\" and test runs, plus Cadence's Fast-forward batch",
     fn: "execute-autopilot-template",
     est: "$0.02–$0.04 per draft",
   },
@@ -49,10 +50,22 @@ const AI_USAGE = [
     est: "$0.01–$0.03 per draft",
   },
   {
-    name: "Draft revision",
-    trigger: "Requesting a rewrite with feedback on a draft in Review",
+    name: "Draft revision (with feedback)",
+    trigger: "Requesting a rewrite with feedback on a draft in Review (\"Request Revision\")",
     fn: "regenerate-draft-with-feedback",
     est: "$0.01–$0.02 per revision",
+  },
+  {
+    name: "Draft revision (prose cleanup)",
+    trigger: "Clicking \"Revise\" on a pending draft in Review — cuts specific AI-writing tropes without touching the argument",
+    fn: "revise-draft",
+    est: "$0.01–$0.02 per revision",
+  },
+  {
+    name: "Discover Sources scoring",
+    trigger: "Every candidate URL found while searching for new sources",
+    fn: "search-sources / create-manual-source / process-reference-card",
+    est: "$0.01–$0.03 per candidate checked",
   },
   {
     name: "Branded visual generation",
@@ -71,6 +84,16 @@ const AI_PROVIDERS = [
   { value: "custom", label: "Custom (OpenAI-compatible)", keyLabel: "API Key", keyPlaceholder: "Your API key", modelPlaceholder: "your-model-name", docsUrl: "", docsLabel: "" },
 ];
 
+interface NamedRow { id: string; name: string; }
+
+interface PromptPreview {
+  system: string;
+  contextBlock: string;
+  hardRuleCount: number;
+  inactiveHardRuleCount: number;
+  trustedSourceCount: number;
+}
+
 const Settings = () => {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
@@ -85,6 +108,23 @@ const Settings = () => {
     ai_endpoint: "",
     min_approved_threshold: 12,
   });
+
+  // Prompt Inspector: pick a real format/nature/job from the Strategy
+  // library and see the literal system prompt that combination would send
+  // through execute-autopilot-template — not a description of it. Answers
+  // "is my hard rule actually in there" and "did editing Strategy actually
+  // change anything" directly, instead of requiring trust that it did.
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [formats, setFormats] = useState<NamedRow[]>([]);
+  const [natures, setNatures] = useState<NamedRow[]>([]);
+  const [jobs, setJobs] = useState<NamedRow[]>([]);
+  const [lanes, setLanes] = useState<NamedRow[]>([]);
+  const [inspectorFormat, setInspectorFormat] = useState<string>("");
+  const [inspectorNature, setInspectorNature] = useState<string>("");
+  const [inspectorJob, setInspectorJob] = useState<string>("");
+  const [inspectorLane, setInspectorLane] = useState<string>("");
+  const [inspectorLoading, setInspectorLoading] = useState(false);
+  const [inspectorResult, setInspectorResult] = useState<PromptPreview | null>(null);
 
   const currentProvider = AI_PROVIDERS.find(p => p.value === profile.ai_provider) || AI_PROVIDERS[0];
 
@@ -108,6 +148,23 @@ const Settings = () => {
       } else if (error && error.code !== "PGRST116") {
         toast.error("Failed to load settings");
       }
+
+      const [fmt, nat, jb, ln] = await Promise.all([
+        supabase.from("formats").select("id, name").eq("user_id", session.user.id).eq("is_active", true).order("sort_order"),
+        supabase.from("natures").select("id, name").eq("user_id", session.user.id).eq("is_active", true).order("sort_order"),
+        supabase.from("jobs").select("id, name").eq("user_id", session.user.id).eq("kind", "engine_job").eq("is_active", true).order("sort_order"),
+        supabase.from("lanes").select("id, name").eq("user_id", session.user.id).eq("is_active", true).order("sort_order"),
+      ]);
+      const fmtRows = (fmt.data || []) as NamedRow[];
+      const natRows = (nat.data || []) as NamedRow[];
+      const jbRows = (jb.data || []) as NamedRow[];
+      setFormats(fmtRows);
+      setNatures(natRows);
+      setJobs(jbRows);
+      setLanes((ln.data || []) as NamedRow[]);
+      if (fmtRows[0]) setInspectorFormat(fmtRows[0].id);
+      if (natRows[0]) setInspectorNature(natRows[0].id);
+      if (jbRows[0]) setInspectorJob(jbRows[0].id);
     };
     loadProfile();
   }, [navigate]);
@@ -165,6 +222,29 @@ const Settings = () => {
     }
     if (error) { toast.error("Failed to save: " + error.message); } else { toast.success("Settings saved"); }
     setLoading(false);
+  };
+
+  const runPromptPreview = async () => {
+    if (!inspectorFormat || !inspectorNature || !inspectorJob) {
+      toast.error("Pick a format, nature, and job first");
+      return;
+    }
+    setInspectorLoading(true);
+    setInspectorResult(null);
+    const { data, error } = await supabase.functions.invoke("preview-prompt", {
+      body: {
+        formatId: inspectorFormat,
+        natureId: inspectorNature,
+        jobId: inspectorJob,
+        laneId: inspectorLane || undefined,
+      },
+    });
+    setInspectorLoading(false);
+    if (error || data?.error) {
+      toast.error("Couldn't render the prompt: " + (error?.message || data?.error || "unknown error"));
+      return;
+    }
+    setInspectorResult(data as PromptPreview);
   };
 
   return (
@@ -276,7 +356,7 @@ const Settings = () => {
               <DollarSign className="h-5 w-5" />Where AI calls happen
             </CardTitle>
             <CardDescription>
-              Every function in the system that calls your configured AI provider, and what triggers it. Estimates are based on typical prompt size at Claude Sonnet 4.6 list pricing ($3 input / $15 output per million tokens) — this is a map of what fires, not a live spend tracker, since none of these functions log actual token usage yet.
+              Every function in the system that calls your configured AI provider, and what triggers it — {AI_USAGE.length} distinct call sites in total. Estimates are based on typical prompt size at Claude Sonnet 4.6 list pricing ($3 input / $15 output per million tokens) — this is a map of what fires, not a live spend tracker, since none of these functions log actual token usage yet.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -292,6 +372,92 @@ const Settings = () => {
             ))}
           </CardContent>
         </Card>
+
+        {/* Prompt Inspector */}
+        <Collapsible open={inspectorOpen} onOpenChange={setInspectorOpen} className="mb-6">
+          <Card>
+            <CollapsibleTrigger asChild>
+              <button className="w-full text-left">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Eye className="h-5 w-5" />Prompt Inspector
+                    </CardTitle>
+                    <CardDescription className="mt-1.5">
+                      See the literal system prompt "Scheduled draft generation" sends for a given format, nature, and job — not a description of it, the actual text, including your Hard Rules exactly as written.
+                    </CardDescription>
+                  </div>
+                  <ChevronDown className={`h-5 w-5 text-muted-foreground shrink-0 transition-transform ${inspectorOpen ? "rotate-180" : ""}`} />
+                </CardHeader>
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent className="space-y-4 border-t pt-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <Label className="text-xs">Format</Label>
+                    <Select value={inspectorFormat} onValueChange={setInspectorFormat}>
+                      <SelectTrigger><SelectValue placeholder="Format" /></SelectTrigger>
+                      <SelectContent>{formats.map((f) => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Nature</Label>
+                    <Select value={inspectorNature} onValueChange={setInspectorNature}>
+                      <SelectTrigger><SelectValue placeholder="Nature" /></SelectTrigger>
+                      <SelectContent>{natures.map((n) => <SelectItem key={n.id} value={n.id}>{n.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Job</Label>
+                    <Select value={inspectorJob} onValueChange={setInspectorJob}>
+                      <SelectTrigger><SelectValue placeholder="Job" /></SelectTrigger>
+                      <SelectContent>{jobs.map((j) => <SelectItem key={j.id} value={j.id}>{j.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                {lanes.length > 0 && (
+                  <div className="max-w-xs">
+                    <Label className="text-xs">Lane (optional)</Label>
+                    <Select value={inspectorLane || "__any__"} onValueChange={(v) => setInspectorLane(v === "__any__" ? "" : v)}>
+                      <SelectTrigger><SelectValue placeholder="Both lanes" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__any__">Both lanes</SelectItem>
+                        {lanes.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                <Button onClick={runPromptPreview} disabled={inspectorLoading}>
+                  {inspectorLoading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Rendering...</> : <><Eye className="h-4 w-4 mr-2" />Show the actual prompt</>}
+                </Button>
+
+                {inspectorResult && (
+                  <div className="space-y-3 pt-2">
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline">{inspectorResult.hardRuleCount} active hard rule{inspectorResult.hardRuleCount === 1 ? "" : "s"}</Badge>
+                      {inspectorResult.inactiveHardRuleCount > 0 && (
+                        <Badge variant="destructive">{inspectorResult.inactiveHardRuleCount} hard rule{inspectorResult.inactiveHardRuleCount === 1 ? "" : "s"} turned off, not sent</Badge>
+                      )}
+                      <Badge variant="outline">{inspectorResult.trustedSourceCount} approved source{inspectorResult.trustedSourceCount === 1 ? "" : "s"} citable</Badge>
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">System prompt (Hard Rules, Voice, and Trusted Sources)</Label>
+                      <pre className="mt-1 max-h-96 overflow-auto whitespace-pre-wrap rounded-md border bg-muted p-3 text-xs font-mono">{inspectorResult.system}</pre>
+                    </div>
+                    <div>
+                      <Label className="text-xs font-semibold">Context block for this format/nature/job</Label>
+                      <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded-md border bg-muted p-3 text-xs font-mono">{inspectorResult.contextBlock}</pre>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      This is a direct render of the same Hard Rules, Voice, and Trusted Sources data the real generation reads at run time — if a rule isn't showing up here, it isn't reaching the AI either. The full prompt also includes a seed premise and, depending on your Source Reliance fader, specific reference cards chosen at generation time, neither of which is fixed ahead of time the way this part is.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
 
         {/* LinkedIn */}
         <Card className="mb-6">

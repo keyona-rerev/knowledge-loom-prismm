@@ -4,6 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { CheckCheck, Send, AlertTriangle, RefreshCw, ExternalLink } from "lucide-react";
 import { ensureVisualImageUploaded } from "@/lib/ensureVisualImage";
@@ -14,11 +16,16 @@ interface Draft {
   seed_insight: string;
   content_type: string;
   created_at: string;
+  format_id: string | null;
   reviewed_at?: string | null;
   publish_status?: string | null;
   publish_error?: string | null;
   scheduled_for?: string | null;
 }
+
+interface FormatRow { id: string; name: string; platform: string; }
+
+const ALL = "__all__";
 
 // Approved tab: everything the user has said yes to. Includes drafts that
 // haven't posted yet, drafts scheduled or posted, and the ones that got
@@ -31,6 +38,12 @@ export const ApprovedTab = () => {
   const [postingNowId, setPostingNowId] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
 
+  // Same platform/post-type filter as Pending — formats.platform is real
+  // per-format data, not a hardcoded channel list.
+  const [formats, setFormats] = useState<FormatRow[]>([]);
+  const [platformFilter, setPlatformFilter] = useState<string>(ALL);
+  const [formatFilter, setFormatFilter] = useState<string>(ALL);
+
   useEffect(() => {
     loadDrafts();
   }, []);
@@ -39,17 +52,21 @@ export const ApprovedTab = () => {
     setLoading(true);
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { setLoading(false); return; }
-    const { data, error } = await supabase
-      .from("drafts")
-      .select("id, title, seed_insight, content_type, created_at, reviewed_at, publish_status, publish_error, scheduled_for")
-      .eq("user_id", session.user.id)
-      .eq("approval_status", "approved")
-      .order("created_at", { ascending: false });
+    const [{ data, error }, { data: fmt }] = await Promise.all([
+      supabase
+        .from("drafts")
+        .select("id, title, seed_insight, content_type, created_at, format_id, reviewed_at, publish_status, publish_error, scheduled_for")
+        .eq("user_id", session.user.id)
+        .eq("approval_status", "approved")
+        .order("created_at", { ascending: false }),
+      supabase.from("formats").select("id, name, platform").eq("user_id", session.user.id).order("platform").order("sort_order"),
+    ]);
     if (error) {
       toast.error("Failed to load approved drafts");
     } else {
       setDrafts(data || []);
     }
+    setFormats((fmt || []) as FormatRow[]);
     setLoading(false);
   };
 
@@ -120,6 +137,16 @@ export const ApprovedTab = () => {
 
   const attentionDrafts = drafts.filter(d => d.publish_status === "needs_attention" || d.publish_status === "failed");
 
+  const formatById = new Map(formats.map((f) => [f.id, f]));
+  const platforms = Array.from(new Set(formats.map((f) => f.platform))).sort();
+  const formatOptionsForPlatform = platformFilter === ALL ? formats : formats.filter((f) => f.platform === platformFilter);
+  const visibleDrafts = drafts.filter((d) => {
+    const fmt = d.format_id ? formatById.get(d.format_id) : undefined;
+    if (platformFilter !== ALL && fmt?.platform !== platformFilter) return false;
+    if (formatFilter !== ALL && d.format_id !== formatFilter) return false;
+    return true;
+  });
+
   if (loading) {
     return <div className="text-center py-16 text-muted-foreground">Loading approved drafts...</div>;
   }
@@ -163,6 +190,32 @@ export const ApprovedTab = () => {
         </Card>
       )}
 
+      {formats.length > 0 && drafts.length > 0 && (
+        <div className="flex items-center gap-3 flex-wrap mb-4">
+          <Label className="text-sm text-muted-foreground whitespace-nowrap">Filter</Label>
+          <Select value={platformFilter} onValueChange={(v) => { setPlatformFilter(v); setFormatFilter(ALL); }}>
+            <SelectTrigger className="w-[160px]"><SelectValue placeholder="Platform" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All platforms</SelectItem>
+              {platforms.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={formatFilter} onValueChange={setFormatFilter}>
+            <SelectTrigger className="w-[220px]"><SelectValue placeholder="Post type" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All post types</SelectItem>
+              {formatOptionsForPlatform.map((f) => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {(platformFilter !== ALL || formatFilter !== ALL) && (
+            <Button variant="ghost" size="sm" onClick={() => { setPlatformFilter(ALL); setFormatFilter(ALL); }}>Clear filter</Button>
+          )}
+          {(platformFilter !== ALL || formatFilter !== ALL) && (
+            <span className="text-xs text-muted-foreground">{visibleDrafts.length} of {drafts.length} shown</span>
+          )}
+        </div>
+      )}
+
       {drafts.length === 0 ? (
         <Card>
           <CardContent className="text-center py-12">
@@ -171,9 +224,13 @@ export const ApprovedTab = () => {
             <p className="text-muted-foreground mb-6">Approve drafts from the Pending tab to see them here.</p>
           </CardContent>
         </Card>
+      ) : visibleDrafts.length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground">
+          <p className="text-sm">No approved drafts match this filter.</p>
+        </div>
       ) : (
         <div className="space-y-2">
-          {drafts.map((draft) => {
+          {visibleDrafts.map((draft) => {
             const isPostedNow = draft.publish_status === "published_now";
             const isPostingNow = postingNowId === draft.id;
             return (

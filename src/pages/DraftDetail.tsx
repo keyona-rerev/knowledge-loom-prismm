@@ -162,6 +162,24 @@ const DraftDetail = () => {
     }
   };
 
+  // Fallback status written when the fire-and-forget publish-to-zernio call
+  // below throws before the edge function's own status-writing logic ever
+  // runs (network drop, tab closed, cold-start timeout). Without this the
+  // draft is left with scheduled_for stamped at generation time but
+  // publish_status/external_post_id still null — invisible to Approved's
+  // needs_attention filter. Guarded on both columns still being null so it
+  // never clobbers a real result from a concurrent/retried call.
+  const markUnreachedScheduler = async (draftId: string) => {
+    await supabase.from("drafts")
+      .update({
+        publish_status: "needs_attention",
+        publish_error: "Approval didn't reach the scheduler (the request failed before a response came back). Retry from the Approved tab.",
+      })
+      .eq("id", draftId)
+      .is("publish_status", null)
+      .is("external_post_id", null);
+  };
+
   const handleApprove = async () => {
     if (!draft) return;
     const { data: { session } } = await supabase.auth.getSession();
@@ -204,6 +222,8 @@ const DraftDetail = () => {
           loadDraft();
         } catch (err) {
           console.error("Publish error:", err);
+          await markUnreachedScheduler(draft.id);
+          loadDraft();
         }
       })();
     }

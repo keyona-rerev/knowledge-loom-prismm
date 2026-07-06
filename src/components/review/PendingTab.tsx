@@ -11,7 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Check, X, Clock, CheckCheck, Ban, MessageCircle, AlertTriangle, Loader2, CheckCircle2 } from "lucide-react";
+import { Check, X, Clock, CheckCheck, Ban, MessageCircle, AlertTriangle, Loader2, CheckCircle2, Wand2 } from "lucide-react";
 import { ensureVisualImageUploaded } from "@/lib/ensureVisualImage";
 
 interface Draft {
@@ -31,7 +31,7 @@ interface Draft {
 // afterward so the outcome is visible before the row actually leaves the
 // list. Without this, clicking Approve made the post vanish from the page
 // instantly, with nothing on screen to confirm the click had done anything.
-type TransitionState = "approving" | "approved" | "rejecting" | "rejected";
+type TransitionState = "approving" | "approved" | "rejecting" | "rejected" | "revising";
 
 // How long the "Approved -- moving to your queue" (or rejected) state stays
 // visible before the row is actually removed from the list.
@@ -149,6 +149,29 @@ export const PendingTab = () => {
         console.error("Publish error:", err);
       }
     })();
+  };
+
+  // Prose-only pass: rewrites the post in place to cut specific AI-writing
+  // tropes (the "it's not X, it's Y" contrast, "here's what most people
+  // miss," etc.) without starting over from scratch or touching the
+  // argument, facts, or figures. Unlike Approve/Reject, the draft never
+  // leaves this list -- it just updates in place so it can still be
+  // reviewed, revised again, or approved right after.
+  const handleRevise = async (draftId: string) => {
+    if (transitioning[draftId]) return;
+    setTransition(draftId, "revising");
+
+    const { data, error } = await supabase.functions.invoke("revise-draft", { body: { draftId } });
+
+    if (error || data?.error) {
+      clearTransition(draftId);
+      toast.error("Revision failed: " + (error?.message || data?.error || "unknown error"));
+      return;
+    }
+
+    setDrafts(prev => prev.map(d => d.id === draftId ? { ...d, title: data.title, body: data.content } : d));
+    clearTransition(draftId);
+    toast.success("Revised — trope cleanup pass applied.");
   };
 
   const handleSmartReject = (draft: Draft) => {
@@ -338,10 +361,12 @@ export const PendingTab = () => {
                             className={`flex items-center gap-2 ml-4 shrink-0 rounded-md border px-3 py-2 text-sm font-medium ${
                               isRejectSide
                                 ? "bg-red-50 text-red-700 border-red-200"
+                                : state === "revising"
+                                ? "bg-blue-50 text-blue-700 border-blue-200"
                                 : "bg-green-50 text-green-700 border-green-200"
                             }`}
                           >
-                            {(state === "approving" || state === "rejecting") ? (
+                            {(state === "approving" || state === "rejecting" || state === "revising") ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
                               <CheckCircle2 className="h-4 w-4" />
@@ -350,11 +375,15 @@ export const PendingTab = () => {
                             {state === "approved" && "Approved — moving to your queue"}
                             {state === "rejecting" && "Rejecting..."}
                             {state === "rejected" && "Rejected — leaving review"}
+                            {state === "revising" && "Revising — cutting the usual tropes..."}
                           </div>
                         ) : (
                           <div className="flex gap-2 ml-4 shrink-0">
                             <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => handleSmartReject(draft)}>
                               <X className="h-4 w-4 mr-1" />Reject
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => handleRevise(draft.id)}>
+                              <Wand2 className="h-4 w-4 mr-1" />Revise
                             </Button>
                             <Button size="sm" onClick={() => handleApprove(draft.id)}>
                               <Check className="h-4 w-4 mr-1" />Approve

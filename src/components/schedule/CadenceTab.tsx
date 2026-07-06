@@ -1,4 +1,4 @@
-import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useState, useRef, type Dispatch, type SetStateAction } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "sonner";
-import { Plus, Trash2, Loader2, Play, RefreshCw, Calendar, RotateCcw, CalendarClock, Pencil, Save as SaveIcon, FastForward } from "lucide-react";
+import { Plus, Trash2, Loader2, Play, RefreshCw, Calendar, RotateCcw, CalendarClock, Pencil, Save as SaveIcon, FastForward, ChevronRight } from "lucide-react";
 import { resolveNext, nextOccurrence } from "@/lib/scheduleResolver";
 import { ScheduleWeekGrid } from "@/components/ScheduleWeekGrid";
 
@@ -51,6 +51,11 @@ const TZ_ABBR: Record<string, string> = {
   "Pacific/Honolulu": "HST",
   "UTC": "UTC",
 };
+
+// If a saved fastforward_runs row still says "running" but hasn't been
+// touched in this long, treat it as abandoned (tab closed or reloaded
+// mid-run) rather than showing a live progress bar forever.
+const FF_STALE_MS = 3 * 60 * 1000;
 
 function fmtTime12(time: string): string {
   if (!time) return "";
@@ -174,10 +179,57 @@ export const CadenceTab = () => {
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number; label: string } | null>(null);
 
+  // Last-run summary line, persisted so it survives navigating away and
+  // back — both while a run is still in progress (so it doesn't look like
+  // nothing is happening) and after it finishes (so "did that work" always
+  // has a visible, timestamped answer instead of only a toast you might
+  // have missed).
+  const [lastRun, setLastRun] = useState<{
+    completedAt: string | null; created: number; attempted: number; failed: number;
+  } | null>(null);
+  const startedHereRef = useRef(false);
+
   useEffect(() => {
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // If batchRunning is true but this exact mount didn't start the loop
+  // (resumed from a saved row after navigating back), poll for progress
+  // instead of sitting on stale numbers until a manual refresh.
+  useEffect(() => {
+    if (!batchRunning || startedHereRef.current || !userId) return;
+    const interval = setInterval(async () => {
+      const { data: row } = await supabase
+        .from("fastforward_runs" as any)
+        .select("*")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (!row) { setBatchRunning(false); return; }
+      const r = row as any;
+      if (r.running) {
+        setBatchProgress({ done: r.done ?? 0, total: r.total ?? 0, label: r.current_label ?? "" });
+      } else {
+        setBatchRunning(false);
+        setBatchProgress(null);
+        setLastRun({
+          completedAt: r.completed_at,
+          created: r.last_created ?? 0,
+          attempted: r.last_attempted ?? 0,
+          failed: r.last_failed ?? 0,
+        });
+        loadAll();
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [batchRunning, userId]);
+
+  const persistFF = async (uid: string, patch: Record<string, unknown>) => {
+    await supabase.from("fastforward_runs" as any).upsert(
+      { user_id: uid, ...patch },
+      { onConflict: "user_id" }
+    );
+  };
 
   const loadAll = async () => {
     setLoading(true);
@@ -186,13 +238,14 @@ export const CadenceTab = () => {
     const uid = session.user.id;
     setUserId(uid);
 
-    const [fmt, nat, jb, ln, rd, sched] = await Promise.all([
+    const [fmt, nat, jb, ln, rd, sched, ffRow] = await Promise.all([
       supabase.from("formats").select("id, name").eq("user_id", uid).eq("is_active", true).order("sort_order"),
       supabase.from("natures").select("id, name").eq("user_id", uid).eq("is_active", true).order("sort_order"),
       supabase.from("jobs").select("id, name").eq("user_id", uid).eq("kind", "engine_job").eq("is_active", true).order("sort_order"),
       supabase.from("lanes").select("id, name").eq("user_id", uid).eq("is_active", true).order("sort_order"),
       supabase.from("readers").select("id, role").eq("user_id", uid).eq("is_active", true).order("sort_order"),
       supabase.from("content_schedules").select("*").eq("user_id", uid).order("day_of_week"),
+      supabase.from("fastforward_runs" as any).select("*").eq("user_id", uid).maybeSingle(),
     ]);
 
     setFormats((fmt.data || []) as NamedRow[]);
@@ -211,6 +264,30 @@ export const CadenceTab = () => {
       child_nature_id: s.child_nature_id, max_reuse_count: s.max_reuse_count,
       reuse_window_days: s.reuse_window_days,
     })));
+
+    const ff = ffRow.data as any;
+    if (ff) {
+      const updatedAt = new Date(ff.updated_at as string).getTime();
+      const stale = ff.running && Date.now() - updatedAt > FF_STALE_MS;
+      if (ff.running && !stale) {
+        setBatchRunning(true);
+        setBatchProgress({ done: ff.done ?? 0, total: ff.total ?? 0, label: ff.current_label ?? "" });
+        if (ff.target_count) setBatchTarget(ff.target_count);
+      } else {
+        if (ff.running && stale) {
+          await persistFF(uid, { running: false });
+          toast.info("A previous fast-forward looks like it was interrupted.");
+        }
+        if (ff.completed_at) {
+          setLastRun({
+            completedAt: ff.completed_at,
+            created: ff.last_created ?? 0,
+            attempted: ff.last_attempted ?? 0,
+            failed: ff.last_failed ?? 0,
+          });
+        }
+      }
+    }
 
     const { data: parents } = await supabase
       .from("drafts")
@@ -326,6 +403,7 @@ export const CadenceTab = () => {
   // A single failed run is logged and skipped rather than aborting the rest
   // of the batch.
   const runFastForward = async () => {
+    if (!userId) return;
     if (isDirty) {
       toast.error("You have unsaved cadence changes — save them first so fast-forward uses the current setup");
       return;
@@ -341,16 +419,24 @@ export const CadenceTab = () => {
       return;
     }
 
+    startedHereRef.current = true;
     setBatchRunning(true);
+    setLastRun(null);
     let created = 0;
     let attempted = 0;
     let failed = 0;
+    await persistFF(userId, {
+      running: true, target_count: batchTarget, done: 0, total: batchTarget,
+      current_label: "", started_at: new Date().toISOString(),
+    });
+
     try {
       for (const item of queue) {
         if (attempted >= batchTarget) break;
         attempted++;
         const label = `${nameOf(natures, item.slot.nature_id) ?? "…"} ${nameOf(formats, item.slot.format_id) ?? "…"} — ${item.date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}`;
         setBatchProgress({ done: created, total: batchTarget, label });
+        await persistFF(userId, { done: created, total: batchTarget, current_label: label });
 
         const { data, error } = await supabase.functions.invoke("execute-autopilot-template", {
           body: { scheduleId: item.slot.id, isTestRun: false, scheduledForOverride: item.date.toISOString() },
@@ -366,6 +452,13 @@ export const CadenceTab = () => {
     } finally {
       setBatchRunning(false);
       setBatchProgress(null);
+      startedHereRef.current = false;
+      const completedAt = new Date().toISOString();
+      await persistFF(userId, {
+        running: false, done: created, total: batchTarget, completed_at: completedAt,
+        last_created: created, last_attempted: attempted, last_failed: failed,
+      });
+      setLastRun({ completedAt, created, attempted, failed });
     }
 
     if (created === 0) {
@@ -447,6 +540,21 @@ export const CadenceTab = () => {
             <p className="text-xs text-muted-foreground mt-3">
               {batchProgress.done} of {batchProgress.total} so far — working on: {batchProgress.label}
             </p>
+          )}
+          {!batchRunning && lastRun && (
+            <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground">
+              <span>
+                Last fast-forward: {lastRun.completedAt ? new Date(lastRun.completedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "unknown time"}
+                {" — "}generated {lastRun.created} draft{lastRun.created === 1 ? "" : "s"} across {lastRun.attempted} run{lastRun.attempted === 1 ? "" : "s"}
+                {lastRun.failed ? `, ${lastRun.failed} failed` : ""}
+              </span>
+              <button
+                onClick={() => navigate("/review")}
+                className="inline-flex items-center gap-0.5 text-primary hover:underline shrink-0"
+              >
+                Go to Review queue<ChevronRight className="h-3 w-3" />
+              </button>
+            </div>
           )}
         </CardContent>
       </Card>

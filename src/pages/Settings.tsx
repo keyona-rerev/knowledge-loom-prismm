@@ -11,7 +11,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { toast } from "sonner";
-import { ArrowLeft, Trash2, Moon, Sun, AlertTriangle, Shield, Loader2, Linkedin, CheckCircle2, DollarSign, Eye, ChevronDown } from "lucide-react";
+import { ArrowLeft, Trash2, Moon, Sun, AlertTriangle, Shield, Loader2, Linkedin, CheckCircle2, DollarSign, Eye, ChevronDown, Clock } from "lucide-react";
 import { useTheme } from "next-themes";
 
 // Settings: appearance and AI provider only.
@@ -84,6 +84,21 @@ const AI_PROVIDERS = [
   { value: "custom", label: "Custom (OpenAI-compatible)", keyLabel: "API Key", keyPlaceholder: "Your API key", modelPlaceholder: "your-model-name", docsUrl: "", docsLabel: "" },
 ];
 
+// Same list CadenceTab uses for per-slot timezone. This one sets the
+// account-wide default: new cadence slots and reschedule actions (drag on
+// the calendar, the Edit-time dialog) fall back to this instead of a
+// hardcoded "America/New_York" or whatever the browser happens to report.
+const TIMEZONES = [
+  { value: "America/New_York", label: "Eastern (New York)" },
+  { value: "America/Chicago", label: "Central (Chicago)" },
+  { value: "America/Denver", label: "Mountain (Denver)" },
+  { value: "America/Phoenix", label: "Mountain, no DST (Phoenix)" },
+  { value: "America/Los_Angeles", label: "Pacific (Los Angeles)" },
+  { value: "America/Anchorage", label: "Alaska (Anchorage)" },
+  { value: "Pacific/Honolulu", label: "Hawaii (Honolulu)" },
+  { value: "UTC", label: "UTC" },
+];
+
 interface NamedRow { id: string; name: string; }
 
 interface PromptPreview {
@@ -107,6 +122,8 @@ const Settings = () => {
     ai_api_key: "",
     ai_endpoint: "",
     min_approved_threshold: 12,
+    default_timezone: "America/New_York",
+    default_post_time: "09:00",
   });
 
   // Prompt Inspector: pick a real format/nature/job from the Strategy
@@ -134,7 +151,7 @@ const Settings = () => {
       if (!session) { navigate("/auth"); return; }
       const { data, error } = await supabase
         .from("profiles")
-        .select("ai_provider, ai_model, ai_api_key, ai_endpoint, min_approved_threshold")
+        .select("ai_provider, ai_model, ai_api_key, ai_endpoint, min_approved_threshold, default_timezone, default_post_time")
         .eq("user_id", session.user.id)
         .maybeSingle();
       if (data) {
@@ -144,6 +161,8 @@ const Settings = () => {
           ai_api_key: data.ai_api_key || "",
           ai_endpoint: data.ai_endpoint || "",
           min_approved_threshold: (data as any).min_approved_threshold ?? 12,
+          default_timezone: (data as any).default_timezone || "America/New_York",
+          default_post_time: ((data as any).default_post_time || "09:00:00").slice(0, 5),
         });
       } else if (error && error.code !== "PGRST116") {
         toast.error("Failed to load settings");
@@ -214,11 +233,12 @@ const Settings = () => {
       .select("id")
       .eq("user_id", session.user.id)
       .maybeSingle();
+    const payload = { ...profile, default_post_time: `${profile.default_post_time}:00` };
     let error;
     if (existingProfile) {
-      ({ error } = await supabase.from("profiles").update(profile).eq("id", existingProfile.id));
+      ({ error } = await supabase.from("profiles").update(payload).eq("id", existingProfile.id));
     } else {
-      ({ error } = await supabase.from("profiles").insert([{ ...profile, user_id: session.user.id }]));
+      ({ error } = await supabase.from("profiles").insert([{ ...payload, user_id: session.user.id }]));
     }
     if (error) { toast.error("Failed to save: " + error.message); } else { toast.success("Settings saved"); }
     setLoading(false);
@@ -280,6 +300,40 @@ const Settings = () => {
                 <Switch id="dark-mode" checked={theme === "dark"} onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")} />
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Posting defaults */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5" />Posting defaults
+            </CardTitle>
+            <CardDescription>
+              Your preferred timezone and time of day. New Cadence slots start with these instead of a hardcoded default, and dragging a post to a new day on the Schedule calendar (or using its Edit-time dialog) uses this timezone rather than guessing from your browser.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-base font-semibold">Timezone</Label>
+                <Select value={profile.default_timezone} onValueChange={(v) => setProfile(prev => ({ ...prev, default_timezone: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{TIMEZONES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-base font-semibold">Default post time</Label>
+                <Input
+                  type="time"
+                  value={profile.default_post_time}
+                  onChange={(e) => setProfile(prev => ({ ...prev, default_post_time: e.target.value }))}
+                />
+              </div>
+            </div>
+            <Button onClick={handleSave} disabled={loading}>
+              {loading ? "Saving..." : "Save Settings"}
+            </Button>
           </CardContent>
         </Card>
 

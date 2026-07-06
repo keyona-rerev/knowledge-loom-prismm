@@ -13,6 +13,8 @@ import { formatDistanceToNow } from "date-fns";
 import { VisualForge } from "@/components/VisualForge";
 import { ensureVisualImageUploaded } from "@/lib/ensureVisualImage";
 
+const FALLBACK_ACCENT = "#f9655b";
+
 const DraftDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -31,6 +33,12 @@ const DraftDetail = () => {
   const [copiedChildId, setCopiedChildId] = useState<string | null>(null);
   const [postingNow, setPostingNow] = useState(false);
   const [cancellingSchedule, setCancellingSchedule] = useState(false);
+  // Previously hardcoded to Prismm's coral (#f9655b) directly in three
+  // places on this page, while Dashboard.tsx correctly reads the same
+  // value from profiles.primary_color. Now reads the same column, with the
+  // old Prismm coral kept only as a fallback for profiles that haven't set
+  // a primary_color yet.
+  const [accentColor, setAccentColor] = useState(FALLBACK_ACCENT);
 
   const getApprovalBadgeVariant = (status?: string) => {
     switch (status) {
@@ -92,9 +100,21 @@ const DraftDetail = () => {
     if (!error && data) setRevisions(data);
   };
 
+  const loadAccentColor = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const { data } = await supabase
+      .from("profiles")
+      .select("primary_color")
+      .eq("user_id", session.user.id)
+      .maybeSingle();
+    if (data?.primary_color) setAccentColor(data.primary_color);
+  };
+
   useEffect(() => {
     loadDraft();
     loadRevisions();
+    loadAccentColor();
   }, [id]);
 
   const handleSave = async () => {
@@ -365,7 +385,7 @@ const DraftDetail = () => {
                 <Button
                   onClick={handlePostNow}
                   disabled={postingNow || isActuallyPosted}
-                  style={{ backgroundColor: "#f9655b", color: "#ffffff" }}
+                  style={{ backgroundColor: accentColor, color: "#ffffff" }}
                 >
                   <Send className="mr-2 h-4 w-4" />
                   {postingNow ? "Posting..." : isActuallyPosted ? "Posted" : "Post Now"}
@@ -417,7 +437,7 @@ const DraftDetail = () => {
                   Last updated {formatDistanceToNow(new Date(draft.updated_at), { addSuffix: true })}
                 </CardDescription>
                 {isActuallyPosted && (
-                  <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: "#f9655b" }}>
+                  <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: accentColor }}>
                     <Send className="h-4 w-4" />
                     Posted to LinkedIn
                   </p>
@@ -468,7 +488,7 @@ const DraftDetail = () => {
               <Badge variant="outline">{draft.content_type || "ad-hoc"}</Badge>
               {draft.revision_count > 0 && <Badge variant="secondary">v{draft.revision_count + 1}</Badge>}
               {isActuallyPosted && (
-                <Badge style={{ backgroundColor: "#f9655b", color: "#ffffff" }}>
+                <Badge style={{ backgroundColor: accentColor, color: "#ffffff" }}>
                   Posted to LinkedIn
                 </Badge>
               )}

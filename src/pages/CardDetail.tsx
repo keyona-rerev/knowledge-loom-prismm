@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ArrowLeft, Save, ExternalLink, AlertCircle, Sparkles, MessageSquare } from "lucide-react";
+import { ArrowLeft, Save, ExternalLink, AlertCircle, Sparkles, MessageSquare, CheckCircle2, Trash2 } from "lucide-react";
 
 const CardDetail = () => {
   const navigate = useNavigate();
@@ -24,6 +24,8 @@ const CardDetail = () => {
   const [editedApproved, setEditedApproved] = useState(false);
   const [questions, setQuestions] = useState<string[]>([]);
   const [processing, setProcessing] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
   const [questionSets, setQuestionSets] = useState<any[]>([]);
   const [selectedQuestionSetId, setSelectedQuestionSetId] = useState<string>("");
   const [customQuestion, setCustomQuestion] = useState("");
@@ -127,6 +129,32 @@ const CardDetail = () => {
       setEditing(false);
       loadCard();
     }
+  };
+
+  // Quick approve/reject right from the header, independent of Edit mode —
+  // entering Edit, flipping a switch, and Saving just to approve a card was
+  // several clicks for something that should be one.
+  const toggleApproved = async () => {
+    setApproving(true);
+    const next = !card.approved;
+    const { error } = await supabase.from("reference_cards").update({ approved: next }).eq("id", id);
+    setApproving(false);
+    if (error) { toast.error("Failed to update approval"); return; }
+    setCard((prev: any) => ({ ...prev, approved: next }));
+    setEditedApproved(next);
+    toast.success(next ? "Approved — citable in generated content now." : "Approval removed.");
+  };
+
+  // Deletes the card outright. "Reject" here means the source shouldn't
+  // exist, not just "not approved" (already every new card's default).
+  const rejectCard = async () => {
+    if (!confirm(`Delete "${card.title || "this card"}"? This action cannot be undone.`)) return;
+    setRejecting(true);
+    const { error } = await supabase.from("reference_cards").delete().eq("id", id);
+    setRejecting(false);
+    if (error) { toast.error("Failed to delete card"); return; }
+    toast.success("Card deleted");
+    navigate("/cards");
   };
 
   const processCard = async () => {
@@ -240,12 +268,29 @@ const CardDetail = () => {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
+        <div className="container mx-auto px-4 py-4 flex justify-between items-center flex-wrap gap-2">
           <Button variant="ghost" onClick={() => navigate("/cards")}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Reference Cards
           </Button>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <Button
+              variant={card.approved ? "outline" : "default"}
+              onClick={toggleApproved}
+              disabled={approving}
+            >
+              <CheckCircle2 className="h-4 w-4 mr-1" />
+              {approving ? "Updating..." : card.approved ? "Unapprove" : "Approve"}
+            </Button>
+            <Button
+              variant="outline"
+              className="text-red-600 border-red-200 hover:bg-red-50"
+              onClick={rejectCard}
+              disabled={rejecting}
+            >
+              <Trash2 className="h-4 w-4 mr-1" />
+              {rejecting ? "Deleting..." : "Reject"}
+            </Button>
             {!card.ai_summary && (
               <Button
                 variant="outline"
@@ -267,7 +312,7 @@ const CardDetail = () => {
                 </Button>
               </>
             ) : (
-              <Button onClick={() => setEditing(true)}>
+              <Button variant="outline" onClick={() => setEditing(true)}>
                 Edit
               </Button>
             )}

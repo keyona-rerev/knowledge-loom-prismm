@@ -13,21 +13,20 @@
 
 **Now:** reads `profiles.visual_studio_config` and builds the prompt from it via the shared `buildSystemPromptFromConfig()` in `supabase/functions/_shared/visual-prompt.ts`. Falls back to the old hardcoded prompt (kept as `LEGACY_BASE_SYSTEM_PROMPT`, byte-identical to before) only when a user has never saved anything from Visual Studio — this was intentional, so existing output doesn't silently change for anyone, and once a user saves once, their config is the sole source going forward, no reverting.
 
-**Still hardcoded / not reconciled (see "Known gaps" below):** the AI's actual visual-type selection vocabulary (`hero_number`, `before_after`, `logic_diagram`, `transformation`) vs. Visual Studio's `enabled_visual_types` toggle vocabulary (`stat_graphic`, `quote_card`, `pillar_statement`, `human_moment`, `comparison`, `timeline`, `checklist`, `branded_announcement`) — these are two different lists that were never connected. Toggling a visual type off in Visual Studio currently does nothing to what the AI can actually choose.
+### Visual type vocabulary mismatch — RESOLVED
+**Files:** `src/pages/VisualStudio.tsx`, `supabase/functions/_shared/visual-prompt.ts`
+
+Visual Studio used to show 8 toggle options (`stat_graphic`, `quote_card`, `pillar_statement`, `human_moment`, `comparison`, `timeline`, `checklist`, `branded_announcement`) that had zero connection to the AI's actual visual-type selection logic (`hero_number`, `before_after`, `logic_diagram`, `transformation`) — toggling any of the 8 did nothing at all, and `checklist` in particular directly contradicted an explicit design rule ("NOT a listicle. No numbered lists, no bullet points, no checkboxes").
+
+**Decision made:** no remapping, no expanding the AI to cover all 8. The 8 fake toggles were dropped entirely and replaced with the real 4 (`ALL_VISUAL_TYPES` in `VisualStudio.tsx` now matches `VISUAL_TYPES` in `visual-prompt.ts` exactly, one shared source of truth). `enabled_visual_types` now genuinely restricts what's passed into the "VISUAL TYPES" block of the prompt — toggling one off actually removes it from what the AI can choose, for the first time. Includes a migration path: anyone who already saved the old 8-type config gets those stale ids dropped on next load and falls back to all 4 real types, rather than carrying forward toggles that never did anything.
+
+If someone later wants the *idea* behind the dropped 6 (quote cards, timelines, announcements, etc.) built out for real, that's a genuinely new feature — real prompt instructions need to be written for each, and `checklist` specifically needs a decision about whether it should override the anti-listicle design rule or stay dropped. Not a remap, a build.
 
 ---
 
 ## Known gaps — found, not yet fixed
 
-### 1. Visual type vocabulary mismatch
-**Files:** `src/pages/VisualStudio.tsx` (`ALL_VISUAL_TYPES`, `enabled_visual_types`) vs. `supabase/functions/_shared/visual-prompt.ts` (`VISUAL TYPES` block in `buildSystemPromptFromConfig`)
-
-Two unrelated lists of visual-type names exist. The UI toggle does nothing to the actual prompt. Needs one of:
-- Rename the AI's 4 types to match Visual Studio's 8 (requires deciding how 8 map onto 4, or expanding the AI's real selection logic to 8 types), or
-- Rename Visual Studio's toggles to match the AI's real 4 types, or
-- Build a real mapping table between the two and thread `enabled_visual_types` into the "VISUAL TYPES" block so disabled types are actually removed from what the AI can pick.
-
-### 2. Business identity hardcoded into every generation prompt
+### 1. Business identity hardcoded into every generation prompt
 **File:** `supabase/functions/execute-autopilot-template/index.ts`
 
 The `systemLines` array that becomes the AI's system prompt for every generated draft opens with:
@@ -38,7 +37,7 @@ This is literally true for Prismm and would be wrong for any other business usin
 
 **Fix:** build this line from `profile.business_name` / `profile.business_description` instead, falling back to something generic ("You are a content engine for {business_name}.") when those fields are empty.
 
-### 3. Prismm-specific content rules baked into generation logic
+### 2. Prismm-specific content rules baked into generation logic
 **File:** `supabase/functions/execute-autopilot-template/index.ts`, function `retiredStatFlag()`
 
 ```js
@@ -49,24 +48,24 @@ if (has70 && (text.includes("communit") || text.includes("inherit") || text.incl
 ```
 This is a one-off content-QA rule specific to a retired Prismm statistic. It'll never fire for a different business's content (harmless), but it's dead weight in someone else's codebase and signals "this was built for a specific prior claim we had to walk back" in a way that won't make sense to a new team. Either remove it or move it into a per-business configurable list of "flag this pattern" rules (similar to the `hard_rules` table that already exists and is fetched dynamically — this check arguably belongs there instead of hardcoded in the function).
 
-### 4. Brand colors hardcoded inline across multiple frontend files, inconsistently
+### 3. Brand colors hardcoded inline across multiple frontend files, inconsistently
 **Files:** `src/components/review/ApprovedTab.tsx`, `src/pages/DraftDetail.tsx`, `src/components/schedule/PostedTab.tsx` (all three use `style={{ backgroundColor: "#f9655b", color: "#ffffff" }}` directly for the "Posted" badge)
 
 Compare to `src/pages/Dashboard.tsx`, which correctly loads `primary_color` / `secondary_color` / `accent_color` from `profiles` and uses those. The Dashboard does this right; the other three files hardcode Prismm's coral directly instead of reading the same profile columns.
 
 **Fix:** these three files should read the same `profiles.primary_color` (or equivalent) that Dashboard already loads, instead of a literal hex string.
 
-### 5. LinkedIn character limit duplicated as a magic number
+### 4. LinkedIn character limit duplicated as a magic number
 **Files:** `supabase/functions/publish-to-zernio/index.ts`, `supabase/functions/reschedule-draft/index.ts`
 
 Both files independently declare `const LINKEDIN_MAX_CHARS = 3000;`. Not business-specific (it's a real LinkedIn platform limit, correct for anyone), but it's duplicated rather than shared, so it can drift if one gets updated and the other doesn't. Low priority, but easy to fix: move to `_shared/` alongside the other shared publisher constants.
 
-### 6. Prismm brand tokens hardcoded in multiple non-obvious places
+### 5. Prismm brand tokens hardcoded in multiple non-obvious places
 **File:** `src/lib/scheduleResolver.ts` header comment references Prismm by name in a doc comment only (harmless). More materially:
 - `supabase/functions/_shared/visual-prompt.ts` — `SAMPLE_DRAFT` (used for Visual Studio's preview when no real draft is selected) is written in Prismm's voice/topic (inherited deposits, community banks). Not wrong, but worth knowing it'll read oddly for a different business's preview — consider making the sample draft configurable too, or at least genuinely generic.
 - Memory note (outside this repo): ReRev Labs, BTC, and Prismm all have their own hardcoded design systems/brand tokens described directly in Claude's operating instructions for this account — not a code fix, just worth knowing that brand values live in more than one place (code + Claude's own configured memory) if this repo is ever handed to a team that doesn't have that context.
 
-### 7. Zernio field-name guessing, never confirmed against a live account
+### 6. Zernio field-name guessing, never confirmed against a live account
 **File:** `supabase/functions/_shared/publisher/zernio.ts`
 
 Several methods (`updateSchedule`, `getAnalytics`, and the newly-added `getPost`) guess at Zernio's response field names defensively (e.g. `post?.status ?? post?.state`) because they were written without live Zernio credentials to probe the real API. This isn't Prismm-specific hardcoding, but it IS a real fragility: if a new business uses a different provider entirely (not Zernio), the entire `_shared/publisher/` directory's Zernio implementation is a no-op stub that needs a whole new implementation file (this is by design — `_shared/publisher/index.ts` is the intended swap point — but worth flagging so nobody assumes Zernio-specific code is provider-agnostic).
@@ -104,9 +103,8 @@ For each hit: ask "would this be true/correct for a different business using thi
 
 ## Suggested order of work for whoever picks this up
 
-1. Business identity in `execute-autopilot-template` (#2) — highest impact, affects every single generated draft's voice.
-2. Visual type vocabulary mismatch (#1) — Visual Studio's biggest remaining disconnect.
-3. Brand color inconsistency across frontend files (#4) — quick, mechanical fix once you find all the call sites.
-4. Everything else, in whatever order surfaces from the search patterns above.
+1. Business identity in `execute-autopilot-template` (#1) — highest impact, affects every single generated draft's voice.
+2. Brand color inconsistency across frontend files (#3) — quick, mechanical fix once you find all the call sites.
+3. Everything else, in whatever order surfaces from the search patterns above.
 
 Do not assume this list is complete. Treat it as a head start, not a checklist to close out and consider done.

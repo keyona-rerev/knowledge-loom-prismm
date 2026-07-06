@@ -28,6 +28,13 @@ The system prompt's opening line was a literal hardcoded sentence naming Prismm 
 
 All three hardcoded Prismm's coral (`#f9655b`) directly for "Posted" badges/buttons/text, while `src/pages/Dashboard.tsx` correctly read the same value from `profiles.primary_color`. All three now load and use `profiles.primary_color` the same way Dashboard does, with the old coral kept only as an in-memory fallback for profiles that haven't set one yet.
 
+### Settings' Prompt Inspector showed a hardcoded Prismm identity line
+**File:** `supabase/functions/preview-prompt/index.ts`
+
+The Prompt Inspector on Settings.tsx exists specifically so a user can see the literal system prompt real generation sends — its own header comment says it's "a second copy, not a shared import" of `execute-autopilot-template`'s system-prompt assembly, kept in sync by hand. When `execute-autopilot-template` was fixed (see the entry above) to build its opening identity line from `profile.business_name` / `profile.business_description` via `buildIdentityLine()`, this second copy was never updated to match — it still opened with the literal string "You are Prismm's content engine. Prismm is inheritance infrastructure for financial institutions." even though the function already fetched both fields (and used them correctly in the CONTEXT block shown lower down). Anyone reconfiguring Strategy for a different business would see the Prompt Inspector confidently show them the wrong company's identity in the one place designed to prove what's actually sent.
+
+**Now:** `preview-prompt/index.ts` has its own `buildIdentityLine()` (a hand-kept duplicate of `execute-autopilot-template`'s, consistent with how the rest of this file is already a manual mirror rather than a shared import), and the system prompt it renders opens with that instead of the literal string. Falls back to the same generic "Set a business name and description in Strategy" line as the original fix when neither field is set.
+
 ### LinkedIn character limit — NOT fixed, downgraded to low priority
 Still duplicated as `LINKEDIN_MAX_CHARS = 3000` in `supabase/functions/publish-to-zernio/index.ts` and `supabase/functions/reschedule-draft/index.ts`. Not business-specific (it's a real, correct-for-anyone LinkedIn platform limit) — just duplicated rather than shared. Low priority; move to `_shared/` when convenient, not urgent.
 

@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { CheckCheck, Send, AlertTriangle, RefreshCw, ExternalLink } from "lucide-react";
+import { CheckCheck, Send, AlertTriangle, RefreshCw, ExternalLink, ListRestart } from "lucide-react";
 import { ensureVisualImageUploaded } from "@/lib/ensureVisualImage";
 
 interface Draft {
@@ -38,6 +38,7 @@ export const ApprovedTab = () => {
   const [loading, setLoading] = useState(true);
   const [postingNowId, setPostingNowId] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [retryingAll, setRetryingAll] = useState(false);
 
   // Same platform/post-type filter as Pending — formats.platform is real
   // per-format data, not a hardcoded channel list.
@@ -96,8 +97,21 @@ export const ApprovedTab = () => {
     }
   };
 
+  const describeRetryResult = (data: any) => {
+    if (data?.status === "scheduled") {
+      const when = new Date(data.scheduledFor).toLocaleString();
+      if (data.basis === "queued") return `That slot was already taken; queued for the next open one, publishing ${when}`;
+      if (data.basis === "rescheduled") return `Slot time had passed; rescheduled to publish ${when}`;
+      return `Scheduled to publish ${when}`;
+    }
+    if (data?.status === "needs_attention") return `Still needs attention: ${data.error}`;
+    if (data?.status === "failed" || data?.error) return `Still failing: ${data.error}`;
+    if (data?.alreadyScheduled) return "This draft is already scheduled.";
+    return null;
+  };
+
   const handleRetrySchedule = async (draftId: string) => {
-    if (retryingId) return;
+    if (retryingId || retryingAll) return;
     setRetryingId(draftId);
     toast.info("Retrying schedule...");
     try {
@@ -107,21 +121,58 @@ export const ApprovedTab = () => {
       }
       const { data, error } = await supabase.functions.invoke("publish-to-zernio", { body: { draftId } });
       if (error) { toast.error("Retry could not reach the scheduler"); return; }
-      if (data?.status === "scheduled") {
-        const when = new Date(data.scheduledFor).toLocaleString();
-        toast.success(data.basis === "rescheduled"
-          ? `Slot time had passed; rescheduled to publish ${when}`
-          : `Scheduled to publish ${when}`);
-      } else if (data?.status === "needs_attention") {
-        toast.warning(`Still needs attention: ${data.error}`);
-      } else if (data?.status === "failed" || data?.error) {
-        toast.error(`Still failing: ${data.error}`);
-      } else if (data?.alreadyScheduled) {
-        toast.info("This draft is already scheduled.");
+      const message = describeRetryResult(data);
+      if (message) {
+        if (data?.status === "scheduled") toast.success(message);
+        else if (data?.status === "needs_attention") toast.warning(message);
+        else if (data?.status === "failed" || data?.error) toast.error(message);
+        else toast.info(message);
       }
       loadDrafts();
     } finally {
       setRetryingId(null);
+    }
+  };
+
+  // Retries every stuck draft in the Needs attention card, one at a time,
+  // oldest-approved first. This is what actually clears a backlog of
+  // same-slot stuck drafts correctly: publish-to-zernio's occupancy check
+  // only sees a prior draft's slot as claimed once that draft's write has
+  // landed, so running them sequentially (await, not Promise.all) is what
+  // sequences them onto consecutive open cadence slots instead of every one
+  // independently resolving to the same next occurrence.
+  const handleRetryAll = async () => {
+    if (retryingAll || retryingId) return;
+    setRetryingAll(true);
+    const queue = [...attentionDrafts].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    let succeeded = 0;
+    let stillStuck = 0;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      for (const draft of queue) {
+        setRetryingId(draft.id);
+        try {
+          if (session?.user?.id) {
+            await ensureVisualImageUploaded(draft.id, session.user.id, { timeoutMs: 10000 });
+          }
+          const { data, error } = await supabase.functions.invoke("publish-to-zernio", { body: { draftId: draft.id } });
+          if (!error && data?.status === "scheduled") succeeded++;
+          else stillStuck++;
+        } catch {
+          stillStuck++;
+        }
+      }
+    } finally {
+      setRetryingId(null);
+      setRetryingAll(false);
+      if (succeeded > 0 && stillStuck === 0) {
+        toast.success(`Scheduled all ${succeeded} into open cadence slots.`);
+      } else if (succeeded > 0) {
+        toast.warning(`Scheduled ${succeeded}, ${stillStuck} still need attention.`);
+      } else {
+        toast.error("None of them scheduled — check the reasons below.");
+      }
+      loadDrafts();
     }
   };
 
@@ -195,13 +246,23 @@ export const ApprovedTab = () => {
       {attentionDrafts.length > 0 && (
         <Card className="mb-6 border-amber-300 bg-amber-50">
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-amber-900 text-lg">
-              <AlertTriangle className="h-5 w-5" />
-              Needs attention ({attentionDrafts.length})
-            </CardTitle>
-            <CardDescription className="text-amber-800">
-              These drafts were approved but did not schedule. Fix the cause, then retry. Nothing here has posted.
-            </CardDescription>
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-amber-900 text-lg">
+                  <AlertTriangle className="h-5 w-5" />
+                  Needs attention ({attentionDrafts.length})
+                </CardTitle>
+                <CardDescription className="text-amber-800">
+                  These drafts were approved but did not schedule. Fix the cause, then retry. Nothing here has posted.
+                </CardDescription>
+              </div>
+              {attentionDrafts.length > 1 && (
+                <Button size="sm" variant="outline" onClick={handleRetryAll} disabled={retryingAll || !!retryingId} className="shrink-0 bg-white">
+                  <ListRestart className="h-4 w-4 mr-1" />
+                  {retryingAll ? `Retrying ${retryingId ? attentionDrafts.findIndex(d => d.id === retryingId) + 1 : 1} of ${attentionDrafts.length}...` : `Retry all ${attentionDrafts.length}`}
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
             {attentionDrafts.map((draft) => {
@@ -221,7 +282,7 @@ export const ApprovedTab = () => {
                     <Button size="sm" variant="outline" onClick={() => navigate(`/drafts/${draft.id}`)}>
                       <ExternalLink className="h-4 w-4 mr-1" />View
                     </Button>
-                    <Button size="sm" onClick={() => handleRetrySchedule(draft.id)} disabled={retryingId === draft.id}>
+                    <Button size="sm" onClick={() => handleRetrySchedule(draft.id)} disabled={retryingId === draft.id || retryingAll}>
                       <RefreshCw className="h-4 w-4 mr-1" />{retryingId === draft.id ? "Retrying..." : "Retry"}
                     </Button>
                   </div>

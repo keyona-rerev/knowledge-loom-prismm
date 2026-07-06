@@ -19,6 +19,14 @@
 // drafts.metrics_error per draft instead of assuming success, so a
 // plan/billing gap shows up in the UI rather than metrics silently never
 // populating.
+//
+// getPost()'s GET /v1/posts/{id} also hasn't been probed against a live
+// post. Status field name is guessed defensively (status/state), same
+// pattern as the rest of this file. A 404 is treated as "notFound" (post
+// doesn't exist on Zernio's side at all) rather than thrown, since
+// reconcile-scheduled-posts needs to distinguish "confirmed gone" from
+// "the lookup itself failed" (network error, auth problem) — the former is
+// safe to act on, the latter isn't.
 
 import type {
   ConnectStart,
@@ -27,6 +35,7 @@ import type {
   PublishInput,
   PublishResult,
   PostAnalytics,
+  PostStatus,
   SocialAccount,
 } from "./publisher.ts";
 
@@ -135,6 +144,32 @@ export class ZernioPublisher implements Publisher {
       likes: stats.likes ?? stats.likeCount ?? stats.reactions ?? null,
       comments: stats.comments ?? stats.commentCount ?? null,
       impressions: stats.impressions ?? stats.impressionCount ?? stats.views ?? null,
+    };
+  }
+
+  async getPost(postId: string): Promise<PostStatus> {
+    const res = await fetch(`${BASE_URL}/posts/${encodeURIComponent(postId)}`, {
+      headers: { Authorization: `Bearer ${this.#apiKey}`, "Content-Type": "application/json" },
+    });
+    if (res.status === 404) {
+      return { status: "not_found", publishedAt: null, notFound: true };
+    }
+    const text = await res.text();
+    let body: any = null;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      body = text;
+    }
+    if (!res.ok) {
+      const msg = body?.error || body?.message || text || `HTTP ${res.status}`;
+      throw new Error(`Zernio GET /posts/${postId} failed (${res.status}): ${msg}`);
+    }
+    const post = body?.post ?? body;
+    return {
+      status: post?.status ?? post?.state ?? "unknown",
+      publishedAt: post?.publishedAt ?? post?.postedAt ?? post?.publishedTime ?? null,
+      notFound: false,
     };
   }
 

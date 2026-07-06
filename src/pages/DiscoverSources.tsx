@@ -101,7 +101,20 @@ const DiscoverSources = () => {
         });
 
         if (error) {
-          toast.error("Search failed: " + error.message);
+          // supabase-js's default error.message for a failed function call
+          // is a generic "Edge Function returned a non-2xx status code" —
+          // it doesn't surface the actual JSON body search-sources sent
+          // back (e.g. the real Anthropic API error). Pull the real reason
+          // out of the response context when it's available so failures
+          // are actually diagnosable instead of a dead end.
+          let detail = error.message;
+          try {
+            const body = await error.context?.json?.();
+            if (body?.error) detail = body.error;
+          } catch {
+            // context wasn't readable JSON — fall back to the generic message
+          }
+          toast.error("Search failed: " + detail);
           break;
         }
         if (data?.error) {

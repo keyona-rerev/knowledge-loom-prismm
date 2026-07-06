@@ -76,10 +76,6 @@ const Dashboard = () => {
     const userId = session.user.id;
 
     try {
-      const isPosted = (d: { publish_status: string | null; scheduled_for: string | null }) =>
-        d.publish_status === "published_now" ||
-        (d.publish_status === "scheduled" && !!d.scheduled_for && new Date(d.scheduled_for).getTime() < Date.now());
-
       const [
         { data: allDrafts, error: draftsError },
         { data: profile, error: profileError },
@@ -105,12 +101,22 @@ const Dashboard = () => {
 
       const drafts = allDrafts || [];
       const pendingReviews = drafts.filter(d => d.approval_status === "pending" || d.approval_status === "needs_revision").length;
-      // "Approved" here means still waiting to go out. approval_status stays
-      // "approved" forever, even after publish_status flips to published_now,
-      // so without excluding already-posted drafts this count (and the
-      // threshold banner built on it) would only ever grow and never reflect
-      // an actually-thinning queue.
-      const approvedDrafts = drafts.filter(d => d.approval_status === "approved" && !isPosted(d)).length;
+      // "Ready to publish" means genuinely still queued: approved, actually
+      // handed to Zernio (publish_status='scheduled'), and still in the
+      // future as of right now. This used to be "approved and not posted,"
+      // which double-counted stuck drafts (needs_attention / failed / never
+      // reached the scheduler) as if they were part of a healthy queue —
+      // they're not going anywhere until someone fixes them, so counting
+      // them here made the threshold banner look healthier than reality
+      // (Review's own header count had the same bug and was fixed the same
+      // way; this brings Dashboard in line with it).
+      const nowMs = Date.now();
+      const approvedDrafts = drafts.filter(d =>
+        d.approval_status === "approved" &&
+        d.publish_status === "scheduled" &&
+        !!d.scheduled_for &&
+        new Date(d.scheduled_for).getTime() > nowMs
+      ).length;
 
       setStats({
         pendingReviews,

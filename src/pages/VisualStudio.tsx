@@ -56,15 +56,21 @@ const BODY_FONTS = [
   { label: "Outfit", value: "Outfit", weight: "400" },
 ];
 
+// These 4 are the ONLY visual types the AI actually knows how to produce
+// (see supabase/functions/_shared/visual-prompt.ts, the single source of
+// truth both this toggle list and the real prompt draw from). This used to
+// list 8 different types (stat_graphic, quote_card, pillar_statement,
+// human_moment, comparison, timeline, checklist, branded_announcement)
+// that had no connection to the AI's real logic at all — toggling them did
+// nothing. Rather than build prompt support for 8 types (a real scope
+// decision) or leave decorative toggles that lie about having an effect,
+// this list was cut down to exactly what's real. Toggling one of these
+// off now genuinely removes it from what the AI can choose.
 const ALL_VISUAL_TYPES = [
-  { id: "stat_graphic", label: "Stat graphic", desc: "Hero number with minimal context" },
-  { id: "quote_card", label: "Quote card", desc: "Pull quote in display type" },
-  { id: "pillar_statement", label: "Pillar statement", desc: "Single ownable thesis, full bleed" },
-  { id: "human_moment", label: "Human moment", desc: "Narrative-forward, warm tone" },
-  { id: "comparison", label: "Comparison", desc: "Before/after or with/without Prismm" },
-  { id: "timeline", label: "Timeline", desc: "Wealth transfer window and urgency" },
-  { id: "checklist", label: "Checklist", desc: "Preparedness pillar, action-oriented" },
-  { id: "branded_announcement", label: "Branded announcement", desc: "Product news, wordmark lockup" },
+  { id: "hero_number", label: "Hero number", desc: "One large stat or number dominates the canvas, short statement below" },
+  { id: "before_after", label: "Before / after", desc: "Canvas split into two halves showing contrast" },
+  { id: "logic_diagram", label: "Logic diagram", desc: "2-3 connected nodes or steps showing how something works" },
+  { id: "transformation", label: "Transformation", desc: "A single symbolic visual at large scale showing change or direction" },
 ];
 
 const DEFAULT_RULES: DesignRule[] = [
@@ -88,7 +94,7 @@ const DEFAULT_CONFIG: VisualConfig = {
   canvas_width: 1200,
   canvas_height: 627,
   design_rules: DEFAULT_RULES,
-  enabled_visual_types: ["stat_graphic", "quote_card", "pillar_statement", "comparison", "checklist", "branded_announcement"],
+  enabled_visual_types: ["hero_number", "before_after", "logic_diagram", "transformation"],
 };
 
 function loadGoogleFont(family: string) {
@@ -142,7 +148,15 @@ const VisualStudio = () => {
       if (data && (data as any).visual_studio_config) {
         try {
           const saved = JSON.parse((data as any).visual_studio_config);
-          setConfig({ ...DEFAULT_CONFIG, ...saved });
+          const validTypeIds = new Set(ALL_VISUAL_TYPES.map(t => t.id));
+          const merged = { ...DEFAULT_CONFIG, ...saved };
+          // Migrate away from the old 8-type vocabulary: if a saved config
+          // has stale ids (or none valid), fall back to all 4 real types
+          // rather than carrying forward toggles that never did anything.
+          const savedTypes: string[] = Array.isArray(saved.enabled_visual_types) ? saved.enabled_visual_types : [];
+          const stillValid = savedTypes.filter((id: string) => validTypeIds.has(id));
+          merged.enabled_visual_types = stillValid.length > 0 ? stillValid : DEFAULT_CONFIG.enabled_visual_types;
+          setConfig(merged);
         } catch { /* stay on defaults */ }
       }
 
@@ -567,7 +581,7 @@ const VisualStudio = () => {
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><LayoutGrid className="h-5 w-5" />Visual types</CardTitle>
-            <CardDescription>Toggle which types the AI can choose from. Disabled types are removed from the prompt entirely.</CardDescription>
+            <CardDescription>Toggle which types the AI can choose from. Disabled types are removed from the prompt entirely — these 4 are the only types the AI actually knows how to produce.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

@@ -26,6 +26,7 @@ interface Draft {
 interface FormatRow { id: string; name: string; platform: string; }
 
 const ALL = "__all__";
+const FALLBACK_ACCENT = "#f9655b";
 
 // Approved tab: everything the user has said yes to. Includes drafts that
 // haven't posted yet, drafts scheduled or posted, and the ones that got
@@ -39,6 +40,13 @@ export const ApprovedTab = () => {
   const [postingNowId, setPostingNowId] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [retryingAll, setRetryingAll] = useState(false);
+  // Previously hardcoded to Prismm's coral (#f9655b) directly in this file
+  // in four places, while Dashboard.tsx correctly reads the same value from
+  // profiles.primary_color. Switching businesses would leave this tab
+  // showing the wrong brand color even after Dashboard picked up the new
+  // one. Now reads the same profile column, with the old Prismm coral kept
+  // only as a fallback for profiles that haven't set a primary_color yet.
+  const [accentColor, setAccentColor] = useState(FALLBACK_ACCENT);
 
   // Same platform/post-type filter as Pending — formats.platform is real
   // per-format data, not a hardcoded channel list.
@@ -48,7 +56,19 @@ export const ApprovedTab = () => {
 
   useEffect(() => {
     loadDrafts();
+    loadAccentColor();
   }, []);
+
+  const loadAccentColor = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const { data } = await supabase
+      .from("profiles")
+      .select("primary_color")
+      .eq("user_id", session.user.id)
+      .maybeSingle();
+    if (data?.primary_color) setAccentColor(data.primary_color);
+  };
 
   const loadDrafts = async () => {
     setLoading(true);
@@ -178,7 +198,7 @@ export const ApprovedTab = () => {
 
   const getScheduleLabel = (draft: Draft) => {
     if (draft.publish_status === "published_now") {
-      return <span className="text-xs font-medium" style={{ color: "#f9655b" }}>Posted to LinkedIn</span>;
+      return <span className="text-xs font-medium" style={{ color: accentColor }}>Posted to LinkedIn</span>;
     }
     if (draft.publish_status === "scheduled" && draft.scheduled_for) {
       const when = new Date(draft.scheduled_for).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -343,9 +363,10 @@ export const ApprovedTab = () => {
               >
                 <div
                   className="flex-1 min-w-0 cursor-pointer"
+                  style={{ "--kl-accent": accentColor } as React.CSSProperties}
                   onClick={() => navigate(`/drafts/${draft.id}`)}
                 >
-                  <p className="text-sm font-medium truncate hover:text-[#f9655b] transition-colors">{draft.title || draft.seed_insight}</p>
+                  <p className="text-sm font-medium truncate hover:text-[var(--kl-accent)] transition-colors">{draft.title || draft.seed_insight}</p>
                   <div className="flex items-center gap-2 mt-1">
                     <Badge variant="outline">{draft.content_type || "blog_post"}</Badge>
                     {getScheduleLabel(draft)}
@@ -353,7 +374,7 @@ export const ApprovedTab = () => {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {isPostedNow ? (
-                    <Badge style={{ backgroundColor: "#f9655b", color: "#ffffff" }} className="flex items-center gap-1 px-3">
+                    <Badge style={{ backgroundColor: accentColor, color: "#ffffff" }} className="flex items-center gap-1 px-3">
                       <Send className="h-3 w-3" />Posted
                     </Badge>
                   ) : (
@@ -361,7 +382,7 @@ export const ApprovedTab = () => {
                       size="sm"
                       disabled={isPostingNow}
                       onClick={() => handlePostNow(draft)}
-                      style={{ backgroundColor: "#f9655b", color: "#ffffff" }}
+                      style={{ backgroundColor: accentColor, color: "#ffffff" }}
                     >
                       <Send className="h-4 w-4 mr-1" />
                       {isPostingNow ? "Posting..." : "Post Now"}

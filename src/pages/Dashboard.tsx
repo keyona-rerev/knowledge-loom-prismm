@@ -262,7 +262,7 @@ The dashboard shows your review pipeline and quick access to everything else.`}
                         {flaggedNewsletters.length} source{flaggedNewsletters.length === 1 ? "" : "s"} flagged by the weekly health scan
                       </p>
                       <p className="text-sm text-orange-800 mt-0.5">
-                        Consistently low relevance to your Strategy page. Checked every 7 days.
+                        Consistently low relevance to your Strategy page. Checked every 7 days — see the Health check tab in Review for the full picture or to re-scan now.
                       </p>
                     </div>
                     <ChevronDown className={`h-4 w-4 text-orange-700 shrink-0 transition-transform ${healthOpen ? "rotate-180" : ""}`} />
@@ -287,8 +287,8 @@ The dashboard shows your review pipeline and quick access to everything else.`}
                       </div>
                     ))}
                   </div>
-                  <Button size="sm" variant="outline" onClick={() => navigate("/feeds")} className="mt-3">
-                    Go to Sources
+                  <Button size="sm" variant="outline" onClick={() => navigate("/review?tab=health")} className="mt-3">
+                    Go to Health check
                   </Button>
                 </CardContent>
               </CollapsibleContent>

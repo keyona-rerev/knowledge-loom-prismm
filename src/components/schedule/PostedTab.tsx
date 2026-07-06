@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { RefreshCw, Send, ThumbsUp, MessageSquare, Eye, Clock } from "lucide-react";
+import { RefreshCw, Send, ThumbsUp, MessageSquare, Eye, Clock, ShieldCheck } from "lucide-react";
 
 interface PostedDraft {
   id: string;
@@ -24,6 +24,7 @@ export const PostedTab = () => {
   const [posted, setPosted] = useState<PostedDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
 
   useEffect(() => {
     load();
@@ -70,18 +71,57 @@ export const PostedTab = () => {
     }
   };
 
+  // The rows in this tab whose publish_status is 'scheduled' with a past
+  // scheduled_for are shown as "posted" purely by assumption — the time
+  // passed, so it's treated as gone out. Nothing has ever actually
+  // confirmed that with Zernio. This calls reconcile-scheduled-posts, which
+  // asks Zernio directly per post: confirmed-posted rows get normalized to
+  // published_now (so they stop depending on the clock at all going
+  // forward); confirmed-NOT-posted rows move to publish_status='failed' and
+  // disappear from this list, but reappear in Approved's Needs attention
+  // card since that's where anything approved-but-not-actually-out belongs.
+  const handleReconcile = async () => {
+    setReconciling(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("reconcile-scheduled-posts", { body: {} });
+      if (error) throw error;
+      if (!data?.checked) {
+        toast.info("Nothing to reconcile — no assumed-posted drafts to check right now.");
+      } else if (data.confirmedNotPosted > 0) {
+        toast.warning(
+          `Checked ${data.checked}: ${data.confirmedPosted} confirmed posted, ${data.confirmedNotPosted} did NOT actually post (moved to Needs attention)${data.stillAmbiguous ? `, ${data.stillAmbiguous} still ambiguous` : ""}.`
+        );
+      } else {
+        toast.success(
+          `Checked ${data.checked}: all ${data.confirmedPosted} confirmed posted with Zernio${data.stillAmbiguous ? `, ${data.stillAmbiguous} still ambiguous` : ""}.`
+        );
+      }
+      await load();
+    } catch (err) {
+      toast.error("Reconciliation failed: " + (err as Error)?.message);
+    } finally {
+      setReconciling(false);
+    }
+  };
+
   if (loading) {
     return <div className="text-center py-16 text-muted-foreground">Loading posted content...</div>;
   }
 
   return (
     <>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-2">
         <p className="text-muted-foreground">Posts that have actually gone out on LinkedIn.</p>
-        <Button variant="outline" size="sm" onClick={handleSync} disabled={syncing}>
-          <RefreshCw className={`h-3.5 w-3.5 mr-2 ${syncing ? "animate-spin" : ""}`} />
-          {syncing ? "Syncing..." : "Sync metrics"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleReconcile} disabled={reconciling}>
+            <ShieldCheck className={`h-3.5 w-3.5 mr-2 ${reconciling ? "animate-pulse" : ""}`} />
+            {reconciling ? "Reconciling..." : "Reconcile with Zernio"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleSync} disabled={syncing}>
+            <RefreshCw className={`h-3.5 w-3.5 mr-2 ${syncing ? "animate-spin" : ""}`} />
+            {syncing ? "Syncing..." : "Sync metrics"}
+          </Button>
+        </div>
       </div>
 
       {posted.length === 0 ? (

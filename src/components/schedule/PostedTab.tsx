@@ -19,16 +19,36 @@ interface PostedDraft {
   metrics_error: string | null;
 }
 
+const FALLBACK_ACCENT = "#f9655b";
+
 export const PostedTab = () => {
   const navigate = useNavigate();
   const [posted, setPosted] = useState<PostedDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [reconciling, setReconciling] = useState(false);
+  // Previously hardcoded to Prismm's coral (#f9655b) directly for the
+  // "Posted" badge, while Dashboard.tsx correctly reads the same value from
+  // profiles.primary_color. Now reads the same column, with the old Prismm
+  // coral kept only as a fallback for profiles that haven't set a
+  // primary_color yet.
+  const [accentColor, setAccentColor] = useState(FALLBACK_ACCENT);
 
   useEffect(() => {
     load();
+    loadAccentColor();
   }, []);
+
+  const loadAccentColor = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const { data } = await supabase
+      .from("profiles")
+      .select("primary_color")
+      .eq("user_id", session.user.id)
+      .maybeSingle();
+    if (data?.primary_color) setAccentColor(data.primary_color);
+  };
 
   const load = async () => {
     setLoading(true);
@@ -155,7 +175,7 @@ export const PostedTab = () => {
               ) : (
                 <span className="text-xs text-muted-foreground shrink-0">Not synced yet</span>
               )}
-              <Badge style={{ backgroundColor: "#f9655b", color: "#ffffff" }} className="text-xs shrink-0">
+              <Badge style={{ backgroundColor: accentColor, color: "#ffffff" }} className="text-xs shrink-0">
                 <Send className="h-3 w-3 mr-1" />Posted
               </Badge>
             </div>

@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
+import { describeInvokeError } from "@/lib/edgeFunctionError";
 import { toast } from "sonner";
 import { ScheduledDraft } from "./schedule-types";
 
@@ -38,8 +39,9 @@ export const RescheduleDialog = ({ draft, onClose, onRescheduled }: RescheduleDi
       const { data, error } = await supabase.functions.invoke("reschedule-draft", {
         body: { draftId: draft.id, newScheduledFor: newDate.toISOString(), timezone },
       });
-      if (error) throw error;
-      if (data?.ok) {
+      if (error) {
+        toast.error("Reschedule failed: " + (await describeInvokeError(error)));
+      } else if (data?.ok) {
         toast.success("Rescheduled");
       } else {
         toast.error(data?.error || "Reschedule failed");

@@ -11,7 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Check, X, Clock, CheckCheck, Ban, MessageCircle, AlertTriangle } from "lucide-react";
+import { Check, X, Clock, CheckCheck, Ban, MessageCircle, AlertTriangle, Loader2, CheckCircle2 } from "lucide-react";
 import { ensureVisualImageUploaded } from "@/lib/ensureVisualImage";
 
 interface Draft {
@@ -26,6 +26,17 @@ interface Draft {
   stat_flag?: string | null;
 }
 
+// A draft mid-decision: "approving"/"rejecting" cover the moment between the
+// click and the DB write finishing; "approved"/"rejected" is a brief hold
+// afterward so the outcome is visible before the row actually leaves the
+// list. Without this, clicking Approve made the post vanish from the page
+// instantly, with nothing on screen to confirm the click had done anything.
+type TransitionState = "approving" | "approved" | "rejecting" | "rejected";
+
+// How long the "Approved -- moving to your queue" (or rejected) state stays
+// visible before the row is actually removed from the list.
+const SETTLE_MS = 900;
+
 // Pending tab: drafts awaiting a first decision, plus drafts that were sent
 // back for AI revision (needs_revision) and haven't resurfaced as pending
 // yet. Both land here because both still need something from the user —
@@ -37,6 +48,7 @@ export const PendingTab = () => {
   const [selectedDrafts, setSelectedDrafts] = useState<string[]>([]);
   const [bulkAction, setBulkAction] = useState<string>("");
   const [rejectNote, setRejectNote] = useState("");
+  const [transitioning, setTransitioning] = useState<Record<string, TransitionState>>({});
 
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [selectedDraft, setSelectedDraft] = useState<Draft | null>(null);
@@ -65,11 +77,35 @@ export const PendingTab = () => {
     setLoading(false);
   };
 
+  const setTransition = (draftId: string, state: TransitionState) => {
+    setTransitioning(prev => ({ ...prev, [draftId]: state }));
+  };
+
+  const clearTransition = (draftId: string) => {
+    setTransitioning(prev => {
+      const next = { ...prev };
+      delete next[draftId];
+      return next;
+    });
+  };
+
+  // Removes the row locally after the settle delay, without a full
+  // loadDrafts() re-fetch — a re-fetch mid-delay would immediately drop the
+  // row (it no longer matches the pending/needs_revision filter) and
+  // skip the visible hold entirely.
+  const settleAndRemove = (draftId: string) => {
+    setTimeout(() => {
+      setDrafts(prev => prev.filter(d => d.id !== draftId));
+      setSelectedDrafts(prev => prev.filter(id => id !== draftId));
+      clearTransition(draftId);
+    }, SETTLE_MS);
+  };
+
   const handleApprove = async (draftId: string) => {
+    if (transitioning[draftId]) return; // already mid-decision
     const { data: { session } } = await supabase.auth.getSession();
 
-    setDrafts(prev => prev.filter(d => d.id !== draftId));
-    setSelectedDrafts(prev => prev.filter(id => id !== draftId));
+    setTransition(draftId, "approving");
 
     const { error } = await supabase
       .from("drafts")
@@ -77,12 +113,14 @@ export const PendingTab = () => {
       .eq("id", draftId);
 
     if (error) {
+      clearTransition(draftId);
       toast.error("Failed to approve draft");
-      loadDrafts();
       return;
     }
 
+    setTransition(draftId, "approved");
     toast.success("Draft approved! Generating visual...");
+    settleAndRemove(draftId);
 
     (async () => {
       if (session?.user?.id) {
@@ -122,6 +160,7 @@ export const PendingTab = () => {
 
   const submitSmartRejection = async () => {
     if (!selectedDraft) return;
+    const draftId = selectedDraft.id;
     try {
       if (requestRevision && rejectionFeedback.trim()) {
         const { error } = await supabase
@@ -132,30 +171,42 @@ export const PendingTab = () => {
             revision_feedback: rejectionFeedback,
             reviewed_at: new Date().toISOString()
           })
-          .eq("id", selectedDraft.id);
+          .eq("id", draftId);
         if (error) { toast.error("Failed to request revision"); return; }
         const { error: functionError } = await supabase.functions.invoke("regenerate-draft-with-feedback", {
-          body: { draftId: selectedDraft.id, feedback: rejectionFeedback }
+          body: { draftId, feedback: rejectionFeedback }
         });
         if (functionError) {
           toast.success("Revision requested! The draft will be updated shortly.");
         } else {
           toast.success("Revision requested! AI is regenerating with your feedback.");
         }
+        // needs_revision still matches this tab's own filter, so the row
+        // staying put through a normal reload is correct here (unlike the
+        // permanent-reject branch below, which needs the settle delay
+        // instead of an immediate reload).
+        setRejectModalOpen(false);
+        setRejectionFeedback("");
+        setRequestRevision(true);
+        loadDrafts();
       } else {
+        setTransition(draftId, "rejecting");
         const { error } = await supabase
           .from("drafts")
           .update({ approval_status: "rejected", review_notes: rejectionFeedback, reviewed_at: new Date().toISOString() })
-          .eq("id", selectedDraft.id);
-        if (error) { toast.error("Failed to reject draft"); return; }
+          .eq("id", draftId);
+        if (error) {
+          clearTransition(draftId);
+          toast.error("Failed to reject draft");
+          return;
+        }
+        setTransition(draftId, "rejected");
         toast.success("Draft rejected.");
-        setDrafts(prev => prev.filter(d => d.id !== selectedDraft.id));
+        setRejectModalOpen(false);
+        setRejectionFeedback("");
+        setRequestRevision(true);
+        settleAndRemove(draftId);
       }
-      setRejectModalOpen(false);
-      setRejectionFeedback("");
-      setRequestRevision(true);
-      loadDrafts();
-      setSelectedDrafts(prev => prev.filter(id => id !== selectedDraft.id));
     } catch (error) {
       toast.error("Something went wrong");
     }
@@ -246,70 +297,103 @@ export const PendingTab = () => {
         </Card>
       ) : (
         <div className="space-y-4">
-          {drafts.map((draft) => (
-            <Card key={draft.id} className="hover:shadow-md transition-shadow">
-              <CardContent className="p-6">
-                <div className="flex items-start gap-4">
-                  <Checkbox checked={selectedDrafts.includes(draft.id)} onCheckedChange={() => toggleSelectDraft(draft.id)} className="mt-1" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-start mb-3">
-                      <div className="flex-1">
-                        <h3
-                          className="font-semibold text-lg mb-2 cursor-pointer hover:underline hover:text-[#f9655b] transition-colors"
-                          onClick={() => navigate(`/drafts/${draft.id}`)}
-                        >
-                          {draft.title || draft.seed_insight}
-                        </h3>
-                        <div className="flex flex-wrap gap-2 items-center mb-1">
-                          {draft.approval_status === "needs_revision" ? (
-                            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200"><MessageCircle className="h-3 w-3 mr-1" />Needs Revision</Badge>
-                          ) : (
-                            <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200"><Clock className="h-3 w-3 mr-1" />Pending Review</Badge>
-                          )}
-                          <Badge variant="outline">{draft.content_type || "blog_post"}</Badge>
+          {drafts.map((draft) => {
+            const state = transitioning[draft.id];
+            const isRejectSide = state === "rejecting" || state === "rejected";
+            const isSettled = state === "approved" || state === "rejected";
+            return (
+              <Card
+                key={draft.id}
+                className={`hover:shadow-md transition-all duration-500 ${isSettled ? "opacity-60 scale-[0.99]" : ""}`}
+              >
+                <CardContent className="p-6">
+                  <div className="flex items-start gap-4">
+                    <Checkbox
+                      checked={selectedDrafts.includes(draft.id)}
+                      onCheckedChange={() => toggleSelectDraft(draft.id)}
+                      disabled={!!state}
+                      className="mt-1"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex-1">
+                          <h3
+                            className="font-semibold text-lg mb-2 cursor-pointer hover:underline hover:text-[#f9655b] transition-colors"
+                            onClick={() => navigate(`/drafts/${draft.id}`)}
+                          >
+                            {draft.title || draft.seed_insight}
+                          </h3>
+                          <div className="flex flex-wrap gap-2 items-center mb-1">
+                            {draft.approval_status === "needs_revision" ? (
+                              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200"><MessageCircle className="h-3 w-3 mr-1" />Needs Revision</Badge>
+                            ) : (
+                              <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200"><Clock className="h-3 w-3 mr-1" />Pending Review</Badge>
+                            )}
+                            <Badge variant="outline">{draft.content_type || "blog_post"}</Badge>
+                          </div>
                         </div>
+
+                        {state ? (
+                          <div
+                            className={`flex items-center gap-2 ml-4 shrink-0 rounded-md border px-3 py-2 text-sm font-medium ${
+                              isRejectSide
+                                ? "bg-red-50 text-red-700 border-red-200"
+                                : "bg-green-50 text-green-700 border-green-200"
+                            }`}
+                          >
+                            {(state === "approving" || state === "rejecting") ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="h-4 w-4" />
+                            )}
+                            {state === "approving" && "Approving..."}
+                            {state === "approved" && "Approved — moving to your queue"}
+                            {state === "rejecting" && "Rejecting..."}
+                            {state === "rejected" && "Rejected — leaving review"}
+                          </div>
+                        ) : (
+                          <div className="flex gap-2 ml-4 shrink-0">
+                            <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => handleSmartReject(draft)}>
+                              <X className="h-4 w-4 mr-1" />Reject
+                            </Button>
+                            <Button size="sm" onClick={() => handleApprove(draft.id)}>
+                              <Check className="h-4 w-4 mr-1" />Approve
+                            </Button>
+                          </div>
+                        )}
                       </div>
 
-                      <div className="flex gap-2 ml-4 shrink-0">
-                        <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => handleSmartReject(draft)}>
-                          <X className="h-4 w-4 mr-1" />Reject
-                        </Button>
-                        <Button size="sm" onClick={() => handleApprove(draft.id)}>
-                          <Check className="h-4 w-4 mr-1" />Approve
-                        </Button>
+                      {draft.stat_flag && (
+                        <div className="flex items-start gap-2 mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                          <span>{draft.stat_flag}</span>
+                        </div>
+                      )}
+                      <div className="prose prose-sm max-w-none mb-4">
+                        <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize((draft.body || "").replace(/\n/g, "<br/>"), { ALLOWED_TAGS: ["p", "br", "strong", "em", "b", "i", "u", "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6", "a", "blockquote", "code", "pre", "span", "div"], ALLOWED_ATTR: ["href", "target", "rel", "class", "id"], FORBID_ATTR: ["style", "onclick", "onload", "onerror", "onmouseover"] }) }} />
                       </div>
-                    </div>
-
-                    {draft.stat_flag && (
-                      <div className="flex items-start gap-2 mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
-                        <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                        <span>{draft.stat_flag}</span>
+                      {Array.isArray(draft.stat_attributions) && draft.stat_attributions.length > 0 && (
+                        <div className="text-sm border-t pt-3 mb-1">
+                          <p className="font-medium mb-2">Figures and their sources</p>
+                          <ul className="space-y-1">
+                            {draft.stat_attributions.map((a, i) => (
+                              <li key={i} className="text-muted-foreground">
+                                <span className="font-medium text-foreground">{a.figure || "(figure)"}</span>
+                                {" "}from {a.source || "(no source given)"}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      <div className="text-xs text-muted-foreground mt-3">
+                        Created {new Date(draft.created_at).toLocaleDateString()}
                       </div>
-                    )}
-                    <div className="prose prose-sm max-w-none mb-4">
-                      <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize((draft.body || "").replace(/\n/g, "<br/>"), { ALLOWED_TAGS: ["p", "br", "strong", "em", "b", "i", "u", "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6", "a", "blockquote", "code", "pre", "span", "div"], ALLOWED_ATTR: ["href", "target", "rel", "class", "id"], FORBID_ATTR: ["style", "onclick", "onload", "onerror", "onmouseover"] }) }} />
-                    </div>
-                    {Array.isArray(draft.stat_attributions) && draft.stat_attributions.length > 0 && (
-                      <div className="text-sm border-t pt-3 mb-1">
-                        <p className="font-medium mb-2">Figures and their sources</p>
-                        <ul className="space-y-1">
-                          {draft.stat_attributions.map((a, i) => (
-                            <li key={i} className="text-muted-foreground">
-                              <span className="font-medium text-foreground">{a.figure || "(figure)"}</span>
-                              {" "}from {a.source || "(no source given)"}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    <div className="text-xs text-muted-foreground mt-3">
-                      Created {new Date(draft.created_at).toLocaleDateString()}
                     </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 

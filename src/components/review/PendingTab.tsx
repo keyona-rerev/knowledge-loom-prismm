@@ -22,9 +22,14 @@ interface Draft {
   seed_insight: string;
   content_type: string;
   created_at: string;
+  format_id: string | null;
   stat_attributions?: { figure: string; source: string }[] | null;
   stat_flag?: string | null;
 }
+
+interface FormatRow { id: string; name: string; platform: string; }
+
+const ALL = "__all__";
 
 // A draft mid-decision: "approving"/"rejecting" cover the moment between the
 // click and the DB write finishing; "approved"/"rejected" is a brief hold
@@ -55,6 +60,14 @@ export const PendingTab = () => {
   const [rejectionFeedback, setRejectionFeedback] = useState("");
   const [requestRevision, setRequestRevision] = useState(true);
 
+  // Sort/filter by platform then post type. Formats already carry a
+  // platform column (defaults to "linkedin" today, but the field exists
+  // for whenever a venture publishes to more than one place), so this
+  // reads real data rather than a hardcoded platform list.
+  const [formats, setFormats] = useState<FormatRow[]>([]);
+  const [platformFilter, setPlatformFilter] = useState<string>(ALL);
+  const [formatFilter, setFormatFilter] = useState<string>(ALL);
+
   useEffect(() => {
     loadDrafts();
   }, []);
@@ -63,17 +76,21 @@ export const PendingTab = () => {
     setLoading(true);
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { setLoading(false); return; }
-    const { data, error } = await supabase
-      .from("drafts")
-      .select("id, title, body, approval_status, seed_insight, content_type, created_at, stat_attributions, stat_flag")
-      .eq("user_id", session.user.id)
-      .in("approval_status", ["pending", "needs_revision"])
-      .order("created_at", { ascending: false });
+    const [{ data, error }, { data: fmt }] = await Promise.all([
+      supabase
+        .from("drafts")
+        .select("id, title, body, approval_status, seed_insight, content_type, created_at, format_id, stat_attributions, stat_flag")
+        .eq("user_id", session.user.id)
+        .in("approval_status", ["pending", "needs_revision"])
+        .order("created_at", { ascending: false }),
+      supabase.from("formats").select("id, name, platform").eq("user_id", session.user.id).order("platform").order("sort_order"),
+    ]);
     if (error) {
       toast.error("Failed to load pending drafts");
     } else {
       setDrafts(data || []);
     }
+    setFormats((fmt || []) as FormatRow[]);
     setLoading(false);
   };
 
@@ -271,9 +288,25 @@ export const PendingTab = () => {
     setSelectedDrafts(prev => prev.includes(draftId) ? prev.filter(id => id !== draftId) : [...prev, draftId]);
   };
 
-  const toggleSelectAll = () => {
-    if (selectedDrafts.length === drafts.length) { setSelectedDrafts([]); } else { setSelectedDrafts(drafts.map(d => d.id)); }
+  const toggleSelectAllVisible = (visible: Draft[]) => {
+    const visibleIds = visible.map((d) => d.id);
+    const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedDrafts.includes(id));
+    if (allSelected) {
+      setSelectedDrafts((prev) => prev.filter((id) => !visibleIds.includes(id)));
+    } else {
+      setSelectedDrafts((prev) => Array.from(new Set([...prev, ...visibleIds])));
+    }
   };
+
+  const formatById = new Map(formats.map((f) => [f.id, f]));
+  const platforms = Array.from(new Set(formats.map((f) => f.platform))).sort();
+  const formatOptionsForPlatform = platformFilter === ALL ? formats : formats.filter((f) => f.platform === platformFilter);
+  const visibleDrafts = drafts.filter((d) => {
+    const fmt = d.format_id ? formatById.get(d.format_id) : undefined;
+    if (platformFilter !== ALL && fmt?.platform !== platformFilter) return false;
+    if (formatFilter !== ALL && d.format_id !== formatFilter) return false;
+    return true;
+  });
 
   if (loading) {
     return <div className="text-center py-16 text-muted-foreground">Loading pending drafts...</div>;
@@ -286,7 +319,7 @@ export const PendingTab = () => {
           <CardContent className="p-4">
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
               <div className="flex items-center gap-2">
-                <Checkbox checked={selectedDrafts.length > 0} onCheckedChange={toggleSelectAll} />
+                <Checkbox checked={selectedDrafts.length > 0} onCheckedChange={() => toggleSelectAllVisible(visibleDrafts)} />
                 <span className="text-sm font-medium">{selectedDrafts.length} draft(s) selected</span>
               </div>
               <Select value={bulkAction} onValueChange={setBulkAction}>
@@ -309,6 +342,32 @@ export const PendingTab = () => {
         </Card>
       )}
 
+      {formats.length > 0 && drafts.length > 0 && (
+        <div className="flex items-center gap-3 flex-wrap mb-4">
+          <Label className="text-sm text-muted-foreground whitespace-nowrap">Filter</Label>
+          <Select value={platformFilter} onValueChange={(v) => { setPlatformFilter(v); setFormatFilter(ALL); }}>
+            <SelectTrigger className="w-[160px]"><SelectValue placeholder="Platform" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All platforms</SelectItem>
+              {platforms.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={formatFilter} onValueChange={setFormatFilter}>
+            <SelectTrigger className="w-[220px]"><SelectValue placeholder="Post type" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All post types</SelectItem>
+              {formatOptionsForPlatform.map((f) => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {(platformFilter !== ALL || formatFilter !== ALL) && (
+            <Button variant="ghost" size="sm" onClick={() => { setPlatformFilter(ALL); setFormatFilter(ALL); }}>Clear filter</Button>
+          )}
+          {(platformFilter !== ALL || formatFilter !== ALL) && (
+            <span className="text-xs text-muted-foreground">{visibleDrafts.length} of {drafts.length} shown</span>
+          )}
+        </div>
+      )}
+
       {drafts.length === 0 ? (
         <Card>
           <CardContent className="text-center py-12">
@@ -318,9 +377,13 @@ export const PendingTab = () => {
             <Button onClick={() => navigate("/schedule")}>Manage Schedule</Button>
           </CardContent>
         </Card>
+      ) : visibleDrafts.length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground">
+          <p className="text-sm">No pending drafts match this filter.</p>
+        </div>
       ) : (
         <div className="space-y-4">
-          {drafts.map((draft) => {
+          {visibleDrafts.map((draft) => {
             const state = transitioning[draft.id];
             const isRejectSide = state === "rejecting" || state === "rejected";
             const isSettled = state === "approved" || state === "rejected";

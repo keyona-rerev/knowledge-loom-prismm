@@ -6,6 +6,18 @@
  * of a placeholder. Used by ingest-gmail-content (the live Gmail-label
  * ingestion path) and by scan-newsletter-health when it needs a fresh score.
  *
+ * The company's name, positioning, and hard rules are read fresh from
+ * profiles/hard_rules on every call and folded into the SYSTEM prompt (not
+ * just mentioned in passing in the user turn, as this used to do). Two
+ * reasons: it's live -- edit Strategy's business description and the very
+ * next call reflects it, no redeploy, and it works for any company this
+ * template gets pointed at, not just this one -- and system-prompt content
+ * gets materially stronger instruction-following weight from the model than
+ * the same facts stated in a user turn, which matters here specifically
+ * because the whole point of this function is to differentiate a 6 from a
+ * 10 by how precisely content matches THIS company's specific positioning,
+ * not just its general industry.
+ *
  * Fails open on any error (missing AI profile, malformed response, API
  * failure) by returning a neutral 5 — a broken scorer should never block
  * ingestion, it should just mean "unscored" in practice.
@@ -18,7 +30,27 @@ export interface ScoreVerdict {
   reason: string;
 }
 
-const SCORE_SYSTEM_PROMPT = `You are a relevance scorer for a content pipeline that turns source material into reference cards used to ground thought-leadership posts for a specific company. Given that company's positioning and a piece of source content, score how useful this content is as source material for that company's content strategy, on a scale of 1 to 10. Score 1-2 for pure noise: ads, unsubscribe/footer boilerplate, paywall stubs, broken or empty scrapes, spam. Score 3-5 for content that's real but only loosely related to the company's industry or audience. Score 6-10 for content that speaks directly to the company's market, audience, or thesis, the higher the more directly citable. Respond with ONLY minified JSON, no other text: {"score":<1-10 integer>,"reason":"<max 15 words>"}. Err toward the middle (5) when genuinely unsure rather than guessing at an extreme.`;
+function buildScoreSystemPrompt(
+  business: { name?: string | null; description?: string | null } | null,
+  ruleLines: string[]
+): string {
+  const identity = business?.description
+    ? `You are a relevance scorer for ${business.name || "a company"}, positioned as: ${business.description}`
+    : "You are a relevance scorer for a company that has not yet described its positioning in Strategy — score on general business/professional relevance only, since there's no specific positioning to measure against yet.";
+
+  const rules = ruleLines.length ? `\n\nThis company's framing rules: ${ruleLines.join("; ")}.` : "";
+
+  return `${identity}${rules}
+
+You grade source content 1-10 for how useful it would be as material for THIS company's content strategy. The distinction that matters most is between "on-topic for the industry" and "on-topic for THIS company's specific positioning" — those are not the same thing, and the gap between a 6 and a 10 should track that difference, not general subject-matter overlap.
+
+Score 1-2: pure noise. Ads, unsubscribe/footer boilerplate, paywall stubs, broken or empty scrapes, spam.
+Score 3-5: real content, but only loosely related to this company's industry or audience — true and on-topic in a general sense, not specifically about what this company argues or who it serves.
+Score 6-7: speaks to this company's actual market or audience, but doesn't engage its specific positioning above — solid industry-relevant material, not a direct hit.
+Score 8-10: speaks directly to this company's stated positioning — the more precisely it could be cited to support (or seriously challenge) that exact argument, the higher within this range.
+
+Respond with ONLY minified JSON, no other text: {"score":<1-10 integer>,"reason":"<max 15 words>"}. Err toward the middle (5) when genuinely unsure rather than guessing at an extreme.`;
+}
 
 export async function scoreRelevance(
   supabase: ReturnType<typeof import("https://esm.sh/@supabase/supabase-js@2").createClient>,
@@ -35,27 +67,23 @@ export async function scoreRelevance(
     return { score: 5, relevant: true, reason: "No AI key configured - scoring skipped" };
   }
 
-  // Light strategy context — enough to judge fit without pulling the whole
-  // Strategy page. business_description is the one field every profile has;
-  // hard_rules are optional and often empty early on.
+  // Read fresh every call — no caching — so an edit to Strategy's business
+  // description or an active/inactive toggle on a hard rule is reflected on
+  // the very next card scored, not just the next deploy.
   const [{ data: prof }, { data: rules }] = await Promise.all([
     supabase.from("profiles").select("business_name, business_description").eq("user_id", userId).maybeSingle(),
     supabase.from("hard_rules").select("body").eq("user_id", userId).eq("is_active", true),
   ]);
 
   const ruleLines = (rules || []).map((r: { body: string }) => r.body).filter(Boolean);
-  const context = prof?.business_description
-    ? `Company: ${prof.business_name || "the company"}. Positioning: ${prof.business_description}` +
-      (ruleLines.length ? `\nFraming rules: ${ruleLines.join("; ")}` : "")
-    : "No strategy context configured for this company yet — score on general business/professional relevance.";
-
+  const systemPrompt = buildScoreSystemPrompt(prof, ruleLines);
   const excerpt = (input.content || "").slice(0, 3000);
 
   try {
     const res = await callAI(
       profile,
-      [{ role: "user", content: `${context}\n\nTitle: ${input.title || "(untitled)"}\n\nExcerpt:\n${excerpt || "(empty)"}` }],
-      SCORE_SYSTEM_PROMPT
+      [{ role: "user", content: `Title: ${input.title || "(untitled)"}\n\nExcerpt:\n${excerpt || "(empty)"}` }],
+      systemPrompt
     );
 
     const match = res.text.match(/\{[\s\S]*\}/);

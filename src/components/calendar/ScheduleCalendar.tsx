@@ -7,6 +7,13 @@
 // once here instead of on every week/month navigation, so switching Week
 // <-> Month is instant and both grids always agree with the header.
 //
+// needsAttentionCount matches ApprovedTab's definition of "stuck": approved
+// drafts with publish_status in (needs_attention, failed) OR null. The null
+// case is the "silent limbo" bug — a draft whose approve action's
+// fire-and-forget publish-to-zernio call never completed, leaving
+// publish_status unset entirely. Without the null branch this badge would
+// undercount relative to what Review's Approved tab actually flags.
+//
 // refreshToken is a manual bump (via the header's Refresh button or after a
 // reschedule) that both WeekGrid and MonthGrid include in their effect
 // deps, since currentDate alone won't change when you just want to force a
@@ -48,7 +55,7 @@ export const ScheduleCalendar = () => {
         .select("id", { count: "exact", head: true })
         .eq("user_id", session?.user?.id)
         .eq("approval_status", "approved")
-        .in("publish_status", ["needs_attention", "failed"]),
+        .or("publish_status.in.(needs_attention,failed),publish_status.is.null"),
     ]);
 
     setCadenceDays(new Set((cadence || []).map((c) => c.day_of_week)));

@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
   ArrowLeft, Plus, Trash2, RotateCcw, Palette, ListChecks,
-  LayoutGrid, Ruler, Upload, GripVertical, ExternalLink
+  LayoutGrid, Ruler, Upload, GripVertical, ExternalLink, Sparkles, ImageIcon
 } from "lucide-react";
 
 interface DesignRule {
@@ -32,6 +32,10 @@ interface VisualConfig {
   design_rules: DesignRule[];
   enabled_visual_types: string[];
 }
+
+interface DraftOption { id: string; title: string | null; }
+
+const SAMPLE_OPTION_VALUE = "__sample__";
 
 const DISPLAY_FONTS = [
   { label: "Bricolage Grotesque", value: "Bricolage Grotesque", weight: "800", category: "Grotesque" },
@@ -110,6 +114,18 @@ const VisualStudio = () => {
   const [uploading, setUploading] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
+  // Live preview: generates against the CURRENT in-memory config (including
+  // unsaved edits), never against what's saved in the DB, and never
+  // persists anything. This is the missing piece that made Visual Studio a
+  // page of swatches and font-preview text rather than somewhere you could
+  // actually see what a real graphic would look like before committing to it.
+  const [draftOptions, setDraftOptions] = useState<DraftOption[]>([]);
+  const [selectedDraftId, setSelectedDraftId] = useState<string>(SAMPLE_OPTION_VALUE);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
   useEffect(() => {
     [...DISPLAY_FONTS, ...BODY_FONTS].forEach(f => loadGoogleFont(f.value));
   }, []);
@@ -129,6 +145,15 @@ const VisualStudio = () => {
           setConfig({ ...DEFAULT_CONFIG, ...saved });
         } catch { /* stay on defaults */ }
       }
+
+      const { data: drafts } = await supabase
+        .from("drafts")
+        .select("id, title")
+        .eq("user_id", session.user.id)
+        .in("approval_status", ["pending", "approved"])
+        .order("created_at", { ascending: false })
+        .limit(15);
+      setDraftOptions((drafts || []) as DraftOption[]);
     };
     load();
   }, [navigate]);
@@ -146,6 +171,38 @@ const VisualStudio = () => {
   const activeBodyFont = showCustomBody && customBodyFont.trim()
     ? customBodyFont.trim() : config.body_font;
   const displayWeight = DISPLAY_FONTS.find(f => f.value === config.display_font)?.weight ?? "700";
+
+  const buildCurrentConfig = (): VisualConfig => ({
+    ...config,
+    display_font: showCustomDisplay && customDisplayFont.trim() ? customDisplayFont.trim() : config.display_font,
+    body_font: showCustomBody && customBodyFont.trim() ? customBodyFont.trim() : config.body_font,
+  });
+
+  const handleGeneratePreview = async () => {
+    setPreviewLoading(true);
+    setPreviewError(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("preview-visual", {
+        body: {
+          config: buildCurrentConfig(),
+          draftId: selectedDraftId === SAMPLE_OPTION_VALUE ? undefined : selectedDraftId,
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      setPreviewImage(data?.imageBase64 || null);
+      setPreviewHtml(data?.html || null);
+      if (!data?.imageBase64 && !data?.html) {
+        setPreviewError("Preview generated but returned no content.");
+      }
+    } catch (err: any) {
+      setPreviewError(err.message || "Preview failed");
+      setPreviewImage(null);
+      setPreviewHtml(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
 
   const handleAddRule = () => {
     if (!newRuleText.trim()) return;
@@ -213,11 +270,7 @@ const VisualStudio = () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { toast.error("Not logged in"); return; }
-      const finalConfig: VisualConfig = {
-        ...config,
-        display_font: showCustomDisplay && customDisplayFont.trim() ? customDisplayFont.trim() : config.display_font,
-        body_font: showCustomBody && customBodyFont.trim() ? customBodyFont.trim() : config.body_font,
-      };
+      const finalConfig = buildCurrentConfig();
       const { data: existing } = await supabase.from("profiles").select("id").eq("user_id", session.user.id).maybeSingle();
       const payload = { visual_studio_config: JSON.stringify(finalConfig) } as any;
       let error;
@@ -227,7 +280,11 @@ const VisualStudio = () => {
         ({ error } = await supabase.from("profiles").insert([{ ...payload, user_id: session.user.id }]));
       }
       if (error) throw error;
-      toast.success("Visual Studio saved. Regenerate any graphic to apply.");
+      // Once saved, this config is the permanent source for every future
+      // generate-draft-visual call — there is no path back to the old
+      // hardcoded prompt short of clearing visual_studio_config directly in
+      // the database. No auto-revert, no silent reset.
+      toast.success("Visual Studio saved. This is now the permanent source for every new graphic — no reverting.");
     } catch (err: any) {
       toast.error("Save failed: " + err.message);
     } finally {
@@ -236,7 +293,7 @@ const VisualStudio = () => {
   };
 
   const handleReset = () => {
-    if (!confirm("Reset all Visual Studio settings to defaults?")) return;
+    if (!confirm("Reset all Visual Studio settings to defaults? This won't save automatically — you'll still need to hit Save Visual Studio to make it permanent.")) return;
     setConfig(DEFAULT_CONFIG);
     setCustomDisplayFont(""); setCustomBodyFont("");
     setShowCustomDisplay(false); setShowCustomBody(false);
@@ -256,8 +313,61 @@ const VisualStudio = () => {
       <main className="container mx-auto px-4 py-8 max-w-3xl">
         <h1 className="text-3xl font-bold mb-1">Visual Studio</h1>
         <p className="text-sm text-muted-foreground mb-8">
-          Controls how VisualForge generates graphics. Every setting is injected into the generation prompt and applied on the next Regenerate. No deploy needed.
+          Controls how VisualForge generates graphics. Every setting is injected into the generation prompt and applied on the next Regenerate. No deploy needed. Nothing here becomes permanent until you hit Save — the preview below always reflects what's currently on screen, saved or not.
         </p>
+
+        {/* LIVE PREVIEW */}
+        <Card className="mb-6 border-purple-200 bg-purple-50/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><ImageIcon className="h-5 w-5" />Preview</CardTitle>
+            <CardDescription>
+              See a real graphic generated from your current settings below — including anything you haven't saved yet — against a real post or the built-in sample.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+              <select
+                className="flex-1 rounded-md border bg-muted px-3 py-2 text-sm text-foreground outline-none"
+                value={selectedDraftId}
+                onChange={e => setSelectedDraftId(e.target.value)}
+              >
+                <option value={SAMPLE_OPTION_VALUE}>Sample post (built-in, works even with no drafts)</option>
+                {draftOptions.map(d => (
+                  <option key={d.id} value={d.id}>{d.title || "Untitled draft"}</option>
+                ))}
+              </select>
+              <Button onClick={handleGeneratePreview} disabled={previewLoading} className="shrink-0">
+                <Sparkles className="h-4 w-4 mr-2" />
+                {previewLoading ? "Generating..." : "Generate preview"}
+              </Button>
+            </div>
+
+            <div
+              className="rounded-md border overflow-hidden bg-white flex items-center justify-center"
+              style={{ aspectRatio: `${config.canvas_width} / ${config.canvas_height}` }}
+            >
+              {previewLoading ? (
+                <p className="text-sm text-muted-foreground">Generating a real graphic with these settings...</p>
+              ) : previewImage ? (
+                <img src={`data:image/png;base64,${previewImage}`} alt="Preview" className="w-full h-full object-contain" />
+              ) : previewHtml ? (
+                <iframe
+                  title="Visual preview"
+                  srcDoc={previewHtml}
+                  className="w-full h-full border-0"
+                  style={{ width: config.canvas_width, height: config.canvas_height, transform: "scale(1)" }}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground px-4 text-center">
+                  {previewError ? previewError : "Click Generate preview to see a real graphic with your current settings."}
+                </p>
+              )}
+            </div>
+            {previewError && previewImage === null && previewHtml === null && (
+              <p className="text-xs text-red-600">{previewError}</p>
+            )}
+          </CardContent>
+        </Card>
 
         {/* BRAND TOKENS */}
         <Card className="mb-6">

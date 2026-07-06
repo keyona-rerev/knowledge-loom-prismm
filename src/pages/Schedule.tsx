@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, CalendarClock, CalendarDays, Send } from "lucide-react";
 import { CadenceTab } from "@/components/schedule/CadenceTab";
-import { WeeklyCalendar } from "@/components/calendar/WeeklyCalendar";
+import { ScheduleCalendar } from "@/components/calendar/ScheduleCalendar";
 import { PostedTab } from "@/components/schedule/PostedTab";
 
 const VALID_TABS = ["cadence", "upcoming", "posted"];
@@ -40,7 +40,7 @@ const Schedule = () => {
 
           <TabsContent value="upcoming">
             <div className="-mx-4">
-              <WeeklyCalendar />
+              <ScheduleCalendar />
             </div>
           </TabsContent>
 

@@ -55,6 +55,25 @@ const retiredStatFlag = (body: unknown): string | null => {
   return null;
 };
 
+// Builds the opening system-prompt line that establishes what the AI is
+// writing on behalf of. Previously this was a hardcoded literal string
+// naming Prismm specifically, disconnected from profile.business_name /
+// business_description even though both are already fetched and used
+// elsewhere in this same function's BRAND block. That meant switching this
+// codebase to a different business would leave every single generated
+// draft opening with the wrong company name and description, with no
+// setting anywhere that could fix it. Now built from those same profile
+// fields, with a generic fallback if neither is set.
+function buildIdentityLine(businessName?: string, businessDescription?: string): string {
+  if (businessName && businessDescription) {
+    return `You are ${businessName}'s content engine. ${businessDescription}`;
+  }
+  if (businessName) {
+    return `You are ${businessName}'s content engine.`;
+  }
+  return "You are this brand's content engine. Set a business name and description in Strategy for a more specific voice.";
+}
+
 interface GenSettings {
   source_reliance: number;
   first_party_weight: number;
@@ -303,7 +322,7 @@ serve(async (req) => {
     };
 
     const systemLines: string[] = [
-      "You are Prismm's content engine. Prismm is inheritance infrastructure for financial institutions.",
+      buildIdentityLine(profile.business_name, profile.business_description),
       "Write in the brand voice and answer the reader's real questions.",
       "",
     ];

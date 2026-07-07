@@ -165,6 +165,12 @@ export const CadenceTab = () => {
   const [lanes, setLanes] = useState<NamedRow[]>([]);
   const [readers, setReaders] = useState<NamedRow[]>([]);
 
+  // A new slot starts with these instead of a hardcoded 9am/Eastern -- read
+  // from the account-wide posting defaults set on Settings, which fall back
+  // to the same two literals for anyone who hasn't set them.
+  const [defaultTimeOfDay, setDefaultTimeOfDay] = useState("09:00");
+  const [defaultTimezone, setDefaultTimezone] = useState("America/New_York");
+
   const [eligibleParents, setEligibleParents] = useState<EligibleParent[]>([]);
 
   // Fast-forward: run a batch of upcoming cadence slot-occurrences right
@@ -238,7 +244,7 @@ export const CadenceTab = () => {
     const uid = session.user.id;
     setUserId(uid);
 
-    const [fmt, nat, jb, ln, rd, sched, ffRow] = await Promise.all([
+    const [fmt, nat, jb, ln, rd, sched, ffRow, prof] = await Promise.all([
       supabase.from("formats").select("id, name").eq("user_id", uid).eq("is_active", true).order("sort_order"),
       supabase.from("natures").select("id, name").eq("user_id", uid).eq("is_active", true).order("sort_order"),
       supabase.from("jobs").select("id, name").eq("user_id", uid).eq("kind", "engine_job").eq("is_active", true).order("sort_order"),
@@ -246,6 +252,7 @@ export const CadenceTab = () => {
       supabase.from("readers").select("id, role").eq("user_id", uid).eq("is_active", true).order("sort_order"),
       supabase.from("content_schedules").select("*").eq("user_id", uid).order("day_of_week"),
       supabase.from("fastforward_runs" as any).select("*").eq("user_id", uid).maybeSingle(),
+      supabase.from("profiles").select("default_timezone, default_post_time").eq("user_id", uid).maybeSingle(),
     ]);
 
     setFormats((fmt.data || []) as NamedRow[]);
@@ -253,6 +260,9 @@ export const CadenceTab = () => {
     setJobs((jb.data || []) as NamedRow[]);
     setLanes((ln.data || []) as NamedRow[]);
     setReaders((rd.data || []).map((r) => ({ id: r.id, name: r.role })));
+    const profData = prof.data as any;
+    setDefaultTimezone(profData?.default_timezone || "America/New_York");
+    setDefaultTimeOfDay((profData?.default_post_time || "09:00:00").slice(0, 5));
     setSlots((sched.data || []).map((s) => ({
       id: s.id, format_id: s.format_id, nature_id: s.nature_id, job_id: s.job_id,
       lane_id: s.lane_id, reader_id: s.reader_id, day_of_week: s.day_of_week,
@@ -326,7 +336,7 @@ export const CadenceTab = () => {
       id,
       format_id: formats[0].id, nature_id: natures[0].id, job_id: jobs[0].id,
       lane_id: null, reader_id: null, day_of_week: 1, frequency: "weekly", anchor: null,
-      time_of_day: "09:00", timezone: "America/New_York",
+      time_of_day: defaultTimeOfDay, timezone: defaultTimezone,
       is_active: true, requires_child: false, child_format_id: null, child_nature_id: null,
       max_reuse_count: 0, reuse_window_days: 90, _isNew: true,
     }]);

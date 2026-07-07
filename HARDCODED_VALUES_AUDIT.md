@@ -35,6 +35,13 @@ The Prompt Inspector on Settings.tsx exists specifically so a user can see the l
 
 **Now:** `preview-prompt/index.ts` has its own `buildIdentityLine()` (a hand-kept duplicate of `execute-autopilot-template`'s, consistent with how the rest of this file is already a manual mirror rather than a shared import), and the system prompt it renders opens with that instead of the literal string. Falls back to the same generic "Set a business name and description in Strategy" line as the original fix when neither field is set.
 
+### Settings' Posting defaults (timezone, post time) were never read anywhere else
+**Files:** `src/components/schedule/CadenceTab.tsx`, `src/components/calendar/MonthGrid.tsx`, `src/components/calendar/WeekGrid.tsx`, `src/components/calendar/RescheduleDialog.tsx`, new `src/hooks/useDefaultTimezone.ts`
+
+Settings.tsx saves `profiles.default_timezone` / `profiles.default_post_time`, and its own card copy claims: "New Cadence slots start with these instead of a hardcoded default, and dragging a post to a new day on the Schedule calendar (or using its Edit-time dialog) uses this timezone rather than guessing from your browser." Neither half of that claim was true — the two columns were referenced nowhere outside Settings.tsx itself. `CadenceTab.tsx`'s `addSlot()` hardcoded `time_of_day: "09:00", timezone: "America/New_York"` for every new slot, and `MonthGrid.tsx`, `WeekGrid.tsx`, and `RescheduleDialog.tsx` (drag-to-reschedule and the "Edit scheduled time" dialog) all computed `Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"` — literally guessing from the browser on every call.
+
+**Now:** `CadenceTab.tsx` loads `default_timezone`/`default_post_time` alongside its other strategy-library fetches and uses them as the seed values for `addSlot()`, falling back to the same `"09:00"` / `"America/New_York"` literals for anyone who hasn't set a default. The three calendar call sites share a new `useDefaultTimezone()` hook that reads the saved default and, only when one exists, uses it in place of the browser's guess when calling `reschedule-draft` — falling back to the exact same browser-detection behavior as before for anyone who hasn't configured one.
+
 ### LinkedIn character limit — NOT fixed, downgraded to low priority
 Still duplicated as `LINKEDIN_MAX_CHARS = 3000` in `supabase/functions/publish-to-zernio/index.ts` and `supabase/functions/reschedule-draft/index.ts`. Not business-specific (it's a real, correct-for-anyone LinkedIn platform limit) — just duplicated rather than shared. Low priority; move to `_shared/` when convenient, not urgent.
 

@@ -17,6 +17,7 @@ import { useState, useEffect } from "react";
 import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, differenceInCalendarDays, setHours, setMinutes, setSeconds, setMilliseconds } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import { describeInvokeError } from "@/lib/edgeFunctionError";
+import { useDefaultTimezone } from "@/hooks/useDefaultTimezone";
 import { MonthDayCell } from "./MonthDayCell";
 import { ScheduledDraft } from "./schedule-types";
 import { toast } from "sonner";
@@ -34,6 +35,7 @@ interface MonthGridProps {
 export const MonthGrid = ({ currentDate, cadenceDays, refreshToken, onDraftsChanged, onJumpToWeek }: MonthGridProps) => {
   const [drafts, setDrafts] = useState<ScheduledDraft[]>([]);
   const [loading, setLoading] = useState(true);
+  const defaultTimezone = useDefaultTimezone();
 
   const gridStart = startOfWeek(startOfMonth(currentDate), { weekStartsOn: 0 });
   const gridEnd = endOfWeek(endOfMonth(currentDate), { weekStartsOn: 0 });
@@ -88,7 +90,7 @@ export const MonthGrid = ({ currentDate, cadenceDays, refreshToken, onDraftsChan
     setDrafts((prev) => prev.map((d) => (d.id === draftId ? { ...d, scheduled_for: newDate.toISOString() } : d)));
 
     try {
-      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      const timezone = defaultTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
       const { data, error } = await supabase.functions.invoke("reschedule-draft", {
         body: { draftId, newScheduledFor: newDate.toISOString(), timezone },
       });

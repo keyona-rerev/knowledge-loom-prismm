@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { describeInvokeError } from "@/lib/edgeFunctionError";
+import { useDefaultTimezone } from "@/hooks/useDefaultTimezone";
 import { toast } from "sonner";
 import { ScheduledDraft } from "./schedule-types";
 
@@ -22,6 +23,7 @@ function toLocalDatetimeInputValue(iso: string): string {
 export const RescheduleDialog = ({ draft, onClose, onRescheduled }: RescheduleDialogProps) => {
   const [value, setValue] = useState("");
   const [saving, setSaving] = useState(false);
+  const defaultTimezone = useDefaultTimezone();
 
   useEffect(() => {
     if (draft) setValue(toLocalDatetimeInputValue(draft.scheduled_for));
@@ -35,7 +37,7 @@ export const RescheduleDialog = ({ draft, onClose, onRescheduled }: RescheduleDi
 
     setSaving(true);
     try {
-      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      const timezone = defaultTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
       const { data, error } = await supabase.functions.invoke("reschedule-draft", {
         body: { draftId: draft.id, newScheduledFor: newDate.toISOString(), timezone },
       });

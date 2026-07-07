@@ -49,6 +49,20 @@ Strategy.tsx's Audience Profile section saves `audience_profile.channels` (e.g. 
 
 **Now:** both AUDIENCE blocks include a `Channels: ...` line when the field is set, same shape as the seven fields already there. (`search-sources/index.ts` builds its own smaller, separate context for web search targeting and doesn't include `channels` either — arguably it's relevant there too since it describes where to look for source material, but that's a separate context builder and a separate call; left untouched for now rather than bundled into this fix.)
 
+### SWOT board was entirely write-only
+**Files:** `supabase/functions/execute-autopilot-template/index.ts`, `supabase/functions/_shared/strategy-context.ts`
+
+Strategy.tsx's SWOT section (strengths, weaknesses, opportunities, and threats, each with body text) saves to `swot_items` and is fully editable there, but a repo-wide search for `swot` (case-insensitive) turned up zero matches outside `Strategy.tsx` and the generated types file — no generation, scheduling, or publishing code fetched this table at all. The entire competitive-terrain board a user fills in was never read back anywhere.
+
+**Now:** both `execute-autopilot-template` and the shared `strategy-context.ts` fetch `swot_items` and render a `SWOT (the competitive terrain)` block, one line per item, labeled by quadrant — same shape as the existing LANE/AUDIENCE blocks. Threat items with `threat_class = 'triggered'` are deliberately left out of this block: Strategy's own copy describes triggered threats as "held out of rotation" until a real-world trigger fires, and nothing in the system marks a trigger as having fired (see the next entry), so including them unconditionally would contradict behavior the UI already promises. Standing threats, along with all strengths/weaknesses/opportunities, have no such gate and are always included.
+
+### Nature rotation and reader/threat triggering were never implemented at runtime — flagging, not fixing
+**Files:** `src/pages/Strategy.tsx`, `supabase/migrations/20260613000000_knowledge_loom_rebuild_schema.sql`
+
+Strategy.tsx exposes three fields that all describe the same not-yet-built feature: `natures.rotation_mode` ("Evergreen" vs. "Triggered (held out of rotation)"), `readers.activation_trigger` ("What brings this reader into rotation"), and `readers.threat_item_id` (an "Attached threat" picker tying a reader to a specific SWOT threat). All three are saved and displayed in Strategy.tsx and confirmed by grep to be read nowhere else in the entire codebase — not in `execute-autopilot-template`'s nature handling (natures are picked per-slot by hand in Cadence, never auto-rotated), not in `pickReader()` (which picks randomly among published readers matching lane scope, with no awareness of `activation_trigger` or `threat_item_id`).
+
+This is a genuine judgment call, not a "read from field X" fix like the others above: there is no existing signal anywhere for "this trigger has now fired" — no toggle, no timestamp, nothing on `swot_items` or elsewhere that would tell `pickReader()` or a nature-selection step that a specific triggered threat/reader should activate. Building this for real needs a product decision (what fires a trigger — manual toggle? a scheduled date? a keyword match against incoming reference cards?) and very likely a new column (e.g. something like `swot_items.is_active_now`) — exactly the kind of schema change the audit rules say to bring back before writing. Left unfixed pending that decision.
+
 ### LinkedIn character limit — NOT fixed, downgraded to low priority
 Still duplicated as `LINKEDIN_MAX_CHARS = 3000` in `supabase/functions/publish-to-zernio/index.ts` and `supabase/functions/reschedule-draft/index.ts`. Not business-specific (it's a real, correct-for-anyone LinkedIn platform limit) — just duplicated rather than shared. Low priority; move to `_shared/` when convenient, not urgent.
 

@@ -89,6 +89,7 @@ interface SlotContext {
   reader: any | null;
   questions: string[];
   audience: any | null;
+  swot: any[];
   seed: any | null;
   brand: { business_name?: string; business_description?: string; brand_voice?: string };
   gen: GenSettings;
@@ -115,6 +116,22 @@ function buildContextBlock(ctx: SlotContext): string {
     if (arr(a.language_use).length) lines.push(`Language to use: ${arr(a.language_use).join("; ")}`);
     if (arr(a.language_avoid).length) lines.push(`Language to avoid: ${arr(a.language_avoid).join("; ")}`);
     if (arr(a.channels).length) lines.push(`Channels: ${arr(a.channels).join(", ")}`);
+    lines.push("");
+  }
+  // Strengths, weaknesses, and opportunities are always live. Triggered
+  // threats are deliberately excluded: Strategy describes them as "held out
+  // of rotation" until whatever real-world trigger fires, and there is no
+  // mechanism anywhere that marks a trigger as having fired, so surfacing
+  // them here unconditionally would contradict the one piece of behavior
+  // the UI already promises for them. Standing threats have no such gate,
+  // so they're always live same as the other three quadrants.
+  const swotVisible = ctx.swot.filter((s) => s.quadrant !== "threat" || s.threat_class !== "triggered");
+  if (swotVisible.length) {
+    const swotLabels: Record<string, string> = { strength: "Strength", weakness: "Weakness", opportunity: "Opportunity", threat: "Threat" };
+    lines.push("SWOT (the competitive terrain)");
+    for (const s of swotVisible) {
+      if (s.body) lines.push(`- [${swotLabels[s.quadrant] ?? s.quadrant}] ${s.body}`);
+    }
     lines.push("");
   }
   if (ctx.lane) {
@@ -276,6 +293,8 @@ serve(async (req) => {
     }
 
     const { data: audience } = await supabase.from("audience_profile").select("*").eq("user_id", userId).maybeSingle();
+    const { data: swotRows } = await supabase.from("swot_items").select("*").eq("user_id", userId).order("sort_order");
+    const swot = swotRows || [];
 
     const laneScopes = ["both"];
     if (lane?.key === "credit_union" || lane?.key === "community_bank") laneScopes.push(lane.key);
@@ -300,7 +319,7 @@ serve(async (req) => {
       business_description: profile.business_description ?? undefined,
       brand_voice: profile.brand_voice ?? undefined,
     };
-    const baseCtx: SlotContext = { format, nature, job, lane, reader, questions, audience, seed, brand, gen };
+    const baseCtx: SlotContext = { format, nature, job, lane, reader, questions, audience, swot, seed, brand, gen };
     const contextBlock = buildContextBlock(baseCtx);
 
     const { data: hardRulesRows } = await supabase

@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { AlertTriangle, CheckCircle2, RefreshCw, HeartPulse, Rss, BarChart3 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, RefreshCw, HeartPulse, Rss, BarChart3, HelpCircle } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell, ReferenceLine,
   PieChart, Pie,
@@ -23,16 +23,45 @@ interface HealthRow {
   last_scanned_at: string | null;
 }
 
+type DisplayStatus = "unsubscribe" | "watch" | "healthy" | "insufficient";
+
 const ALL = "__all__";
+
+// Mirrors scan-newsletter-health's MIN_SAMPLES_FOR_VERDICT exactly. The
+// backend writes recommendation='healthy' for any sender under this many
+// scored items — not because it's actually healthy, but because there's
+// not enough history yet to say anything. Left as-is, that showed up here
+// as a real green "Healthy" badge on a sender with, say, one card scored
+// 1/10 — technically correct per the stored value, but visually
+// indistinguishable from an actually-good sender. This constant exists so
+// the frontend can split that "healthy by default" bucket out into its own
+// honest "Not enough data" state instead of repeating the backend's
+// shorthand as if it were a real verdict. If MIN_SAMPLES_FOR_VERDICT ever
+// changes in supabase/functions/scan-newsletter-health/index.ts, this needs
+// to change with it.
+const MIN_SAMPLES_FOR_VERDICT = 3;
+
+function getDisplayStatus(row: HealthRow): DisplayStatus {
+  if (row.recommendation === "healthy" && row.card_count < MIN_SAMPLES_FOR_VERDICT) return "insufficient";
+  return row.recommendation;
+}
 
 // These match the thresholds scan-newsletter-health's recommend() actually
 // uses (avg <= 3.5 -> unsubscribe, avg <= 5.5 -> watch, else healthy) — the
 // chart's reference lines and colors are drawn from the same boundaries the
 // backend scores against, not separately chosen "looks about right" values.
-const RECOMMENDATION_COLOR: Record<HealthRow["recommendation"], string> = {
+const STATUS_COLOR: Record<DisplayStatus, string> = {
   unsubscribe: "#dc2626",
   watch: "#ea580c",
   healthy: "#16a34a",
+  insufficient: "#9ca3af",
+};
+
+const STATUS_META: Record<DisplayStatus, { label: string; badgeClass: string; icon: typeof AlertTriangle }> = {
+  unsubscribe: { label: "Unsubscribe", badgeClass: "border-destructive text-destructive bg-red-50", icon: AlertTriangle },
+  watch: { label: "Watch", badgeClass: "border-orange-400 text-orange-700 bg-orange-50", icon: AlertTriangle },
+  healthy: { label: "Healthy", badgeClass: "border-green-400 text-green-700 bg-green-50", icon: CheckCircle2 },
+  insufficient: { label: "Not enough data", badgeClass: "border-gray-300 text-gray-500 bg-gray-50", icon: HelpCircle },
 };
 
 // Health tab: every newsletter sender that's produced reference cards
@@ -87,38 +116,32 @@ export const HealthTab = () => {
     }
   };
 
-  const meta = {
-    unsubscribe: { label: "Unsubscribe", badgeClass: "border-destructive text-destructive bg-red-50", icon: AlertTriangle },
-    watch: { label: "Watch", badgeClass: "border-orange-400 text-orange-700 bg-orange-50", icon: AlertTriangle },
-    healthy: { label: "Healthy", badgeClass: "border-green-400 text-green-700 bg-green-50", icon: CheckCircle2 },
-  } as const;
-
-  const visibleRows = filter === ALL ? rows : rows.filter((r) => r.recommendation === filter);
+  const rowsWithStatus = rows.map((r) => ({ ...r, displayStatus: getDisplayStatus(r) }));
+  const visibleRows = filter === ALL ? rowsWithStatus : rowsWithStatus.filter((r) => r.displayStatus === filter);
   const counts = {
-    unsubscribe: rows.filter((r) => r.recommendation === "unsubscribe").length,
-    watch: rows.filter((r) => r.recommendation === "watch").length,
-    healthy: rows.filter((r) => r.recommendation === "healthy").length,
+    unsubscribe: rowsWithStatus.filter((r) => r.displayStatus === "unsubscribe").length,
+    watch: rowsWithStatus.filter((r) => r.displayStatus === "watch").length,
+    healthy: rowsWithStatus.filter((r) => r.displayStatus === "healthy").length,
+    insufficient: rowsWithStatus.filter((r) => r.displayStatus === "insufficient").length,
   };
 
   // Bar chart data: only senders with a real score, worst-first (same order
   // as the list below, since rows is already sorted avg_score ascending).
   // Sender addresses are truncated for the axis label; the tooltip shows
   // the full address plus card count.
-  const chartData = rows
+  const chartData = rowsWithStatus
     .filter((r) => typeof r.avg_score === "number")
     .map((r) => ({
       sender: r.sender_address,
       shortSender: r.sender_address.length > 22 ? r.sender_address.slice(0, 20) + "…" : r.sender_address,
       avg_score: r.avg_score as number,
       card_count: r.card_count,
-      recommendation: r.recommendation,
+      displayStatus: r.displayStatus,
     }));
 
-  const pieData = [
-    { name: "Healthy", value: counts.healthy, color: RECOMMENDATION_COLOR.healthy },
-    { name: "Watch", value: counts.watch, color: RECOMMENDATION_COLOR.watch },
-    { name: "Unsubscribe", value: counts.unsubscribe, color: RECOMMENDATION_COLOR.unsubscribe },
-  ].filter((d) => d.value > 0);
+  const pieData = (["healthy", "watch", "unsubscribe", "insufficient"] as DisplayStatus[])
+    .map((status) => ({ name: STATUS_META[status].label, value: counts[status], color: STATUS_COLOR[status] }))
+    .filter((d) => d.value > 0);
 
   const chartHeight = Math.max(160, chartData.length * 32);
 
@@ -167,7 +190,7 @@ export const HealthTab = () => {
                     <ReferenceLine x={5.5} stroke="#ea580c" strokeDasharray="4 4" />
                     <Bar dataKey="avg_score" radius={[0, 4, 4, 0]}>
                       {chartData.map((entry, i) => (
-                        <Cell key={i} fill={RECOMMENDATION_COLOR[entry.recommendation]} />
+                        <Cell key={i} fill={STATUS_COLOR[entry.displayStatus]} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -188,16 +211,20 @@ export const HealthTab = () => {
                 )}
                 <div className="flex flex-col gap-1.5 text-xs w-full">
                   <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: RECOMMENDATION_COLOR.healthy }} />Healthy</span>
+                    <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: STATUS_COLOR.healthy }} />Healthy</span>
                     <span className="font-medium">{counts.healthy}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: RECOMMENDATION_COLOR.watch }} />Watch</span>
+                    <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: STATUS_COLOR.watch }} />Watch</span>
                     <span className="font-medium">{counts.watch}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: RECOMMENDATION_COLOR.unsubscribe }} />Unsubscribe</span>
+                    <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: STATUS_COLOR.unsubscribe }} />Unsubscribe</span>
                     <span className="font-medium">{counts.unsubscribe}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: STATUS_COLOR.insufficient }} />Not enough data</span>
+                    <span className="font-medium">{counts.insufficient}</span>
                   </div>
                 </div>
               </div>
@@ -215,6 +242,7 @@ export const HealthTab = () => {
               <SelectItem value="unsubscribe">Unsubscribe ({counts.unsubscribe})</SelectItem>
               <SelectItem value="watch">Watch ({counts.watch})</SelectItem>
               <SelectItem value="healthy">Healthy ({counts.healthy})</SelectItem>
+              <SelectItem value="insufficient">Not enough data ({counts.insufficient})</SelectItem>
             </SelectContent>
           </Select>
           {filter !== ALL && (
@@ -244,16 +272,17 @@ export const HealthTab = () => {
       ) : (
         <div className="space-y-2">
           {visibleRows.map((row) => {
-            const m = meta[row.recommendation];
+            const m = STATUS_META[row.displayStatus];
             const Icon = m.icon;
+            const isInsufficient = row.displayStatus === "insufficient";
             return (
-              <div key={row.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg">
+              <div key={row.id} className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg ${isInsufficient ? "opacity-70" : ""}`}>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <Badge variant="outline" className={m.badgeClass}>
                       <Icon className="h-3 w-3 mr-1" />{m.label}
                     </Badge>
-                    <span className="font-medium truncate">{row.sender_address}</span>
+                    <span className={`font-medium truncate ${isInsufficient ? "text-muted-foreground" : ""}`}>{row.sender_address}</span>
                     {typeof row.avg_score === "number" && (
                       <span className="text-xs text-muted-foreground shrink-0">{row.avg_score.toFixed(1)}/10 avg · {row.card_count} card{row.card_count === 1 ? "" : "s"}</span>
                     )}

@@ -44,8 +44,6 @@ interface NatureRow {
   move: string;
   evidence_type: string;
   fit: string;
-  rotation_mode: string;
-  absorbs: string[];
   writing_samples: string[];
   sort_order: number;
   _isNew?: boolean;
@@ -112,8 +110,6 @@ interface ReaderRow {
   side: string;
   is_published_to: boolean;
   lane_scope: string;
-  activation_trigger: string;
-  threat_local_id: string; // "" means none; refers to a SwotRow.id (temp or real)
   avatar_initials: string;
   questions: string[];
   sort_order: number;
@@ -124,10 +120,6 @@ const FIT_OPTIONS = [
   { value: "high", label: "High fit" },
   { value: "medium", label: "Medium fit" },
   { value: "low", label: "Low fit" },
-];
-const ROTATION_OPTIONS = [
-  { value: "evergreen", label: "Evergreen" },
-  { value: "triggered", label: "Triggered (held out of rotation)" },
 ];
 const STAGE_OPTIONS = [
   { value: "tofu", label: "TOFU" },
@@ -180,11 +172,6 @@ const SIDE_COLORS: Record<string, { avatarBg: string; avatarText: string; badgeB
   decision: { avatarBg: "bg-purple-50", avatarText: "text-purple-700", badgeBg: "bg-purple-50", badgeText: "text-purple-800" },
   end_user: { avatarBg: "bg-teal-50", avatarText: "text-teal-700", badgeBg: "bg-teal-50", badgeText: "text-teal-800" },
 };
-const LANE_SCOPE_OPTIONS = [
-  { value: "both", label: "Both lanes" },
-  { value: "credit_union", label: "Credit union" },
-  { value: "community_bank", label: "Community bank" },
-];
 // Jump-to-section nav for this otherwise very long page. Each id matches a
 // section Card below (which carries a matching scroll-mt so the sticky nav
 // doesn't cover its heading when scrolled to).
@@ -339,8 +326,8 @@ const Strategy = () => {
         .from("natures").select("*").eq("user_id", uid).order("sort_order");
       setNatures((nat || []).map((n) => ({
         id: n.id, key: n.key, name: n.name, move: n.move || "",
-        evidence_type: n.evidence_type || "", fit: n.fit, rotation_mode: n.rotation_mode,
-        absorbs: toArray(n.absorbs), writing_samples: toArray(n.writing_samples), sort_order: n.sort_order,
+        evidence_type: n.evidence_type || "", fit: n.fit,
+        writing_samples: toArray(n.writing_samples), sort_order: n.sort_order,
       })));
 
       const { data: jb } = await supabase
@@ -394,8 +381,7 @@ const Strategy = () => {
       setReaders(readerRows.map((r) => ({
         id: r.id, key: r.key, role: r.role, who: r.who || "", side: r.side,
         is_published_to: r.is_published_to, lane_scope: r.lane_scope,
-        activation_trigger: r.activation_trigger || "",
-        threat_local_id: r.threat_item_id || "", avatar_initials: r.avatar_initials || "",
+        avatar_initials: r.avatar_initials || "",
         questions: questionsByReader.get(r.id) || [], sort_order: r.sort_order,
       })));
     };
@@ -455,7 +441,7 @@ const Strategy = () => {
     const id = `new_${Date.now()}`;
     setNatures((p) => [...p, {
       id, key: "", name: "", move: "", evidence_type: "",
-      fit: "medium", rotation_mode: "evergreen", absorbs: [], writing_samples: [], sort_order: p.length, _isNew: true,
+      fit: "medium", writing_samples: [], sort_order: p.length, _isNew: true,
     }]);
   };
   const addJob = () => {
@@ -484,7 +470,6 @@ const Strategy = () => {
     const row = swot.find((s) => s.id === id);
     if (!row) return;
     if (!row._isNew) setDeletedSwot((d) => [...d, row.id]);
-    setReaders((p) => p.map((r) => (r.threat_local_id === row.id ? { ...r, threat_local_id: "" } : r)));
     setSwot((p) => p.filter((s) => s.id !== id));
   };
   const removeReader = (i: number) => {
@@ -513,12 +498,10 @@ const Strategy = () => {
     const id = `new_${Date.now()}_${readers.length}`;
     setReaders((p) => [...p, {
       id, key: "", role: "", who: "", side: "decision",
-      is_published_to: true, lane_scope: "both", activation_trigger: "", threat_local_id: "",
+      is_published_to: true, lane_scope: "both",
       avatar_initials: "", questions: [], sort_order: p.length, _isNew: true,
     }]);
   };
-
-  const threatItems = swot.filter((s) => s.quadrant === "threat");
 
   const handleSave = async () => {
     if (!userId) { toast.error("You must be logged in"); return; }
@@ -585,8 +568,8 @@ const Strategy = () => {
         const n = natures[i];
         const payload = {
           key: n.key || slugify(n.name), name: n.name, move: n.move || null,
-          evidence_type: n.evidence_type || null, fit: n.fit, rotation_mode: n.rotation_mode,
-          absorbs: n.absorbs, writing_samples: n.writing_samples, sort_order: i,
+          evidence_type: n.evidence_type || null, fit: n.fit,
+          writing_samples: n.writing_samples, sort_order: i,
         };
         if (n._isNew) {
           const { error } = await supabase.from("natures").insert([{ ...payload, user_id: userId }]);
@@ -659,8 +642,7 @@ const Strategy = () => {
         }
       }
 
-      // SWOT second; resolve lane references, build map for reader threat references.
-      const swotIdMap = new Map<string, string>();
+      // SWOT second; resolve lane references.
       const savedSwot = [...swot];
       for (let i = 0; i < savedSwot.length; i++) {
         const s = savedSwot[i];
@@ -670,25 +652,21 @@ const Strategy = () => {
           threat_class: s.threat_class || null, lane_id: resolvedLane, sort_order: i,
         };
         if (s._isNew) {
-          const { data, error } = await supabase.from("swot_items").insert([{ ...payload, user_id: userId }]).select("id").single();
+          const { error } = await supabase.from("swot_items").insert([{ ...payload, user_id: userId }]);
           if (error) throw error;
-          swotIdMap.set(s.id, data.id);
         } else {
           const { error } = await supabase.from("swot_items").update(payload).eq("id", s.id);
           if (error) throw error;
-          swotIdMap.set(s.id, s.id);
         }
       }
 
-      // Readers third; resolve threat references. Questions are replaced wholesale.
+      // Readers third. Questions are replaced wholesale.
       const savedReaders = [...readers];
       for (let i = 0; i < savedReaders.length; i++) {
         const r = savedReaders[i];
-        const resolvedThreat = r.threat_local_id ? swotIdMap.get(r.threat_local_id) ?? null : null;
         const payload = {
           key: r.key || slugify(r.role), role: r.role, who: r.who || null, side: r.side,
           is_published_to: r.is_published_to, lane_scope: r.lane_scope,
-          activation_trigger: r.activation_trigger || null, threat_item_id: resolvedThreat,
           avatar_initials: r.avatar_initials || initialsOf(r.role), sort_order: i,
         };
         let readerId = r.id;
@@ -737,8 +715,7 @@ const Strategy = () => {
       setReaders((rd || []).map((r) => ({
         id: r.id, key: r.key, role: r.role, who: r.who || "", side: r.side,
         is_published_to: r.is_published_to, lane_scope: r.lane_scope,
-        activation_trigger: r.activation_trigger || "",
-        threat_local_id: r.threat_item_id || "", avatar_initials: r.avatar_initials || "",
+        avatar_initials: r.avatar_initials || "",
         questions: qByReader.get(r.id) || [], sort_order: r.sort_order,
       })));
     } catch (err) {
@@ -754,6 +731,17 @@ const Strategy = () => {
   // edits above. Falls back to a generic label for anyone who hasn't set
   // a business name yet.
   const businessLabel = brand.business_name || "the business";
+
+  // A reader's "lane scope" used to be a fixed dropdown of Prismm's original
+  // two lanes (credit_union/community_bank), disconnected from the actual
+  // Lanes list above -- a business with different lanes had no way to scope
+  // a reader to any of them. Now built from the real lanes, using the same
+  // key a lane would save under (key || slugify(name)) so it stays correct
+  // even for a lane that hasn't been saved yet.
+  const laneScopeOptions = [
+    { value: "both", label: "Both lanes" },
+    ...lanes.filter((l) => l.name.trim()).map((l) => ({ value: l.key || slugify(l.name), label: l.name })),
+  ];
 
   return (
     <div className="min-h-screen bg-background">
@@ -1316,25 +1304,7 @@ const Strategy = () => {
                         <Label className="text-xs">Lane scope</Label>
                         <Select value={r.lane_scope} onValueChange={(v) => setReader(i, { lane_scope: v })}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>{LANE_SCOPE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <Label className="text-xs">Activation trigger</Label>
-                        <Input placeholder="What brings this reader into rotation" value={r.activation_trigger} onChange={(e) => setReader(i, { activation_trigger: e.target.value })} />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Attached threat</Label>
-                        <Select value={r.threat_local_id || NONE} onValueChange={(v) => setReader(i, { threat_local_id: v === NONE ? "" : v })}>
-                          <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={NONE}>None</SelectItem>
-                            {threatItems.filter((t) => t.body.trim()).map((t) => (
-                              <SelectItem key={t.id} value={t.id}>{t.body.slice(0, 60)}</SelectItem>
-                            ))}
-                          </SelectContent>
+                          <SelectContent>{laneScopeOptions.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
                         </Select>
                       </div>
                     </div>
@@ -1460,7 +1430,7 @@ const Strategy = () => {
                       <Button variant="ghost" size="icon" onClick={() => removeNature(i)}><Trash2 className="h-4 w-4" /></Button>
                     </div>
                     <Textarea rows={2} placeholder="The move: what the post does" value={n.move} onChange={(e) => setNature(i, { move: e.target.value })} />
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <Label className="text-xs">Evidence type</Label>
                         <Input placeholder="e.g. a statistic" value={n.evidence_type} onChange={(e) => setNature(i, { evidence_type: e.target.value })} />
@@ -1472,17 +1442,6 @@ const Strategy = () => {
                           <SelectContent>{FIT_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
                         </Select>
                       </div>
-                      <div>
-                        <Label className="text-xs">Rotation</Label>
-                        <Select value={n.rotation_mode} onValueChange={(v) => setNature(i, { rotation_mode: v })}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>{ROTATION_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    <div>
-                      <Label className="text-xs">Absorbs (comma separated)</Label>
-                      <Input placeholder="e.g. myth-buster, data story" value={n.absorbs.join(", ")} onChange={(e) => setNature(i, { absorbs: csvToArray(e.target.value) })} />
                     </div>
                     <div>
                       <Label className="text-xs">Writing samples (one per line)</Label>

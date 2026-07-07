@@ -90,6 +90,13 @@ Found by re-running the doc's own search patterns against the rest of the repo. 
 
 **Now:** `buildSystemPromptFromConfig()` takes `businessName`/`businessDescription` as additional arguments and builds the opening line via a new `buildVisualIdentityLine()` (same pattern as `buildIdentityLine()` elsewhere), with the same generic fallback when neither is set. Both callers (`generate-draft-visual`, the real generation path, and `preview-visual`, Visual Studio's live preview) now fetch both fields from `profiles` and pass them through. Verified against the live database that `business_description` is a full multi-sentence paragraph (not a sentence fragment), so the identity line is built as two sentences — `"You are a visual designer for {name}. {description}"` — matching the construction already used and approved for the content-generation identity line, rather than splicing the description in after a comma.
 
+### UI copy hardcoded "Prismm" instead of reading `business_name`
+**Files:** `src/pages/Feeds.tsx`, `src/pages/CardDetail.tsx`, `src/pages/Strategy.tsx`, new `src/hooks/useBusinessName.ts`
+
+`Feeds.tsx` and `CardDetail.tsx` both had the identical literal sentence "Mark this as Prismm's own material so the writer can weight and anchor on it." on their "From the company (first-party)" toggle. Separately, `Strategy.tsx` — audited field-by-field for data disconnects, but not for its own descriptive copy — had four more literal "Prismm" mentions: the page subtitle, the Brand card description, the Lanes card description, and the "Published to (Prismm writes for this reader)" switch label.
+
+**Now:** `Feeds.tsx`/`CardDetail.tsx` use a new shared `useBusinessName()` hook (reads `profiles.business_name`, falls back to "the company" for anyone who hasn't set one). `Strategy.tsx` already has `business_name` loaded as part of its own Brand state, so it just derives a local `businessLabel` from that (falling back to "the business") instead of adding a redundant second fetch.
+
 ### LinkedIn character limit — NOT fixed, downgraded to low priority
 Still duplicated as `LINKEDIN_MAX_CHARS = 3000` in `supabase/functions/publish-to-zernio/index.ts` and `supabase/functions/reschedule-draft/index.ts`. Not business-specific (it's a real, correct-for-anyone LinkedIn platform limit) — just duplicated rather than shared. Low priority; move to `_shared/` when convenient, not urgent.
 
@@ -115,13 +122,7 @@ Every reader auto-computes and saves `avatar_initials` (via `initialsOf(r.role)`
 
 ### Repo-wide sweep (post Strategy/Settings audit) — remaining open items
 
-Ran the "Search patterns to run" section below against everything not already covered by Strategy.tsx/Settings.tsx or the "Fixed" section above. Two of the findings (the RejectedTab/PendingTab/VisualForge color+label misses, and the Visual Studio identity line) are now in the "Fixed" section above. What's left:
-
-**UI copy hardcodes "Prismm" instead of reading `business_name`, in several places:**
-- `src/pages/Feeds.tsx` (~line 540) and `src/pages/CardDetail.tsx` (~line 421): "Mark this as Prismm's own material so the writer can weight and anchor on it."
-- `src/pages/Strategy.tsx` itself (missed during the field-by-field audit since this is descriptive copy, not a data field): the page subtitle ("Who Prismm is, who it writes to..."), the Brand card description ("Who Prismm is and how it sounds..."), the Lanes card description ("The segments Prismm serves..."), and the "Published to (Prismm writes for this reader)" switch label.
-
-All of these are simple text swaps to `business_name` (with a generic fallback like "your business" for anyone who hasn't set one) — same confidence level as the other identity-line fixes, just in visible UI copy instead of AI prompts.
+Ran the "Search patterns to run" section below against everything not already covered by Strategy.tsx/Settings.tsx or the "Fixed" section above. Three of the findings (the RejectedTab/PendingTab/VisualForge color+label misses, the Visual Studio identity line, and the hardcoded-"Prismm" UI copy) are now in the "Fixed" section above. What's left:
 
 **Genuine judgment call — Visual Studio's logo upload writes directly to a hardcoded GitHub repo.** `src/pages/VisualStudio.tsx`'s `handleLogoUpload()` uploads a logo by making a client-side `PUT` request straight to `https://api.github.com/repos/keyona-rerev/knowledge-loom-prismm/contents/public/brand-assets/...` and then serves it from `https://keyona-rerev.github.io/knowledge-loom-prismm/brand-assets/...`. Two separate problems: (1) it's hardcoded to this one specific GitHub repo, so any fork/reuse for a different business would silently try to commit into Prismm's own repo instead of their own; (2) there is no `Authorization` header anywhere in this function or file — a GitHub Contents API `PUT` requires write auth, so as written this may simply 401 in a real deployment (possibly already broken, independent of the hardcoding). This isn't a "read from field X" fix — it needs a decision on whether this GitHub-commit-based logo hosting approach should continue at all (and if so, how it'd work per-business/per-fork), versus switching logo uploads to the existing Supabase Storage mechanism already used elsewhere in this app (e.g. the `draft-visuals` bucket in `generate-draft-visual`).
 

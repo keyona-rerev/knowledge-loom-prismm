@@ -11,10 +11,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { ArrowLeft, Save, ExternalLink, AlertCircle, Sparkles, MessageSquare, CheckCircle2, Trash2 } from "lucide-react";
+import { useBusinessName } from "@/hooks/useBusinessName";
 
 const CardDetail = () => {
   const navigate = useNavigate();
   const { id } = useParams();
+  const businessName = useBusinessName();
   const [card, setCard] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -418,7 +420,7 @@ const CardDetail = () => {
                   <div className="space-y-0.5 pr-3">
                     <Label>From the company (first-party)</Label>
                     <p className="text-sm text-muted-foreground">
-                      Mark this as Prismm's own material so the writer can weight and anchor on it.
+                      Mark this as {businessName}'s own material so the writer can weight and anchor on it.
                     </p>
                   </div>
                   <Switch checked={editedFromCompany} onCheckedChange={setEditedFromCompany} />

@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, Trash2, Pencil, Save as SaveIcon, TrendingUp, AlertTriangle, Lightbulb, ShieldAlert, Crown, Building2, Briefcase, LineChart, Users, Headphones, User } from "lucide-react";
 
-// Strategy is the single source of truth for who Prismm is, who it writes to,
+// Strategy is the single source of truth for who the business is, who it writes to,
 // and what its content does. Formerly split across Strategy and Audience
 // pages; merged here because both fed the same schedule and generator and
 // there was no reason for a reader to context-switch between them.
@@ -749,6 +749,12 @@ const Strategy = () => {
     }
   };
 
+  // Descriptive copy below used to say "Prismm" literally in four places,
+  // hardcoded independently of the business_name field this same page
+  // edits above. Falls back to a generic label for anyone who hasn't set
+  // a business name yet.
+  const businessLabel = brand.business_name || "the business";
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
@@ -777,7 +783,7 @@ const Strategy = () => {
       <main className="container mx-auto px-4 py-8 max-w-4xl">
         <h1 className="text-3xl font-bold mb-1">Strategy</h1>
         <p className="text-sm text-muted-foreground mb-8">
-          Who Prismm is, who it writes to, and what its content does. The schedule and the generator both read from here.
+          Who {businessLabel} is, who it writes to, and what its content does. The schedule and the generator both read from here.
         </p>
 
         {/* Brand */}
@@ -786,7 +792,7 @@ const Strategy = () => {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <CardTitle>Brand</CardTitle>
-                <CardDescription>Who Prismm is and how it sounds. The first context the generator reads. The app also themes from these colors.</CardDescription>
+                <CardDescription>Who {businessLabel} is and how it sounds. The first context the generator reads. The app also themes from these colors.</CardDescription>
               </div>
               {brandEditing ? (
                 <Button size="sm" onClick={() => setBrandEditing(false)} className="shrink-0">
@@ -1220,7 +1226,7 @@ const Strategy = () => {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <CardTitle>Lanes</CardTitle>
-                <CardDescription>The segments Prismm serves. Mark the wedge: the lane content leads with. Lanes are also a slot dial on the schedule.</CardDescription>
+                <CardDescription>The segments {businessLabel} serves. Mark the wedge: the lane content leads with. Lanes are also a slot dial on the schedule.</CardDescription>
               </div>
               {lanesEditing ? (
                 <Button size="sm" onClick={() => setLanesEditing(false)} className="shrink-0">
@@ -1338,7 +1344,7 @@ const Strategy = () => {
                     </div>
                     <div className="flex items-center gap-2">
                       <Switch checked={r.is_published_to} onCheckedChange={(v) => setReader(i, { is_published_to: v })} />
-                      <Label className="text-sm font-normal">Published to (Prismm writes for this reader)</Label>
+                      <Label className="text-sm font-normal">Published to ({businessLabel} writes for this reader)</Label>
                     </div>
                   </div>
                 ))}

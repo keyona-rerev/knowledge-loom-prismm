@@ -3,13 +3,12 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Clock, CheckCheck, Ban, HeartPulse } from "lucide-react";
+import { ArrowLeft, Clock, CheckCheck, Ban } from "lucide-react";
 import { PendingTab } from "@/components/review/PendingTab";
 import { ApprovedTab } from "@/components/review/ApprovedTab";
 import { RejectedTab } from "@/components/review/RejectedTab";
-import { HealthTab } from "@/components/review/HealthTab";
 
-const VALID_TABS = ["pending", "approved", "rejected", "health"];
+const VALID_TABS = ["pending", "approved", "rejected"];
 
 const Review = () => {
   const navigate = useNavigate();
@@ -18,7 +17,6 @@ const Review = () => {
   const activeTab = VALID_TABS.includes(tabParam || "") ? tabParam! : "pending";
 
   const [counts, setCounts] = useState({ pending: 0, scheduled: 0, rejected: 0, needsRevision: 0 });
-  const [flaggedHealthCount, setFlaggedHealthCount] = useState(0);
 
   useEffect(() => {
     const checkAuthAndLoadCounts = async () => {
@@ -52,13 +50,6 @@ const Review = () => {
           needsRevision: data.filter(d => d.approval_status === "needs_revision").length,
         });
       }
-
-      const { count: flaggedCount } = await supabase
-        .from("newsletter_health")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", session.user.id)
-        .neq("recommendation", "healthy");
-      setFlaggedHealthCount(flaggedCount ?? 0);
     };
     checkAuthAndLoadCounts();
   }, [navigate, activeTab]);
@@ -92,12 +83,6 @@ const Review = () => {
             <TabsTrigger value="pending"><Clock className="h-4 w-4 mr-2" />Pending</TabsTrigger>
             <TabsTrigger value="approved"><CheckCheck className="h-4 w-4 mr-2" />Approved</TabsTrigger>
             <TabsTrigger value="rejected"><Ban className="h-4 w-4 mr-2" />Rejected</TabsTrigger>
-            <TabsTrigger value="health">
-              <HeartPulse className="h-4 w-4 mr-2" />Health check
-              {flaggedHealthCount > 0 && (
-                <span className="ml-2 rounded-full bg-orange-100 text-orange-700 text-xs font-medium px-1.5 py-0.5">{flaggedHealthCount}</span>
-              )}
-            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="pending">
@@ -110,10 +95,6 @@ const Review = () => {
 
           <TabsContent value="rejected">
             <RejectedTab />
-          </TabsContent>
-
-          <TabsContent value="health">
-            <HealthTab />
           </TabsContent>
         </Tabs>
       </main>

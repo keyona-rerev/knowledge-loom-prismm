@@ -8,7 +8,7 @@
 
 export interface DesignRule { id: string; text: string; tag: "do" | "avoid"; }
 export interface VisualConfig {
-  color_navy: string; color_coral: string; color_purple: string; color_yellow: string;
+  color_background: string; color_accent: string; color_highlight: string; color_sparing_accent: string;
   display_font: string; body_font: string;
   logo_url: string; logo_min_height: number;
   canvas_width: number; canvas_height: number;
@@ -35,7 +35,7 @@ const VISUAL_TYPES: Record<string, { label: string; description: string; selecti
   },
   before_after: {
     label: "before_after",
-    description: "canvas split into two halves showing contrast (without Prismm vs with, old way vs new way)",
+    description: "canvas split into two halves showing contrast (old way vs new way, before vs after)",
     selectionHint: "If it's about a problem being solved, use before_after.",
   },
   logic_diagram: {
@@ -92,11 +92,11 @@ export function buildSystemPromptFromConfig(config: VisualConfig, businessName?:
   const brandBlock = `${buildVisualIdentityLine(businessName, businessDescription)}
 
 BRAND:
-- Colors: Navy ${config.color_navy} (background base), Coral ${config.color_coral} (accent/energy), Purple ${config.color_purple} (highlights), Yellow ${config.color_yellow} (sparingly)
+- Colors: Background ${config.color_background} (base), Accent ${config.color_accent} (energy), Highlight ${config.color_highlight}, Sparing accent ${config.color_sparing_accent} (used sparingly)
 - Fonts: ${config.display_font} (display) + ${config.body_font} (body) via Google Fonts
 - Logo: ${config.logo_url} — bottom-left, minimum ${config.logo_min_height}px height, visually prominent
-- Tone: calm authority. Trusted financial software with a human pulse. Direct, trustworthy, human.
-- ${config.color_navy} base. Soft radial or linear gradients of ${config.color_purple} or ${config.color_coral} as background texture. No harsh lines.
+- Tone: direct, trustworthy, human.
+- ${config.color_background} base. Soft radial or linear gradients of ${config.color_highlight} or ${config.color_accent} as background texture. No harsh lines.
 
 VISUAL TYPES (only these are available — pick one):
 ${typeLines.join("\n")}
@@ -110,18 +110,18 @@ OUTPUT RULES:
 - Include Google Fonts import for ${config.display_font} and ${config.body_font}
 - Fixed width ${config.canvas_width}px, height ${config.canvas_height}px (LinkedIn landscape)
 - Inline CSS only, no external stylesheets
-- ${config.color_navy} background as the base
+- ${config.color_background} background as the base
 - The 10-word-or-fewer statement must be the insight extracted from the draft, NOT a copy of its opening line`;
 
   return `${brandBlock}\n\n${rulesLines.join("\n")}`;
 }
 
 // Fixed canned sample used when a user has no real drafts yet to preview
-// against (or picks "Sample post" instead of one of their own). Deliberately
-// generic financial-services content so the preview is meaningful for any
-// Knowledge Loom user, not just Prismm specifically.
+// against (or picks "Sample post" instead of one of their own). Generic
+// business content so the preview is meaningful for any Knowledge Loom
+// user, not tied to any one business's actual subject matter.
 export const SAMPLE_DRAFT = {
-  title: "Half of inherited deposits leave within a year",
-  body: "When a depositor passes, the account doesn't quietly transfer within your walls. It moves. Roughly half of inherited deposits leave the institution within twelve months, most often to whichever advisor or bank the heir already trusts. The relationship your institution spent decades building with the depositor rarely extends to their children — because it was never built with them in the first place.",
-  seed_insight: "Institutions have no systematic relationship with heirs before the money moves.",
+  title: "Most customers churn quietly before they ever complain",
+  body: "By the time a customer files a complaint, the decision to leave has usually already been made. The real signal shows up earlier: fewer logins, shorter sessions, a support ticket that never gets a reply. Most businesses only notice the relationship is over once the invoice goes unpaid, because nothing in the system was watching for the quiet version of the exit.",
+  seed_insight: "Businesses track complaints, not the quiet disengagement that precedes them.",
 };

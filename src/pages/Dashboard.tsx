@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Rss, FileEdit, Settings, MessageCircleQuestion, LogOut,
-  CheckCheck, Lightbulb, Target, CalendarClock, AlertTriangle, Database, Plus, ChevronDown, Search, Palette,
+  CheckCheck, Lightbulb, Target, CalendarClock, AlertTriangle, Database, Plus, ChevronDown, Search, Palette, HeartPulse,
 } from "lucide-react";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -262,7 +262,7 @@ The dashboard shows your review pipeline and quick access to everything else.`}
                         {flaggedNewsletters.length} source{flaggedNewsletters.length === 1 ? "" : "s"} flagged by the weekly health scan
                       </p>
                       <p className="text-sm text-orange-800 mt-0.5">
-                        Consistently low relevance to your Strategy page. Checked every 7 days — see the Health check tab in Review for the full picture or to re-scan now.
+                        Consistently low relevance to your Strategy page. Checked every 7 days — see the Health check page for the full picture or to re-scan now.
                       </p>
                     </div>
                     <ChevronDown className={`h-4 w-4 text-orange-700 shrink-0 transition-transform ${healthOpen ? "rotate-180" : ""}`} />
@@ -287,7 +287,7 @@ The dashboard shows your review pipeline and quick access to everything else.`}
                       </div>
                     ))}
                   </div>
-                  <Button size="sm" variant="outline" onClick={() => navigate("/review?tab=health")} className="mt-3">
+                  <Button size="sm" variant="outline" onClick={() => navigate("/health-check")} className="mt-3">
                     Go to Health check
                   </Button>
                 </CardContent>
@@ -303,33 +303,63 @@ The dashboard shows your review pipeline and quick access to everything else.`}
               <CheckCheck className="h-5 w-5" style={{ color: brandColors.primary_color }} />
               <h3 className="text-xl font-semibold">Review</h3>
             </div>
-            <Card
-              className="cursor-pointer hover:shadow-lg transition-shadow border"
-              style={{ backgroundColor: `${brandColors.primary_color}1a`, borderColor: `${brandColors.primary_color}55` }}
-              onClick={() => navigate("/review")}
-            >
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="rounded-lg p-2" style={{ backgroundColor: brandColors.primary_color }}>
-                      <CheckCheck className="h-6 w-6 text-white" />
+            <div className="space-y-4">
+              <Card
+                className="cursor-pointer hover:shadow-lg transition-shadow border"
+                style={{ backgroundColor: `${brandColors.primary_color}1a`, borderColor: `${brandColors.primary_color}55` }}
+                onClick={() => navigate("/review")}
+              >
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-lg p-2" style={{ backgroundColor: brandColors.primary_color }}>
+                        <CheckCheck className="h-6 w-6 text-white" />
+                      </div>
+                      <CardTitle className="text-lg">Review</CardTitle>
                     </div>
-                    <CardTitle className="text-lg">Review</CardTitle>
+                    {stats.pendingReviews > 0 && (
+                      <Badge
+                        variant="outline"
+                        style={{ backgroundColor: `${brandColors.primary_color}1a`, color: brandColors.primary_color, borderColor: `${brandColors.primary_color}55` }}
+                      >
+                        {stats.pendingReviews} pending
+                      </Badge>
+                    )}
                   </div>
-                  {stats.pendingReviews > 0 && (
-                    <Badge
-                      variant="outline"
-                      style={{ backgroundColor: `${brandColors.primary_color}1a`, color: brandColors.primary_color, borderColor: `${brandColors.primary_color}55` }}
-                    >
-                      {stats.pendingReviews} pending
-                    </Badge>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                <CardDescription>Pending drafts, approved queue, and the rejection log</CardDescription>
-              </CardContent>
-            </Card>
+                </CardHeader>
+                <CardContent>
+                  <CardDescription>Pending drafts, approved queue, and the rejection log</CardDescription>
+                </CardContent>
+              </Card>
+
+              <Card
+                className="cursor-pointer hover:shadow-lg transition-shadow border"
+                style={{ backgroundColor: `${brandColors.primary_color}1a`, borderColor: `${brandColors.primary_color}55` }}
+                onClick={() => navigate("/health-check")}
+              >
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-lg p-2" style={{ backgroundColor: brandColors.primary_color }}>
+                        <HeartPulse className="h-6 w-6 text-white" />
+                      </div>
+                      <CardTitle className="text-lg">Health check</CardTitle>
+                    </div>
+                    {flaggedNewsletters.length > 0 && (
+                      <Badge
+                        variant="outline"
+                        style={{ backgroundColor: `${brandColors.primary_color}1a`, color: brandColors.primary_color, borderColor: `${brandColors.primary_color}55` }}
+                      >
+                        {flaggedNewsletters.length} flagged
+                      </Badge>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <CardDescription>How your newsletter sources are performing — re-scan any time, not just the weekly sweep</CardDescription>
+                </CardContent>
+              </Card>
+            </div>
           </section>
 
           {/* Capture tier */}

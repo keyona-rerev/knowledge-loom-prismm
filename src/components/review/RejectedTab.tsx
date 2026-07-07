@@ -13,6 +13,8 @@ interface RejectedDraft {
   created_at: string;
 }
 
+const FALLBACK_ACCENT = "#f9655b";
+
 // Rejected tab: a plain log, not a workflow. Just what was rejected, why
 // (review_notes, the reason typed into the reject dialog), when, and a link
 // back to the draft. No actions here on purpose — a rejected draft is done;
@@ -22,10 +24,27 @@ export const RejectedTab = () => {
   const navigate = useNavigate();
   const [drafts, setDrafts] = useState<RejectedDraft[]>([]);
   const [loading, setLoading] = useState(true);
+  // Previously hardcoded to Prismm's coral (#f9655b) directly on the "View
+  // draft" hover state, same bug as ApprovedTab/PostedTab/DraftDetail. Now
+  // reads profiles.primary_color the same way, with the old coral kept only
+  // as a fallback for profiles that haven't set one yet.
+  const [accentColor, setAccentColor] = useState(FALLBACK_ACCENT);
 
   useEffect(() => {
     load();
+    loadAccentColor();
   }, []);
+
+  const loadAccentColor = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const { data } = await supabase
+      .from("profiles")
+      .select("primary_color")
+      .eq("user_id", session.user.id)
+      .maybeSingle();
+    if (data?.primary_color) setAccentColor(data.primary_color);
+  };
 
   const load = async () => {
     setLoading(true);
@@ -78,7 +97,8 @@ export const RejectedTab = () => {
           </div>
           <button
             onClick={() => navigate(`/drafts/${draft.id}`)}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-[#f9655b] transition-colors shrink-0 mt-0.5"
+            style={{ "--kl-accent": accentColor } as React.CSSProperties}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-[var(--kl-accent)] transition-colors shrink-0 mt-0.5"
           >
             <ExternalLink className="h-3.5 w-3.5" />View draft
           </button>

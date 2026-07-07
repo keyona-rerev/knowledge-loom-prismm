@@ -65,7 +65,7 @@ serve(async (req) => {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("ai_provider, ai_model, ai_api_key, ai_endpoint")
+      .select("ai_provider, ai_model, ai_api_key, ai_endpoint, business_name, business_description")
       .eq("user_id", userId)
       .single();
     if (!profile?.ai_api_key) {
@@ -87,7 +87,7 @@ serve(async (req) => {
     }
 
     const visualConfig = config as VisualConfig;
-    const systemPrompt = buildSystemPromptFromConfig(visualConfig);
+    const systemPrompt = buildSystemPromptFromConfig(visualConfig, profile?.business_name, profile?.business_description);
     const canvasWidth = visualConfig.canvas_width || 1200;
     const canvasHeight = visualConfig.canvas_height || 627;
 

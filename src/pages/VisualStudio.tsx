@@ -19,10 +19,10 @@ interface DesignRule {
 }
 
 interface VisualConfig {
-  color_navy: string;
-  color_coral: string;
-  color_purple: string;
-  color_yellow: string;
+  color_background: string;
+  color_accent: string;
+  color_highlight: string;
+  color_sparing_accent: string;
   display_font: string;
   body_font: string;
   logo_url: string;
@@ -82,14 +82,17 @@ const DEFAULT_RULES: DesignRule[] = [
   { id: "r6", text: "Color accents used sparingly as punctuation, not decoration.", tag: "do" },
 ];
 
+// Generic starter palette, not tied to any one business's brand. A new
+// account should customize these in Visual Studio; nothing here is meant
+// to carry forward as anyone's actual brand identity.
 const DEFAULT_CONFIG: VisualConfig = {
-  color_navy: "#1b2b45",
-  color_coral: "#f9655b",
-  color_purple: "#6658ea",
-  color_yellow: "#f5c070",
+  color_background: "#18181b",
+  color_accent: "#3b82f6",
+  color_highlight: "#a855f7",
+  color_sparing_accent: "#f59e0b",
   display_font: "Bricolage Grotesque",
   body_font: "Hanken Grotesk",
-  logo_url: "https://res.cloudinary.com/dialhpycd/image/upload/v1772044659/prismm-logo-dark-bright_2x-removebg-preview_ut98x4.png",
+  logo_url: "",
   logo_min_height: 56,
   canvas_width: 1200,
   canvas_height: 627,
@@ -389,10 +392,10 @@ const VisualStudio = () => {
           <CardContent className="space-y-6">
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               {[
-                { key: "color_navy", label: "Navy · base" },
-                { key: "color_coral", label: "Coral · accent" },
-                { key: "color_purple", label: "Purple" },
-                { key: "color_yellow", label: "Yellow" },
+                { key: "color_background", label: "Background" },
+                { key: "color_accent", label: "Accent" },
+                { key: "color_highlight", label: "Highlight" },
+                { key: "color_sparing_accent", label: "Sparing accent" },
               ].map(({ key, label }) => (
                 <div key={key} className="space-y-1">
                   <Label className="text-xs text-muted-foreground uppercase tracking-wide">{label}</Label>
@@ -433,7 +436,7 @@ const VisualStudio = () => {
                 )}
                 <div
                   className="rounded-md px-4 py-3 text-white text-xl leading-snug"
-                  style={{ background: config.color_navy, fontFamily: `'${activeDisplayFont}', sans-serif`, fontWeight: displayWeight }}
+                  style={{ background: config.color_background, fontFamily: `'${activeDisplayFont}', sans-serif`, fontWeight: displayWeight }}
                 >
                   Half of deposits leave when children inherit.
                 </div>
@@ -462,7 +465,7 @@ const VisualStudio = () => {
                 )}
                 <div
                   className="rounded-md px-4 py-3 leading-relaxed"
-                  style={{ background: config.color_navy, color: "rgba(255,255,255,0.85)", fontFamily: `'${activeBodyFont}', sans-serif`, fontWeight: "400", fontSize: "15px" }}
+                  style={{ background: config.color_background, color: "rgba(255,255,255,0.85)", fontFamily: `'${activeBodyFont}', sans-serif`, fontWeight: "400", fontSize: "15px" }}
                 >
                   The gap lives in the checking account, the CD ladder, the savings account tied to a beneficiary designation not reviewed in eleven years.
                 </div>
@@ -535,11 +538,11 @@ const VisualStudio = () => {
             <div className="flex items-center gap-4 rounded-md border bg-muted/30 p-3">
               <div
                 className="w-20 h-10 rounded flex items-center justify-center text-xs font-medium tracking-widest flex-shrink-0"
-                style={{ background: config.color_navy, color: config.color_yellow }}
+                style={{ background: config.color_background, color: config.color_sparing_accent }}
               >LOGO</div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium">Current logo</p>
-                <p className="text-xs text-muted-foreground truncate mt-0.5">{config.logo_url}</p>
+                <p className="text-xs text-muted-foreground truncate mt-0.5">{config.logo_url || "No logo set yet"}</p>
               </div>
               <div>
                 <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />

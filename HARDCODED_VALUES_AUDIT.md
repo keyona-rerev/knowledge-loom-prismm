@@ -99,14 +99,40 @@ Every reader auto-computes and saves `avatar_initials` (via `initialsOf(r.role)`
 
 `natures.absorbs` ("e.g. myth-buster, data story") is saved and displayed in Strategy.tsx but read nowhere else. Unlike the SWOT/channels fixes above, it's not clear this is a "should feed generation" disconnect versus a "documentation of what this nature consolidated/replaced" field never meant for the AI to see (a changelog note, not functional data) — the placeholder text reads like a historical annotation rather than an instruction. Flagging for a decision rather than guessing: should this appear in the NATURE block of the generation context (informing the AI this nature also covers these older concepts), or is it purely organizational and fine as-is?
 
+### Repo-wide sweep (post Strategy/Settings audit) — found, not fixed yet
+
+Ran the "Search patterns to run" section below against everything not already covered by Strategy.tsx/Settings.tsx or the "Fixed" section above. Findings below, ordered roughly high-confidence-fix → genuine-judgment-call:
+
+**Missed siblings of the already-fixed brand-color pattern.** `src/components/review/RejectedTab.tsx` (line ~81, `hover:text-[#f9655b]`) and `src/components/review/PendingTab.tsx` (line ~429, `hover:text-[#f9655b]`) hardcode the same Prismm coral the "Brand colors hardcoded inline" fix above already addressed in three sibling files — these two just weren't in that pass. Neither file fetches `profiles.primary_color` at all. Same fix, same confidence, just two more files.
+
+**`src/components/VisualForge.tsx` has two separate misses:**
+1. Hardcodes navy/coral/yellow (`#1b2b45`, `#f9655b`, `#f5c070`) for a loading spinner, a visual-type badge, and the "Download PNG" button — same shape as the brand-color fix above, except arguably these should read Visual Studio's configured colors (`profiles.visual_studio_config`) rather than the generic `primary_color`/`secondary_color`/`accent_color`, since this component is displaying the *output* of Visual Studio generation specifically.
+2. `VISUAL_TYPE_LABELS` still lists the old, retired 8-type vocabulary (`stat_graphic`, `quote_card`, `pillar_statement`, `human_moment`, `timeline`, `comparison`, `checklist`, `branded_announcement`) instead of the 4 real types the "Visual type vocabulary mismatch" fix above already settled on (`hero_number`, `before_after`, `logic_diagram`, `transformation`). Not a new judgment call — the decision was already made — this file just never got updated to match, so every real generated visual shows its raw snake_case type as a badge label (falls through `VISUAL_TYPE_LABELS[visual.visual_type] || visual.visual_type`) instead of a proper label.
+
+**`_shared/visual-prompt.ts`'s `buildSystemPromptFromConfig()` still hardcodes the Prismm identity line** — the exact bug the "Business identity hardcoded" and "Prompt Inspector" fixes above already addressed elsewhere, missed here because this function was the one being *added* in the original Visual Studio fix, not audited for this specific issue. Line: `` `You are a visual designer for Prismm, inheritance infrastructure for community banks and credit unions.` `` — unconditional, not read from any config or profile field. `VisualConfig` has no `business_name`/`business_description` fields at all, and neither caller (`generate-draft-visual/index.ts`, `preview-visual/index.ts`) fetches them from `profiles`. High-confidence fix, same shape as `buildIdentityLine()` elsewhere — just needs `business_name`/`business_description` threaded through both callers and the config-builder signature.
+
+**UI copy hardcodes "Prismm" instead of reading `business_name`, in several places:**
+- `src/pages/Feeds.tsx` (~line 540) and `src/pages/CardDetail.tsx` (~line 421): "Mark this as Prismm's own material so the writer can weight and anchor on it."
+- `src/pages/Strategy.tsx` itself (missed during the field-by-field audit since this is descriptive copy, not a data field): the page subtitle ("Who Prismm is, who it writes to..."), the Brand card description ("Who Prismm is and how it sounds..."), the Lanes card description ("The segments Prismm serves..."), and the "Published to (Prismm writes for this reader)" switch label.
+
+All of these are simple text swaps to `business_name` (with a generic fallback like "your business" for anyone who hasn't set one) — same confidence level as the other identity-line fixes, just in visible UI copy instead of AI prompts.
+
+**Genuine judgment call — Visual Studio's logo upload writes directly to a hardcoded GitHub repo.** `src/pages/VisualStudio.tsx`'s `handleLogoUpload()` uploads a logo by making a client-side `PUT` request straight to `https://api.github.com/repos/keyona-rerev/knowledge-loom-prismm/contents/public/brand-assets/...` and then serves it from `https://keyona-rerev.github.io/knowledge-loom-prismm/brand-assets/...`. Two separate problems: (1) it's hardcoded to this one specific GitHub repo, so any fork/reuse for a different business would silently try to commit into Prismm's own repo instead of their own; (2) there is no `Authorization` header anywhere in this function or file — a GitHub Contents API `PUT` requires write auth, so as written this may simply 401 in a real deployment (possibly already broken, independent of the hardcoding). This isn't a "read from field X" fix — it needs a decision on whether this GitHub-commit-based logo hosting approach should continue at all (and if so, how it'd work per-business/per-fork), versus switching logo uploads to the existing Supabase Storage mechanism already used elsewhere in this app (e.g. the `draft-visuals` bucket in `generate-draft-visual`).
+
+**Not a bug, noting for context — deployment path hardcoding.** `src/App.tsx`'s `<BrowserRouter basename="/knowledge-loom-prismm">` and `vite.config.ts`'s `base: '/knowledge-loom-prismm/'` are both tied to this repo's name for GitHub Pages hosting. This isn't the same class of issue as the rest of this doc (there's no profile/database field being ignored — it's inherent to wherever a fork of this repo is actually deployed), so not proposing a fix, just flagging that anyone renaming/forking this repo for a new business needs to update these two to match their own deployment path.
+
+**Dead code, low priority.** `src/integrations/email/notification-client.ts` is an explicitly-labeled "Mock email client for development" — its real send logic (`generateDraftNotificationEmail`, hardcoded blue `#3B82F6` styling and a third stale product name, "Insight Forge <notifications@insightforge.com>") is inside a JS block comment and never executes; the function only ever logs to console and shows an in-app toast. Manual content creation (`CreateContent.tsx` via `useEmailNotifications`) calls this mock, while scheduled/autopilot generation uses the real `send-draft-notification` edge function — so manual creation's "email me when a draft is ready" is currently a no-op. Worth knowing about, but fixing it is "finish an unfinished feature," not "reconnect a hardcoded value" — flagging rather than building.
+
+**LinkedIn-as-only-platform:** re-ran this pattern (61 hits) — all of it is the same already-documented structural fact (this app publishes to LinkedIn only, throughout), not a new disconnect. No field anywhere says "which platform" that's being ignored; it was built LinkedIn-only from the start. Already adequately covered by the existing "LinkedIn character limit" entry above.
+
 ### Zernio field-name guessing, never confirmed against a live account
 **File:** `supabase/functions/_shared/publisher/zernio.ts` — several methods guess at response field names defensively because they were written without live Zernio credentials to probe against. Not Prismm-specific, but worth knowing: if a new business uses a different provider entirely, the whole `_shared/publisher/` Zernio implementation is a no-op stub needing a full new implementation file (`_shared/publisher/index.ts` is the intended swap point).
 
 ---
 
-## Search patterns to run — this is where the real remaining work is
+## Search patterns to run
 
-Nobody has done a full repo-wide pass yet. These were the patterns used to find everything above; run them across files not yet touched (Strategy.tsx — 77KB, never opened this session; Settings.tsx — 30KB, never opened this session; and anything else not listed as "Fixed" above):
+Strategy.tsx and Settings.tsx have now been audited field-by-field (see the "Fixed" entries above and the "Repo-wide sweep" entry for what came out of that), and these patterns have been run once across the rest of the repo (see "Repo-wide sweep" above for the results). Re-run them after any further changes to catch new drift — they're cheap and the whole point of this doc is that nobody should have to re-derive this list from scratch:
 
 ```bash
 # Hardcoded hex colors outside of Tailwind config / design tokens
@@ -129,7 +155,5 @@ rg -n -i 'linkedin' src/ supabase/functions/ | grep -v node_modules
 ```
 
 For each hit: ask "would this be true/correct for a different business using this same codebase?" If no, it needs a configurable path — usually a `profiles` column, a `content_schedules`/`formats` row, or (for anything Visual-Studio-shaped) an addition to `visual_studio_config`. Follow the pattern used in the "Fixed" section above: read from the configurable source, fall back to current hardcoded behavior for anyone who hasn't configured it yet (no silent change), make the configured value permanent once set (no reverting).
-
-**Priority: audit Strategy.tsx and Settings.tsx next.** Every editable field on those two pages needs to be checked against what actually consumes it — that's the exact class of bug that caused the Visual Studio disconnect, and neither page has been checked yet.
 
 Do not assume this list is complete. Treat it as a head start, not a checklist to close out and consider done.

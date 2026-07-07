@@ -2,11 +2,15 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { AlertTriangle, CheckCircle2, RefreshCw, HeartPulse, Rss } from "lucide-react";
+import { AlertTriangle, CheckCircle2, RefreshCw, HeartPulse, Rss, BarChart3 } from "lucide-react";
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell, ReferenceLine,
+  PieChart, Pie,
+} from "recharts";
 
 interface HealthRow {
   id: string;
@@ -20,6 +24,16 @@ interface HealthRow {
 }
 
 const ALL = "__all__";
+
+// These match the thresholds scan-newsletter-health's recommend() actually
+// uses (avg <= 3.5 -> unsubscribe, avg <= 5.5 -> watch, else healthy) — the
+// chart's reference lines and colors are drawn from the same boundaries the
+// backend scores against, not separately chosen "looks about right" values.
+const RECOMMENDATION_COLOR: Record<HealthRow["recommendation"], string> = {
+  unsubscribe: "#dc2626",
+  watch: "#ea580c",
+  healthy: "#16a34a",
+};
 
 // Health tab: every newsletter sender that's produced reference cards
 // recently, not just the ones the weekly cron happened to flag. Dashboard's
@@ -86,6 +100,28 @@ export const HealthTab = () => {
     healthy: rows.filter((r) => r.recommendation === "healthy").length,
   };
 
+  // Bar chart data: only senders with a real score, worst-first (same order
+  // as the list below, since rows is already sorted avg_score ascending).
+  // Sender addresses are truncated for the axis label; the tooltip shows
+  // the full address plus card count.
+  const chartData = rows
+    .filter((r) => typeof r.avg_score === "number")
+    .map((r) => ({
+      sender: r.sender_address,
+      shortSender: r.sender_address.length > 22 ? r.sender_address.slice(0, 20) + "…" : r.sender_address,
+      avg_score: r.avg_score as number,
+      card_count: r.card_count,
+      recommendation: r.recommendation,
+    }));
+
+  const pieData = [
+    { name: "Healthy", value: counts.healthy, color: RECOMMENDATION_COLOR.healthy },
+    { name: "Watch", value: counts.watch, color: RECOMMENDATION_COLOR.watch },
+    { name: "Unsubscribe", value: counts.unsubscribe, color: RECOMMENDATION_COLOR.unsubscribe },
+  ].filter((d) => d.value > 0);
+
+  const chartHeight = Math.max(160, chartData.length * 32);
+
   if (loading) {
     return <div className="text-center py-16 text-muted-foreground">Loading newsletter health...</div>;
   }
@@ -103,6 +139,72 @@ export const HealthTab = () => {
           {scanning ? "Scanning..." : "Run scan now"}
         </Button>
       </div>
+
+      {chartData.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <BarChart3 className="h-4 w-4" />
+              Relevance score by sender
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
+              <div className="lg:col-span-2" style={{ height: chartHeight }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 24, bottom: 4, left: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" domain={[0, 10]} tick={{ fontSize: 11 }} />
+                    <YAxis type="category" dataKey="shortSender" width={140} tick={{ fontSize: 11 }} />
+                    <Tooltip
+                      formatter={(value: number, _name, props: any) => [`${value.toFixed(1)}/10 (${props.payload.card_count} cards)`, props.payload.sender]}
+                      labelFormatter={() => ""}
+                    />
+                    {/* Recommendation thresholds — the exact boundaries
+                        scan-newsletter-health's recommend() uses, not
+                        separately eyeballed values. */}
+                    <ReferenceLine x={3.5} stroke="#dc2626" strokeDasharray="4 4" />
+                    <ReferenceLine x={5.5} stroke="#ea580c" strokeDasharray="4 4" />
+                    <Bar dataKey="avg_score" radius={[0, 4, 4, 0]}>
+                      {chartData.map((entry, i) => (
+                        <Cell key={i} fill={RECOMMENDATION_COLOR[entry.recommendation]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex flex-col items-center gap-3">
+                {pieData.length > 0 && (
+                  <div style={{ width: "100%", height: 140 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={pieData} dataKey="value" nameKey="name" innerRadius={35} outerRadius={60} paddingAngle={2}>
+                          {pieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+                <div className="flex flex-col gap-1.5 text-xs w-full">
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: RECOMMENDATION_COLOR.healthy }} />Healthy</span>
+                    <span className="font-medium">{counts.healthy}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: RECOMMENDATION_COLOR.watch }} />Watch</span>
+                    <span className="font-medium">{counts.watch}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: RECOMMENDATION_COLOR.unsubscribe }} />Unsubscribe</span>
+                    <span className="font-medium">{counts.unsubscribe}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {rows.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap mb-4">

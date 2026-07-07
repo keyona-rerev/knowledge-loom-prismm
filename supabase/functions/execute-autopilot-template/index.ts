@@ -114,6 +114,7 @@ function buildContextBlock(ctx: SlotContext): string {
     if (a.core_systems) lines.push(`Core systems: ${a.core_systems}`);
     if (arr(a.language_use).length) lines.push(`Language to use: ${arr(a.language_use).join("; ")}`);
     if (arr(a.language_avoid).length) lines.push(`Language to avoid: ${arr(a.language_avoid).join("; ")}`);
+    if (arr(a.channels).length) lines.push(`Channels: ${arr(a.channels).join(", ")}`);
     lines.push("");
   }
   if (ctx.lane) {

@@ -42,6 +42,13 @@ Settings.tsx saves `profiles.default_timezone` / `profiles.default_post_time`, a
 
 **Now:** `CadenceTab.tsx` loads `default_timezone`/`default_post_time` alongside its other strategy-library fetches and uses them as the seed values for `addSlot()`, falling back to the same `"09:00"` / `"America/New_York"` literals for anyone who hasn't set a default. The three calendar call sites share a new `useDefaultTimezone()` hook that reads the saved default and, only when one exists, uses it in place of the browser's guess when calling `reschedule-draft` — falling back to the exact same browser-detection behavior as before for anyone who hasn't configured one.
 
+### Audience Profile's "Channels" field never reached generation
+**Files:** `supabase/functions/execute-autopilot-template/index.ts`, `supabase/functions/_shared/strategy-context.ts`
+
+Strategy.tsx's Audience Profile section saves `audience_profile.channels` (e.g. "LinkedIn, conferences, trade press") alongside `thesis`, `fit_criteria`, `institution_type`, `asset_range`, `core_systems`, `language_use`, and `language_avoid` — all seven of the others are surfaced in the AUDIENCE block both `execute-autopilot-template` and the shared `strategy-context.ts` build for every generation call, but `channels` was the one field left out of both, confirmed by grep to be read nowhere outside Strategy.tsx.
+
+**Now:** both AUDIENCE blocks include a `Channels: ...` line when the field is set, same shape as the seven fields already there. (`search-sources/index.ts` builds its own smaller, separate context for web search targeting and doesn't include `channels` either — arguably it's relevant there too since it describes where to look for source material, but that's a separate context builder and a separate call; left untouched for now rather than bundled into this fix.)
+
 ### LinkedIn character limit — NOT fixed, downgraded to low priority
 Still duplicated as `LINKEDIN_MAX_CHARS = 3000` in `supabase/functions/publish-to-zernio/index.ts` and `supabase/functions/reschedule-draft/index.ts`. Not business-specific (it's a real, correct-for-anyone LinkedIn platform limit) — just duplicated rather than shared. Low priority; move to `_shared/` when convenient, not urgent.
 

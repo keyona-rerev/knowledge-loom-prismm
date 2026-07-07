@@ -296,8 +296,13 @@ serve(async (req) => {
     const { data: swotRows } = await supabase.from("swot_items").select("*").eq("user_id", userId).order("sort_order");
     const swot = swotRows || [];
 
+    // Previously hardcoded to only recognize lane.key === "credit_union" or
+    // "community_bank" -- Prismm's original two lanes -- even though lanes
+    // are fully user-editable and seeds.lane_scope no longer has a schema
+    // constraint limiting it to those two values (see migration
+    // 20260707120000). Any real lane key now qualifies.
     const laneScopes = ["both"];
-    if (lane?.key === "credit_union" || lane?.key === "community_bank") laneScopes.push(lane.key);
+    if (lane?.key) laneScopes.push(lane.key);
     let seed: any = null;
     {
       const { data: seeds } = await supabase

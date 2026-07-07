@@ -56,6 +56,19 @@ Strategy.tsx's SWOT section (strengths, weaknesses, opportunities, and threats, 
 
 **Now:** both `execute-autopilot-template` and the shared `strategy-context.ts` fetch `swot_items` and render a `SWOT (the competitive terrain)` block, one line per item, labeled by quadrant — same shape as the existing LANE/AUDIENCE blocks. Threat items with `threat_class = 'triggered'` are deliberately left out of this block: Strategy's own copy describes triggered threats as "held out of rotation" until a real-world trigger fires, and nothing in the system marks a trigger as having fired (see the next entry), so including them unconditionally would contradict behavior the UI already promises. Standing threats, along with all strengths/weaknesses/opportunities, have no such gate and are always included.
 
+### Reader/seed "lane scope" is hardcoded to Prismm's original two lanes — flagging, needs a decision before any schema change
+**Files:** `src/pages/Strategy.tsx`, `supabase/functions/execute-autopilot-template/index.ts`, `supabase/migrations/20260613000000_knowledge_loom_rebuild_schema.sql`
+
+Strategy.tsx's Lanes section is designed to be fully generic — add, rename, or remove any number of arbitrary lanes ("The segments [the business] serves"), each with its own free-text name and a `key` slugified from that name. But two other places that are supposed to scope content to a specific lane are hardcoded to exactly two lane values that happen to be Prismm's original two lanes:
+
+1. **Strategy.tsx's reader "Lane scope" dropdown** (`LANE_SCOPE_OPTIONS`) only ever offers "Both lanes", "Credit union", "Community bank" — never the lanes actually configured in the Lanes section above it. If a business renames/replaces its lanes, there is no way to scope a reader to any of its real lanes; the dropdown's other two options become meaningless leftovers.
+2. **The `lane_scope` column itself** on both `readers` and `seeds` has a DB-level `CHECK (lane_scope IN ('both','credit_union','community_bank'))` constraint (migration `20260613000000`). So even fixing the frontend dropdown to read from the real `lanes` list wouldn't be enough — the database itself rejects any other value.
+3. `execute-autopilot-template`'s seed-selection code (`if (lane?.key === "credit_union" || lane?.key === "community_bank") laneScopes.push(lane.key);`) mirrors that same hardcoded pair — consistent with today's constraint, but it means seeds scoped to any lane other than those two literal keys can never be selected for that lane's slots.
+
+By contrast, `swot_items.lane_id` is a real foreign key to `lanes.id` and already works for arbitrary lanes — so the Lanes feature clearly was meant to be fully generic, and `lane_scope` is the one place that never got updated to match.
+
+**Not fixing yet:** the frontend and backend query-logic pieces (1 and 3) are simple "read the real dynamic value" fixes, but they're blocked on the DB constraint (2), which is a schema change (loosening or dropping the `CHECK`, on both `readers.lane_scope` and `seeds.lane_scope`) — exactly the kind of change the audit rules say to confirm before writing. Bringing this back rather than migrating unilaterally: do you want `lane_scope` to accept any of the account's actual lane keys (dropping the CHECK, since lane keys are already free-form slugs), or something else?
+
 ### Nature rotation and reader/threat triggering were never implemented at runtime — flagging, not fixing
 **Files:** `src/pages/Strategy.tsx`, `supabase/migrations/20260613000000_knowledge_loom_rebuild_schema.sql`
 
@@ -75,6 +88,16 @@ Still duplicated as `LINKEDIN_MAX_CHARS = 3000` in `supabase/functions/publish-t
 
 ### Visual Studio's sample preview text
 **File:** `supabase/functions/_shared/visual-prompt.ts`, `SAMPLE_DRAFT` — written in Prismm's voice/topic (inherited deposits, community banks). Only affects Visual Studio's live preview when no real draft is selected. Consider making it configurable or more generic.
+
+### Readers' `avatar_initials` is saved but rendered nowhere
+**File:** `src/pages/Strategy.tsx`
+
+Every reader auto-computes and saves `avatar_initials` (via `initialsOf(r.role)`) on save. Grepped across the whole repo: nothing renders it, including Strategy's own read-only Readers grid, which uses a keyword-matched icon (`getReaderIcon`) + side-colored badge instead. Looks like a leftover from before the icon-based avatar design replaced an initials-based one. Harmless (no generation or scheduling logic depends on it) — flagging rather than fixing since there's no obvious place it should be wired back into now that the icon design already exists and works.
+
+### Natures' `absorbs` field's purpose is ambiguous
+**File:** `src/pages/Strategy.tsx`
+
+`natures.absorbs` ("e.g. myth-buster, data story") is saved and displayed in Strategy.tsx but read nowhere else. Unlike the SWOT/channels fixes above, it's not clear this is a "should feed generation" disconnect versus a "documentation of what this nature consolidated/replaced" field never meant for the AI to see (a changelog note, not functional data) — the placeholder text reads like a historical annotation rather than an instruction. Flagging for a decision rather than guessing: should this appear in the NATURE block of the generation context (informing the AI this nature also covers these older concepts), or is it purely organizational and fine as-is?
 
 ### Zernio field-name guessing, never confirmed against a live account
 **File:** `supabase/functions/_shared/publisher/zernio.ts` — several methods guess at response field names defensively because they were written without live Zernio credentials to probe against. Not Prismm-specific, but worth knowing: if a new business uses a different provider entirely, the whole `_shared/publisher/` Zernio implementation is a no-op stub needing a full new implementation file (`_shared/publisher/index.ts` is the intended swap point).

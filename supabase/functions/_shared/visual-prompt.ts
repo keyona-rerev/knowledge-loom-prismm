@@ -51,7 +51,23 @@ const VISUAL_TYPES: Record<string, { label: string; description: string; selecti
 };
 const ALL_VISUAL_TYPE_IDS = Object.keys(VISUAL_TYPES);
 
-export function buildSystemPromptFromConfig(config: VisualConfig): string {
+// This was a literal hardcoded Prismm sentence even after the rest of this
+// function was wired up to read profiles.visual_studio_config -- VisualConfig
+// (the thing Visual Studio actually saves) never carried business identity,
+// so business_name/business_description have to come in as separate
+// arguments from the caller instead. Same pattern as buildIdentityLine() in
+// execute-autopilot-template/index.ts, adapted for the visual-designer framing.
+function buildVisualIdentityLine(businessName?: string | null, businessDescription?: string | null): string {
+  if (businessName && businessDescription) {
+    return `You are a visual designer for ${businessName}. ${businessDescription}`;
+  }
+  if (businessName) {
+    return `You are a visual designer for ${businessName}.`;
+  }
+  return "You are a visual designer for this brand. Set a business name and description in Strategy for a more specific voice.";
+}
+
+export function buildSystemPromptFromConfig(config: VisualConfig, businessName?: string | null, businessDescription?: string | null): string {
   const rulesLines: string[] = ["DESIGN RULES (read every rule before generating):"];
   const dos = config.design_rules.filter((r) => r.tag === "do");
   const avoids = config.design_rules.filter((r) => r.tag === "avoid");
@@ -73,7 +89,7 @@ export function buildSystemPromptFromConfig(config: VisualConfig): string {
   const typeLines = enabledIds.map((id, i) => `${i + 1}. ${VISUAL_TYPES[id].label} — ${VISUAL_TYPES[id].description}`);
   const selectionHints = enabledIds.map((id) => VISUAL_TYPES[id].selectionHint).join(" ");
 
-  const brandBlock = `You are a visual designer for Prismm, inheritance infrastructure for community banks and credit unions.
+  const brandBlock = `${buildVisualIdentityLine(businessName, businessDescription)}
 
 BRAND:
 - Colors: Navy ${config.color_navy} (background base), Coral ${config.color_coral} (accent/energy), Purple ${config.color_purple} (highlights), Yellow ${config.color_yellow} (sparingly)

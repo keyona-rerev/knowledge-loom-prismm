@@ -238,6 +238,17 @@ const VisualStudio = () => {
     }));
   };
 
+  // Previously committed the uploaded file straight into this specific
+  // GitHub repo (keyona-rerev/knowledge-loom-prismm) via a client-side call
+  // to GitHub's Contents API, then served it from GitHub Pages. Hardcoded
+  // to one repo -- any fork/reuse for a different business would still try
+  // to write into Prismm's own repo -- and never sent an Authorization
+  // header, which GitHub's write API requires, so it was likely already
+  // failing independent of the hardcoding. Now uploads to the brand-assets
+  // Supabase Storage bucket (same pattern already used for draft visuals,
+  // see src/lib/ensureVisualImage.ts), which works per-account with no
+  // extra credentials and needs no changes wherever logo_url is consumed --
+  // it's still just a URL.
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -245,34 +256,20 @@ const VisualStudio = () => {
     if (file.size > 2 * 1024 * 1024) { toast.error("Image must be under 2 MB"); return; }
     setUploading(true);
     try {
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve((reader.result as string).split(",")[1]);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      const filename = "logo-" + Date.now() + "." + file.name.split(".").pop();
-      const path = "public/brand-assets/" + filename;
-      let existingSha: string | undefined;
-      try {
-        const checkRes = await fetch(
-          `https://api.github.com/repos/keyona-rerev/knowledge-loom-prismm/contents/${path}`,
-          { headers: { Accept: "application/vnd.github+json" } }
-        );
-        if (checkRes.ok) { const ex = await checkRes.json(); existingSha = ex.sha; }
-      } catch { /* new file */ }
-      const body: Record<string, string> = { message: "feat: upload brand asset " + filename, content: base64 };
-      if (existingSha) body.sha = existingSha;
-      const res = await fetch(
-        `https://api.github.com/repos/keyona-rerev/knowledge-loom-prismm/contents/${path}`,
-        { method: "PUT", headers: { Accept: "application/vnd.github+json", "Content-Type": "application/json" }, body: JSON.stringify(body) }
-      );
-      if (!res.ok) { const err = await res.json(); throw new Error(err.message || "GitHub upload failed"); }
-      const liveUrl = `https://keyona-rerev.github.io/knowledge-loom-prismm/brand-assets/${filename}`;
-      setConfig(c => ({ ...c, logo_url: liveUrl }));
-      toast.success("Logo uploaded. Pages will rebuild in ~60 seconds.");
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { toast.error("Not logged in"); return; }
+      const ext = file.name.split(".").pop() || "png";
+      const path = `${session.user.id}/logo-${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("brand-assets")
+        .upload(path, file, { contentType: file.type, upsert: true });
+      if (uploadError) throw uploadError;
+      const { data: pub } = supabase.storage.from("brand-assets").getPublicUrl(path);
+      if (!pub?.publicUrl) throw new Error("Could not get a public URL for the uploaded logo");
+      setConfig(c => ({ ...c, logo_url: pub.publicUrl }));
+      toast.success("Logo uploaded.");
     } catch (err: any) {
-      toast.error("Upload failed: " + err.message);
+      toast.error("Upload failed: " + (err.message || "unknown error"));
     } finally {
       setUploading(false);
       if (logoInputRef.current) logoInputRef.current.value = "";
@@ -532,7 +529,7 @@ const VisualStudio = () => {
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Ruler className="h-5 w-5" />Canvas & logo</CardTitle>
-            <CardDescription>Output size and logo. Upload a replacement and it is hosted on GitHub Pages automatically.</CardDescription>
+            <CardDescription>Output size and logo. Upload a replacement and it's hosted automatically.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center gap-4 rounded-md border bg-muted/30 p-3">
@@ -552,7 +549,7 @@ const VisualStudio = () => {
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              Uploaded images go to <code>public/brand-assets/</code> in the repo and are served from GitHub Pages. Rebuild takes about 60 seconds.
+              Uploaded images are stored in your own account folder and served immediately — no rebuild wait.
             </p>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">

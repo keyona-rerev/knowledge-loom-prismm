@@ -20,23 +20,36 @@ interface DraftVisual {
   created_at: string;
 }
 
+// The AI's real, actually-implemented visual types (see
+// supabase/functions/_shared/visual-prompt.ts, VISUAL_TYPES -- the single
+// source of truth). This used to list the old 8-type vocabulary that
+// Visual Studio's toggles were cut over from; since that decision was made
+// this map was never updated to match, so every real generated visual fell
+// through to showing its raw snake_case type instead of a label.
 const VISUAL_TYPE_LABELS: Record<string, string> = {
-  stat_graphic: "Stat Graphic",
-  quote_card: "Quote Card",
-  pillar_statement: "Pillar Statement",
-  human_moment: "Human Moment",
-  timeline: "Timeline",
-  comparison: "Comparison",
-  checklist: "Checklist",
-  branded_announcement: "Announcement",
+  hero_number: "Hero Number",
+  before_after: "Before / After",
+  logic_diagram: "Logic Diagram",
+  transformation: "Transformation",
   generating: "Generating...",
 };
+
+const DEFAULT_NAVY = "#1b2b45";
+const DEFAULT_CORAL = "#f9655b";
+const DEFAULT_YELLOW = "#f5c070";
 
 export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
   const [visual, setVisual] = useState<DraftVisual | null>(null);
   const [loading, setLoading] = useState(true);
   const [regenerating, setRegenerating] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  // Previously hardcoded navy/coral/yellow directly in this file's spinner,
+  // type badge, and download button, disconnected from Visual Studio
+  // (profiles.visual_studio_config) even though this component exists
+  // specifically to display that config's output. Now reads the same
+  // config Visual Studio saves, falling back to the old hardcoded values
+  // for anyone who hasn't configured Visual Studio yet.
+  const [colors, setColors] = useState({ navy: DEFAULT_NAVY, coral: DEFAULT_CORAL, yellow: DEFAULT_YELLOW });
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const pollRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -58,12 +71,37 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
     setLoading(false);
   };
 
+  const loadColors = async () => {
+    const { data } = await supabase
+      .from("profiles")
+      .select("visual_studio_config")
+      .eq("user_id", userId)
+      .maybeSingle();
+    const raw = (data as any)?.visual_studio_config as string | null | undefined;
+    if (!raw) return;
+    try {
+      const config = JSON.parse(raw);
+      setColors({
+        navy: config.color_navy || DEFAULT_NAVY,
+        coral: config.color_coral || DEFAULT_CORAL,
+        yellow: config.color_yellow || DEFAULT_YELLOW,
+      });
+    } catch {
+      // Malformed config -- keep the defaults rather than fail the component.
+    }
+  };
+
   useEffect(() => {
     loadVisual();
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [draftId]);
+
+  useEffect(() => {
+    loadColors();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
 
   useEffect(() => {
     if (visual?.status === "generating") {
@@ -96,7 +134,7 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
     setDownloading(true);
     try {
       const dataUrl = await capturePngDataUrl(visual.html_content);
-      const filename = `prismm-visual-${visual.visual_type}-${visual.id.slice(0, 8)}.png`;
+      const filename = `visual-${visual.visual_type}-${visual.id.slice(0, 8)}.png`;
       const link = document.createElement("a");
       link.download = filename;
       link.href = dataUrl;
@@ -139,7 +177,7 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
     return (
       <div className="rounded-lg border bg-muted/30 p-6">
         <div className="flex items-center gap-3">
-          <Loader2 className="h-5 w-5 animate-spin text-[#f9655b]" />
+          <Loader2 className="h-5 w-5 animate-spin" style={{ color: colors.coral }} />
           <div>
             <p className="text-sm font-medium">Generating visual...</p>
             <p className="text-xs text-muted-foreground">
@@ -174,7 +212,7 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Badge
-            style={{ backgroundColor: "#1b2b45", color: "#f5c070", border: "none" }}
+            style={{ backgroundColor: colors.navy, color: colors.yellow, border: "none" }}
             className="text-xs uppercase tracking-wider"
           >
             {VISUAL_TYPE_LABELS[visual.visual_type] || visual.visual_type}
@@ -194,7 +232,7 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
             size="sm"
             onClick={handleDownloadPng}
             disabled={downloading}
-            style={{ backgroundColor: "#f9655b", color: "#ffffff" }}
+            style={{ backgroundColor: colors.coral, color: "#ffffff" }}
           >
             {downloading ? (
               <Loader2 className="h-3 w-3 animate-spin mr-1" />
@@ -216,7 +254,7 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
           srcDoc={visual.html_content}
           className="w-full h-full"
           style={{ border: "none", pointerEvents: "none" }}
-          title="Prismm Visual"
+          title="Draft visual"
           sandbox="allow-same-origin"
         />
       </div>

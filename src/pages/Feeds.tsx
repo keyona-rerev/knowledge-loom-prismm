@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { InstructionsToggle } from "@/components/InstructionsToggle";
+import { useBusinessName } from "@/hooks/useBusinessName";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -47,6 +48,7 @@ const Feeds = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get("tab");
   const activeTab = VALID_TABS.includes(tabParam || "") ? tabParam! : "automated";
+  const businessName = useBusinessName();
   const [feeds, setFeeds] = useState<any[]>([]);
   const [selectedQuestionSet, setSelectedQuestionSet] = useState("default");
 
@@ -537,7 +539,7 @@ Reference cards are created from your sources and used for content generation.`}
                       <div className="space-y-0.5 pr-3">
                         <Label>From the company (first-party)</Label>
                         <p className="text-sm text-muted-foreground">
-                          Mark this as Prismm's own material so the writer can weight and anchor on it.
+                          Mark this as {businessName}'s own material so the writer can weight and anchor on it.
                         </p>
                       </div>
                       <Switch checked={manualFromCompany} onCheckedChange={setManualFromCompany} />

@@ -19,6 +19,7 @@ export interface StrategyBrand {
 export interface StrategyContext {
   brand: StrategyBrand;
   audience: any | null;
+  swot: any[];
   format: any | null;
   nature: any | null;
   job: any | null;
@@ -33,9 +34,10 @@ export async function loadStrategyContext(
   userId: string,
   ids: { formatId?: string | null; natureId?: string | null; jobId?: string | null }
 ): Promise<{ ctx: StrategyContext; hardRules: string[]; voiceRules: string[]; inlineAttribution: string }> {
-  const [{ data: profile }, { data: audience }, { data: hardRulesRows }, { data: format }, { data: nature }, { data: job }] = await Promise.all([
+  const [{ data: profile }, { data: audience }, { data: swotRows }, { data: hardRulesRows }, { data: format }, { data: nature }, { data: job }] = await Promise.all([
     supabase.from("profiles").select("business_name, business_description, brand_voice, voice_profile").eq("user_id", userId).single(),
     supabase.from("audience_profile").select("*").eq("user_id", userId).maybeSingle(),
+    supabase.from("swot_items").select("*").eq("user_id", userId).order("sort_order"),
     supabase.from("hard_rules").select("body").eq("user_id", userId).eq("is_active", true).order("sort_order"),
     ids.formatId ? supabase.from("formats").select("*").eq("id", ids.formatId).eq("user_id", userId).maybeSingle() : Promise.resolve({ data: null }),
     ids.natureId ? supabase.from("natures").select("*").eq("id", ids.natureId).eq("user_id", userId).maybeSingle() : Promise.resolve({ data: null }),
@@ -55,6 +57,7 @@ export async function loadStrategyContext(
         brand_voice: profile?.brand_voice ?? undefined,
       },
       audience: audience ?? null,
+      swot: swotRows || [],
       format: format ?? null,
       nature: nature ?? null,
       job: job ?? null,
@@ -85,6 +88,22 @@ export function buildContextBlock(ctx: StrategyContext): string {
     if (a.core_systems) lines.push(`Core systems: ${a.core_systems}`);
     if (arr(a.language_use).length) lines.push(`Language to use: ${arr(a.language_use).join("; ")}`);
     if (arr(a.language_avoid).length) lines.push(`Language to avoid: ${arr(a.language_avoid).join("; ")}`);
+    if (arr(a.channels).length) lines.push(`Channels: ${arr(a.channels).join(", ")}`);
+    lines.push("");
+  }
+  // Triggered threats are excluded -- see execute-autopilot-template's
+  // matching SWOT block for why: Strategy describes them as held out of
+  // rotation until a real-world trigger fires, and nothing anywhere marks a
+  // trigger as fired, so surfacing them unconditionally would contradict
+  // that documented behavior. Strengths, weaknesses, opportunities, and
+  // standing threats have no such gate and are always live.
+  const swotVisible = ctx.swot.filter((s) => s.quadrant !== "threat" || s.threat_class !== "triggered");
+  if (swotVisible.length) {
+    const swotLabels: Record<string, string> = { strength: "Strength", weakness: "Weakness", opportunity: "Opportunity", threat: "Threat" };
+    lines.push("SWOT (the competitive terrain)");
+    for (const s of swotVisible) {
+      if (s.body) lines.push(`- [${swotLabels[s.quadrant] ?? s.quadrant}] ${s.body}`);
+    }
     lines.push("");
   }
   if (ctx.job) {

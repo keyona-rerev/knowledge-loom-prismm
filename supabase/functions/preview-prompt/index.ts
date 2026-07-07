@@ -29,7 +29,27 @@ const arr = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]) : []);
 // function shows). If the two ever disagree, execute-autopilot-template's
 // actual deployed code is the ground truth, not this file -- flag it for a
 // refactor into a single shared function the next time both are touched.
+//
+// This identity line is itself a second copy of buildIdentityLine() in
+// execute-autopilot-template/index.ts, kept in sync by hand for the same
+// reason the rest of this file is a manual mirror rather than a shared
+// import. It used to be a literal hardcoded Prismm sentence here even after
+// execute-autopilot-template was fixed to read business_name/business_description
+// -- this function already fetched both fields for the CONTEXT block below,
+// just never used them for the line that actually claims to mirror the real
+// system prompt.
+function buildIdentityLine(businessName?: string | null, businessDescription?: string | null): string {
+  if (businessName && businessDescription) {
+    return `You are ${businessName}'s content engine. ${businessDescription}`;
+  }
+  if (businessName) {
+    return `You are ${businessName}'s content engine.`;
+  }
+  return "You are this brand's content engine. Set a business name and description in Strategy for a more specific voice.";
+}
+
 function buildFreshGenerationSystemPrompt(
+  identityLine: string,
   hardRules: string[],
   voiceRules: string[],
   inlineAttribution: string,
@@ -42,7 +62,7 @@ function buildFreshGenerationSystemPrompt(
   };
 
   const systemLines: string[] = [
-    "You are Prismm's content engine. Prismm is inheritance infrastructure for financial institutions.",
+    identityLine,
     "Write in the brand voice and answer the reader's real questions.",
     "",
   ];
@@ -158,7 +178,8 @@ serve(async (req) => {
       return q !== "error" && q !== "title_only" && c.status !== "archived" && c.status !== "inactive";
     });
 
-    const system = buildFreshGenerationSystemPrompt(hardRules, voiceRules, inlineAttribution, approvedCards);
+    const identityLine = buildIdentityLine(profile?.business_name, profile?.business_description);
+    const system = buildFreshGenerationSystemPrompt(identityLine, hardRules, voiceRules, inlineAttribution, approvedCards);
     const contextBlock = buildSlotContextBlock({
       business_name: profile?.business_name, business_description: profile?.business_description, brand_voice: profile?.brand_voice,
       format, nature, job, lane: lane ?? null,

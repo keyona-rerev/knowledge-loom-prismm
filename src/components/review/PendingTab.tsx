@@ -30,6 +30,7 @@ interface Draft {
 interface FormatRow { id: string; name: string; platform: string; }
 
 const ALL = "__all__";
+const FALLBACK_ACCENT = "#f9655b";
 
 // A draft mid-decision: "approving"/"rejecting" cover the moment between the
 // click and the DB write finishing; "approved"/"rejected" is a brief hold
@@ -85,10 +86,27 @@ export const PendingTab = () => {
   const [formats, setFormats] = useState<FormatRow[]>([]);
   const [platformFilter, setPlatformFilter] = useState<string>(ALL);
   const [formatFilter, setFormatFilter] = useState<string>(ALL);
+  // Previously hardcoded to Prismm's coral (#f9655b) directly on the draft
+  // title's hover state, same bug as ApprovedTab/PostedTab/DraftDetail. Now
+  // reads profiles.primary_color the same way, with the old coral kept only
+  // as a fallback for profiles that haven't set one yet.
+  const [accentColor, setAccentColor] = useState(FALLBACK_ACCENT);
 
   useEffect(() => {
     loadDrafts();
+    loadAccentColor();
   }, []);
+
+  const loadAccentColor = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const { data } = await supabase
+      .from("profiles")
+      .select("primary_color")
+      .eq("user_id", session.user.id)
+      .maybeSingle();
+    if (data?.primary_color) setAccentColor(data.primary_color);
+  };
 
   const loadDrafts = async () => {
     setLoading(true);
@@ -426,7 +444,8 @@ export const PendingTab = () => {
                       <div className="flex justify-between items-start mb-3">
                         <div className="flex-1">
                           <h3
-                            className="font-semibold text-lg mb-2 cursor-pointer hover:underline hover:text-[#f9655b] transition-colors"
+                            style={{ "--kl-accent": accentColor } as React.CSSProperties}
+                            className="font-semibold text-lg mb-2 cursor-pointer hover:underline hover:text-[var(--kl-accent)] transition-colors"
                             onClick={() => navigate(`/drafts/${draft.id}`)}
                           >
                             {draft.title || draft.seed_insight}

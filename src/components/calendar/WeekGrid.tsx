@@ -16,6 +16,7 @@ import { useState, useEffect } from "react";
 import { startOfWeek, addDays, setHours, setMinutes, setSeconds, setMilliseconds } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import { describeInvokeError } from "@/lib/edgeFunctionError";
+import { useDefaultTimezone } from "@/hooks/useDefaultTimezone";
 import { CalendarDayColumn } from "./CalendarDayColumn";
 import { RescheduleDialog } from "./RescheduleDialog";
 import { ScheduledDraft } from "./schedule-types";
@@ -32,6 +33,7 @@ export const WeekGrid = ({ currentDate, cadenceDays, refreshToken, onDraftsChang
   const [drafts, setDrafts] = useState<ScheduledDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [rescheduling, setRescheduling] = useState<ScheduledDraft | null>(null);
+  const defaultTimezone = useDefaultTimezone();
 
   useEffect(() => {
     loadScheduled();
@@ -88,7 +90,7 @@ export const WeekGrid = ({ currentDate, cadenceDays, refreshToken, onDraftsChang
     setDrafts((prev) => prev.map((d) => (d.id === draftId ? { ...d, scheduled_for: newDate.toISOString() } : d)));
 
     try {
-      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      const timezone = defaultTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
       const { data, error } = await supabase.functions.invoke("reschedule-draft", {
         body: { draftId, newScheduledFor: newDate.toISOString(), timezone },
       });

@@ -122,6 +122,7 @@ const Settings = () => {
     ai_api_key: "",
     ai_endpoint: "",
     min_approved_threshold: 12,
+    low_queue_email_threshold: 3,
     default_timezone: "America/New_York",
     default_post_time: "09:00",
   });
@@ -151,7 +152,7 @@ const Settings = () => {
       if (!session) { navigate("/auth"); return; }
       const { data, error } = await supabase
         .from("profiles")
-        .select("ai_provider, ai_model, ai_api_key, ai_endpoint, min_approved_threshold, default_timezone, default_post_time")
+        .select("ai_provider, ai_model, ai_api_key, ai_endpoint, min_approved_threshold, low_queue_email_threshold, default_timezone, default_post_time")
         .eq("user_id", session.user.id)
         .maybeSingle();
       if (data) {
@@ -161,6 +162,7 @@ const Settings = () => {
           ai_api_key: data.ai_api_key || "",
           ai_endpoint: data.ai_endpoint || "",
           min_approved_threshold: (data as any).min_approved_threshold ?? 12,
+          low_queue_email_threshold: (data as any).low_queue_email_threshold ?? 3,
           default_timezone: (data as any).default_timezone || "America/New_York",
           default_post_time: ((data as any).default_post_time || "09:00:00").slice(0, 5),
         });
@@ -341,18 +343,32 @@ const Settings = () => {
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>Review pipeline</CardTitle>
-            <CardDescription>The dashboard warns you when your approved, ready-to-publish queue drops below this many drafts.</CardDescription>
+            <CardDescription>The dashboard warns you when your approved, ready-to-publish queue drops below your goal. The email alert is the louder backstop: a daily check emails you when the queue drops below the second number, so the nudge reaches you even when you have not opened the app.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label className="text-base font-semibold">Minimum approved drafts</Label>
-              <Input
-                type="number"
-                min={0}
-                value={profile.min_approved_threshold}
-                onChange={(e) => setProfile(prev => ({ ...prev, min_approved_threshold: Math.max(0, Number(e.target.value) || 0) }))}
-                className="max-w-[120px]"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-base font-semibold">Minimum approved drafts</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={profile.min_approved_threshold}
+                  onChange={(e) => setProfile(prev => ({ ...prev, min_approved_threshold: Math.max(0, Number(e.target.value) || 0) }))}
+                  className="max-w-[120px]"
+                />
+                <p className="text-sm text-muted-foreground">Dashboard banner goal.</p>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-base font-semibold">Email alert threshold</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={profile.low_queue_email_threshold}
+                  onChange={(e) => setProfile(prev => ({ ...prev, low_queue_email_threshold: Math.max(0, Number(e.target.value) || 0) }))}
+                  className="max-w-[120px]"
+                />
+                <p className="text-sm text-muted-foreground">Checked daily at 9am ET. One email per dip; re-arms once the queue recovers.</p>
+              </div>
             </div>
             <Button onClick={handleSave} disabled={loading}>
               {loading ? "Saving..." : "Save Settings"}

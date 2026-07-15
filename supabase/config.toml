@@ -30,3 +30,7 @@ verify_jwt = true
 # Cron entrypoint - called by pg_cron with a shared secret (x-cron-secret), not a JWT
 [functions.fire-due-schedules]
 verify_jwt = false
+
+# Cron entrypoint - daily low-queue email alert, same shared-secret pattern
+[functions.check-approved-queue]
+verify_jwt = false

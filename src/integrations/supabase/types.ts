@@ -59,6 +59,24 @@ export type Database = {
         }
         Relationships: []
       }
+      automation_config: {
+        Row: {
+          key: string
+          updated_at: string
+          value: string
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value: string
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: string
+        }
+        Relationships: []
+      }
       autopilot_templates: {
         Row: {
           approval_required: boolean | null
@@ -329,6 +347,45 @@ export type Database = {
         }
         Relationships: []
       }
+      discover_sessions: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          last_checked: number | null
+          last_kept: number | null
+          last_target: number | null
+          rows: Json
+          running: boolean
+          target_count: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          last_checked?: number | null
+          last_kept?: number | null
+          last_target?: number | null
+          rows?: Json
+          running?: boolean
+          target_count?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          last_checked?: number | null
+          last_kept?: number | null
+          last_target?: number | null
+          rows?: Json
+          running?: boolean
+          target_count?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       draft_revisions: {
         Row: {
           body: string | null
@@ -371,6 +428,7 @@ export type Database = {
           error_message: string | null
           html_content: string
           id: string
+          image_url: string | null
           status: string | null
           updated_at: string | null
           user_id: string
@@ -382,6 +440,7 @@ export type Database = {
           error_message?: string | null
           html_content: string
           id?: string
+          image_url?: string | null
           status?: string | null
           updated_at?: string | null
           user_id: string
@@ -393,6 +452,7 @@ export type Database = {
           error_message?: string | null
           html_content?: string
           id?: string
+          image_url?: string | null
           status?: string | null
           updated_at?: string | null
           user_id?: string
@@ -408,48 +468,6 @@ export type Database = {
           },
         ]
       }
-      social_connections: {
-        Row: {
-          account_label: string | null
-          connected_at: string
-          created_at: string
-          external_account_id: string | null
-          external_profile_id: string | null
-          id: string
-          platform: string
-          provider: string
-          status: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          account_label?: string | null
-          connected_at?: string
-          created_at?: string
-          external_account_id?: string | null
-          external_profile_id?: string | null
-          id?: string
-          platform: string
-          provider?: string
-          status?: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          account_label?: string | null
-          connected_at?: string
-          created_at?: string
-          external_account_id?: string | null
-          external_profile_id?: string | null
-          id?: string
-          platform?: string
-          provider?: string
-          status?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       drafts: {
         Row: {
           approval_status: string | null
@@ -458,6 +476,7 @@ export type Database = {
           body: string | null
           content_type: string | null
           created_at: string | null
+          external_post_id: string | null
           format_id: string | null
           id: string
           insights_summary: string[] | null
@@ -465,8 +484,16 @@ export type Database = {
           lane_id: string | null
           manual_revision_notes: string | null
           max_reuse_count: number | null
+          metric_comments: number | null
+          metric_impressions: number | null
+          metric_likes: number | null
+          metrics_error: string | null
+          metrics_synced_at: string | null
           nature_id: string | null
           parent_draft_id: string | null
+          publish_basis: string | null
+          publish_error: string | null
+          publish_status: string | null
           published_at: string | null
           reader_id: string | null
           reference_card_ids: string[] | null
@@ -479,16 +506,14 @@ export type Database = {
           revision_count: number | null
           revision_feedback: string | null
           schedule_id: string | null
-          external_post_id: string | null
-          publish_basis: string | null
-          publish_error: string | null
-          publish_status: string | null
           scheduled_for: string | null
           scheduled_publish_date: string | null
           seed_category: string | null
           seed_id: string | null
           seed_insight: string | null
           selected_direction: string | null
+          stat_attributions: Json
+          stat_flag: string | null
           status: string | null
           submitted_for_approval_at: string | null
           template_id: string | null
@@ -503,6 +528,7 @@ export type Database = {
           body?: string | null
           content_type?: string | null
           created_at?: string | null
+          external_post_id?: string | null
           format_id?: string | null
           id?: string
           insights_summary?: string[] | null
@@ -510,8 +536,16 @@ export type Database = {
           lane_id?: string | null
           manual_revision_notes?: string | null
           max_reuse_count?: number | null
+          metric_comments?: number | null
+          metric_impressions?: number | null
+          metric_likes?: number | null
+          metrics_error?: string | null
+          metrics_synced_at?: string | null
           nature_id?: string | null
           parent_draft_id?: string | null
+          publish_basis?: string | null
+          publish_error?: string | null
+          publish_status?: string | null
           published_at?: string | null
           reader_id?: string | null
           reference_card_ids?: string[] | null
@@ -524,16 +558,14 @@ export type Database = {
           revision_count?: number | null
           revision_feedback?: string | null
           schedule_id?: string | null
-          external_post_id?: string | null
-          publish_basis?: string | null
-          publish_error?: string | null
-          publish_status?: string | null
           scheduled_for?: string | null
           scheduled_publish_date?: string | null
           seed_category?: string | null
           seed_id?: string | null
           seed_insight?: string | null
           selected_direction?: string | null
+          stat_attributions?: Json
+          stat_flag?: string | null
           status?: string | null
           submitted_for_approval_at?: string | null
           template_id?: string | null
@@ -548,6 +580,7 @@ export type Database = {
           body?: string | null
           content_type?: string | null
           created_at?: string | null
+          external_post_id?: string | null
           format_id?: string | null
           id?: string
           insights_summary?: string[] | null
@@ -555,8 +588,16 @@ export type Database = {
           lane_id?: string | null
           manual_revision_notes?: string | null
           max_reuse_count?: number | null
+          metric_comments?: number | null
+          metric_impressions?: number | null
+          metric_likes?: number | null
+          metrics_error?: string | null
+          metrics_synced_at?: string | null
           nature_id?: string | null
           parent_draft_id?: string | null
+          publish_basis?: string | null
+          publish_error?: string | null
+          publish_status?: string | null
           published_at?: string | null
           reader_id?: string | null
           reference_card_ids?: string[] | null
@@ -569,16 +610,14 @@ export type Database = {
           revision_count?: number | null
           revision_feedback?: string | null
           schedule_id?: string | null
-          external_post_id?: string | null
-          publish_basis?: string | null
-          publish_error?: string | null
-          publish_status?: string | null
           scheduled_for?: string | null
           scheduled_publish_date?: string | null
           seed_category?: string | null
           seed_id?: string | null
           seed_insight?: string | null
           selected_direction?: string | null
+          stat_attributions?: Json
+          stat_flag?: string | null
           status?: string | null
           submitted_for_approval_at?: string | null
           template_id?: string | null
@@ -710,6 +749,51 @@ export type Database = {
           },
         ]
       }
+      fastforward_runs: {
+        Row: {
+          completed_at: string | null
+          current_label: string | null
+          done: number
+          last_attempted: number | null
+          last_created: number | null
+          last_failed: number | null
+          running: boolean
+          started_at: string | null
+          target_count: number
+          total: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          current_label?: string | null
+          done?: number
+          last_attempted?: number | null
+          last_created?: number | null
+          last_failed?: number | null
+          running?: boolean
+          started_at?: string | null
+          target_count?: number
+          total?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          current_label?: string | null
+          done?: number
+          last_attempted?: number | null
+          last_created?: number | null
+          last_failed?: number | null
+          running?: boolean
+          started_at?: string | null
+          target_count?: number
+          total?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       formats: {
         Row: {
           created_at: string
@@ -758,6 +842,36 @@ export type Database = {
         }
         Relationships: []
       }
+      hard_rules: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          is_active: boolean
+          sort_order: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          sort_order?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          sort_order?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       insight_cards: {
         Row: {
           content: string
@@ -766,6 +880,7 @@ export type Database = {
           id: string
           insight_type: string | null
           priority: number | null
+          reference_card_id: string | null
           status: string | null
           tags: string[] | null
           title: string
@@ -779,6 +894,7 @@ export type Database = {
           id?: string
           insight_type?: string | null
           priority?: number | null
+          reference_card_id?: string | null
           status?: string | null
           tags?: string[] | null
           title: string
@@ -792,6 +908,7 @@ export type Database = {
           id?: string
           insight_type?: string | null
           priority?: number | null
+          reference_card_id?: string | null
           status?: string | null
           tags?: string[] | null
           title?: string
@@ -799,6 +916,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "insight_cards_reference_card_id_fkey"
+            columns: ["reference_card_id"]
+            isOneToOne: false
+            referencedRelation: "reference_cards"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "insight_cards_user_id_fkey"
             columns: ["user_id"]
@@ -936,48 +1060,42 @@ export type Database = {
       }
       natures: {
         Row: {
-          absorbs: string[]
           created_at: string
           evidence_type: string | null
-          fit: string
+          fit: string | null
           id: string
           is_active: boolean
           key: string
           move: string | null
           name: string
-          rotation_mode: string
           sort_order: number
           updated_at: string
           user_id: string
           writing_samples: Json
         }
         Insert: {
-          absorbs?: string[]
           created_at?: string
           evidence_type?: string | null
-          fit?: string
+          fit?: string | null
           id?: string
           is_active?: boolean
           key: string
           move?: string | null
           name: string
-          rotation_mode?: string
           sort_order?: number
           updated_at?: string
           user_id: string
           writing_samples?: Json
         }
         Update: {
-          absorbs?: string[]
           created_at?: string
           evidence_type?: string | null
-          fit?: string
+          fit?: string | null
           id?: string
           is_active?: boolean
           key?: string
           move?: string | null
           name?: string
-          rotation_mode?: string
           sort_order?: number
           updated_at?: string
           user_id?: string
@@ -1026,6 +1144,48 @@ export type Database = {
           },
         ]
       }
+      newsletter_health: {
+        Row: {
+          avg_score: number | null
+          card_count: number
+          created_at: string | null
+          id: string
+          last_scanned_at: string | null
+          last_score: number | null
+          reason: string | null
+          recommendation: string
+          sender_address: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          avg_score?: number | null
+          card_count?: number
+          created_at?: string | null
+          id?: string
+          last_scanned_at?: string | null
+          last_score?: number | null
+          reason?: string | null
+          recommendation?: string
+          sender_address: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          avg_score?: number | null
+          card_count?: number
+          created_at?: string | null
+          id?: string
+          last_scanned_at?: string | null
+          last_score?: number | null
+          reason?: string | null
+          recommendation?: string
+          sender_address?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           accent_color: string | null
@@ -1034,6 +1194,7 @@ export type Database = {
           ai_endpoint: string | null
           ai_model: string | null
           ai_provider: string | null
+          auto_delete_score_threshold: number | null
           brand_voice: string | null
           business_description: string | null
           business_name: string | null
@@ -1041,14 +1202,26 @@ export type Database = {
           created_at: string | null
           custom_ai_endpoint: string | null
           custom_ai_model_name: string | null
+          default_post_time: string
+          default_timezone: string | null
           email: string | null
+          gen_first_party_weight: number
+          gen_nature_intensity: number
+          gen_source_reliance: number
+          gen_voice_adherence: number
           id: string
+          low_queue_alert_active: boolean
+          low_queue_email_threshold: number
+          min_approved_threshold: number
           newsletter_domain: string | null
           primary_color: string | null
           secondary_color: string | null
           target_audience: string | null
           updated_at: string | null
           user_id: string
+          visual_design_rules: string | null
+          visual_studio_config: string | null
+          voice_profile: Json | null
           writing_examples: Json | null
         }
         Insert: {
@@ -1058,6 +1231,7 @@ export type Database = {
           ai_endpoint?: string | null
           ai_model?: string | null
           ai_provider?: string | null
+          auto_delete_score_threshold?: number | null
           brand_voice?: string | null
           business_description?: string | null
           business_name?: string | null
@@ -1065,14 +1239,26 @@ export type Database = {
           created_at?: string | null
           custom_ai_endpoint?: string | null
           custom_ai_model_name?: string | null
+          default_post_time?: string
+          default_timezone?: string | null
           email?: string | null
+          gen_first_party_weight?: number
+          gen_nature_intensity?: number
+          gen_source_reliance?: number
+          gen_voice_adherence?: number
           id?: string
+          low_queue_alert_active?: boolean
+          low_queue_email_threshold?: number
+          min_approved_threshold?: number
           newsletter_domain?: string | null
           primary_color?: string | null
           secondary_color?: string | null
           target_audience?: string | null
           updated_at?: string | null
           user_id: string
+          visual_design_rules?: string | null
+          visual_studio_config?: string | null
+          voice_profile?: Json | null
           writing_examples?: Json | null
         }
         Update: {
@@ -1082,6 +1268,7 @@ export type Database = {
           ai_endpoint?: string | null
           ai_model?: string | null
           ai_provider?: string | null
+          auto_delete_score_threshold?: number | null
           brand_voice?: string | null
           business_description?: string | null
           business_name?: string | null
@@ -1089,14 +1276,26 @@ export type Database = {
           created_at?: string | null
           custom_ai_endpoint?: string | null
           custom_ai_model_name?: string | null
+          default_post_time?: string
+          default_timezone?: string | null
           email?: string | null
+          gen_first_party_weight?: number
+          gen_nature_intensity?: number
+          gen_source_reliance?: number
+          gen_voice_adherence?: number
           id?: string
+          low_queue_alert_active?: boolean
+          low_queue_email_threshold?: number
+          min_approved_threshold?: number
           newsletter_domain?: string | null
           primary_color?: string | null
           secondary_color?: string | null
           target_audience?: string | null
           updated_at?: string | null
           user_id?: string
+          visual_design_rules?: string | null
+          visual_studio_config?: string | null
+          voice_profile?: Json | null
           writing_examples?: Json | null
         }
         Relationships: []
@@ -1192,7 +1391,6 @@ export type Database = {
       }
       readers: {
         Row: {
-          activation_trigger: string | null
           avatar_initials: string | null
           created_at: string
           id: string
@@ -1203,13 +1401,11 @@ export type Database = {
           role: string
           side: string
           sort_order: number
-          threat_item_id: string | null
           updated_at: string
           user_id: string
           who: string | null
         }
         Insert: {
-          activation_trigger?: string | null
           avatar_initials?: string | null
           created_at?: string
           id?: string
@@ -1220,13 +1416,11 @@ export type Database = {
           role: string
           side?: string
           sort_order?: number
-          threat_item_id?: string | null
           updated_at?: string
           user_id: string
           who?: string | null
         }
         Update: {
-          activation_trigger?: string | null
           avatar_initials?: string | null
           created_at?: string
           id?: string
@@ -1237,20 +1431,11 @@ export type Database = {
           role?: string
           side?: string
           sort_order?: number
-          threat_item_id?: string | null
           updated_at?: string
           user_id?: string
           who?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "readers_threat_item_id_fkey"
-            columns: ["threat_item_id"]
-            isOneToOne: false
-            referencedRelation: "swot_items"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       reference_card_templates: {
         Row: {
@@ -1285,13 +1470,17 @@ export type Database = {
       reference_cards: {
         Row: {
           ai_summary: string | null
+          approved: boolean
           content_quality: string | null
           content_warning: string | null
           created_at: string | null
+          force_keep: boolean
+          from_company: boolean
           global_relevance_score: number | null
           id: string
           insight_answers: Json | null
           is_used: boolean | null
+          last_used_at: string | null
           modified_by_user: boolean | null
           original_text: string | null
           question_set_id: string | null
@@ -1300,6 +1489,7 @@ export type Database = {
           source_url: string | null
           status: string | null
           template_id: string | null
+          times_used: number
           title: string | null
           updated_at: string | null
           user_id: string | null
@@ -1307,13 +1497,17 @@ export type Database = {
         }
         Insert: {
           ai_summary?: string | null
+          approved?: boolean
           content_quality?: string | null
           content_warning?: string | null
           created_at?: string | null
+          force_keep?: boolean
+          from_company?: boolean
           global_relevance_score?: number | null
           id?: string
           insight_answers?: Json | null
           is_used?: boolean | null
+          last_used_at?: string | null
           modified_by_user?: boolean | null
           original_text?: string | null
           question_set_id?: string | null
@@ -1322,6 +1516,7 @@ export type Database = {
           source_url?: string | null
           status?: string | null
           template_id?: string | null
+          times_used?: number
           title?: string | null
           updated_at?: string | null
           user_id?: string | null
@@ -1329,13 +1524,17 @@ export type Database = {
         }
         Update: {
           ai_summary?: string | null
+          approved?: boolean
           content_quality?: string | null
           content_warning?: string | null
           created_at?: string | null
+          force_keep?: boolean
+          from_company?: boolean
           global_relevance_score?: number | null
           id?: string
           insight_answers?: Json | null
           is_used?: boolean | null
+          last_used_at?: string | null
           modified_by_user?: boolean | null
           original_text?: string | null
           question_set_id?: string | null
@@ -1344,6 +1543,7 @@ export type Database = {
           source_url?: string | null
           status?: string | null
           template_id?: string | null
+          times_used?: number
           title?: string | null
           updated_at?: string | null
           user_id?: string | null
@@ -1406,6 +1606,48 @@ export type Database = {
           sort_order?: number
           suggested_nature_key?: string | null
           times_used?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      social_connections: {
+        Row: {
+          account_label: string | null
+          connected_at: string
+          created_at: string
+          external_account_id: string | null
+          external_profile_id: string | null
+          id: string
+          platform: string
+          provider: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_label?: string | null
+          connected_at?: string
+          created_at?: string
+          external_account_id?: string | null
+          external_profile_id?: string | null
+          id?: string
+          platform: string
+          provider?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_label?: string | null
+          connected_at?: string
+          created_at?: string
+          external_account_id?: string | null
+          external_profile_id?: string | null
+          id?: string
+          platform?: string
+          provider?: string
+          status?: string
           updated_at?: string
           user_id?: string
         }
@@ -1547,6 +1789,7 @@ export type Database = {
     }
     Functions: {
       cleanup_rate_limit_logs: { Args: never; Returns: undefined }
+      sweep_relevance_threshold: { Args: never; Returns: number }
     }
     Enums: {
       [_ in never]: never

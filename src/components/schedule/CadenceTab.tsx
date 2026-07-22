@@ -185,6 +185,13 @@ export const CadenceTab = () => {
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number; label: string } | null>(null);
 
+  // Fast-forward post-type filter: which formats (drawn from the active
+  // cadence) this batch should generate. Empty on first mount; loadAll seeds
+  // it to every format present in the active cadence (so "all types" by
+  // default), and the user can narrow it to, e.g., just feed posts. A slot is
+  // included in the run only if its (parent) format is selected here.
+  const [selectedFormatIds, setSelectedFormatIds] = useState<Set<string>>(new Set());
+
   // Last-run summary line, persisted so it survives navigating away and
   // back — both while a run is still in progress (so it doesn't look like
   // nothing is happening) and after it finishes (so "did that work" always
@@ -274,6 +281,21 @@ export const CadenceTab = () => {
       child_nature_id: s.child_nature_id, max_reuse_count: s.max_reuse_count,
       reuse_window_days: s.reuse_window_days,
     })));
+
+    // Seed / reconcile the fast-forward post-type filter against the formats
+    // actually present in the active recurring cadence. First load (empty
+    // selection) selects them all; later loads keep the user's current picks
+    // but drop any format no longer in the cadence, falling back to "all" if
+    // that would leave nothing selected.
+    const activeCadenceFormatIds = (sched.data || [])
+      .filter((s: any) => s.is_active && s.frequency !== "as_needed")
+      .map((s: any) => s.format_id as string);
+    const availableFormatSet = new Set(activeCadenceFormatIds);
+    setSelectedFormatIds((prev) => {
+      if (prev.size === 0) return availableFormatSet;
+      const kept = new Set([...prev].filter((id) => availableFormatSet.has(id)));
+      return kept.size ? kept : availableFormatSet;
+    });
 
     const ff = ffRow.data as any;
     if (ff) {
@@ -406,6 +428,13 @@ export const CadenceTab = () => {
 
   const nameOf = (rows: NamedRow[], id: string | null) => rows.find((r) => r.id === id)?.name;
 
+  const toggleFormat = (id: string) =>
+    setSelectedFormatIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+
   // Fills the whole target count at once, using every active weekly/recurring
   // slot's own cadence walked forward. Runs are sequential (not parallel) on
   // purpose: each one is a real AI call, and a live progress line here is
@@ -423,9 +452,19 @@ export const CadenceTab = () => {
       toast.error("No active weekly/recurring slots to fast-forward. Add or activate one below first.");
       return;
     }
-    const queue = buildUpcomingQueue(activeSlots);
+    // Narrow to the selected post types. An empty selection is treated as a
+    // real "nothing chosen" (the Generate button guards against it too), never
+    // as "all", so a stray empty set can't silently run the whole cadence.
+    const selectedSlots = selectedFormatIds.size
+      ? activeSlots.filter((s) => selectedFormatIds.has(s.format_id))
+      : [];
+    if (!selectedSlots.length) {
+      toast.error("Pick at least one post type to fast-forward.");
+      return;
+    }
+    const queue = buildUpcomingQueue(selectedSlots);
     if (!queue.length) {
-      toast.error("Couldn't find upcoming occurrences for your active slots.");
+      toast.error("Couldn't find upcoming occurrences for the selected post types.");
       return;
     }
 
@@ -486,6 +525,16 @@ export const CadenceTab = () => {
     daySlots: slots.filter((s) => s.day_of_week === day),
   }));
 
+  // Distinct formats present in the active recurring cadence — the options
+  // shown in the fast-forward "Post types" filter. Only worth showing when
+  // there's more than one to choose between.
+  const cadenceFormatIds = Array.from(
+    new Set(slots.filter((s) => s.is_active && !s._isNew && s.frequency !== "as_needed").map((s) => s.format_id))
+  );
+  const cadenceFormats = cadenceFormatIds
+    .map((id) => formats.find((f) => f.id === id))
+    .filter(Boolean) as NamedRow[];
+
   if (loading) return (
     <div className="flex items-center justify-center py-24">
       <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -525,6 +574,30 @@ export const CadenceTab = () => {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {cadenceFormats.length > 1 && (
+            <div className="flex items-center gap-2 flex-wrap mb-3">
+              <Label className="text-sm font-medium whitespace-nowrap">Post types</Label>
+              {cadenceFormats.map((f) => {
+                const on = selectedFormatIds.has(f.id);
+                return (
+                  <Button
+                    key={f.id}
+                    type="button"
+                    size="sm"
+                    variant={on ? "default" : "outline"}
+                    onClick={() => toggleFormat(f.id)}
+                    disabled={batchRunning}
+                    className="h-7"
+                  >
+                    {f.name}
+                  </Button>
+                );
+              })}
+              <span className="text-xs text-muted-foreground">
+                {selectedFormatIds.size >= cadenceFormats.length ? "all types" : `${selectedFormatIds.size} of ${cadenceFormats.length} selected`}
+              </span>
+            </div>
+          )}
           <div className="flex items-center gap-3 flex-wrap">
             <Label htmlFor="batch-target" className="text-sm font-medium whitespace-nowrap">Go through the next</Label>
             <Input
@@ -537,8 +610,12 @@ export const CadenceTab = () => {
               className="w-20"
               disabled={batchRunning}
             />
-            <span className="text-sm text-muted-foreground">scheduled slot-occurrences, across all active slots, in cadence order</span>
-            <Button onClick={runFastForward} disabled={batchRunning} className="ml-auto">
+            <span className="text-sm text-muted-foreground">scheduled slot-occurrences, in cadence order</span>
+            <Button
+              onClick={runFastForward}
+              disabled={batchRunning || (cadenceFormats.length > 0 && selectedFormatIds.size === 0)}
+              className="ml-auto"
+            >
               {batchRunning ? (
                 <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating...</>
               ) : (

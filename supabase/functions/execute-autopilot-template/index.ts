@@ -25,6 +25,19 @@ const corsHeaders = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
+// Size of the rotating citable-source window. The model is told it may only
+// cite figures from the TRUSTED SOURCES block; when that block was the whole
+// approved library, the model just kept reaching for the same few loudest
+// numbers and newly approved cards were never cited no matter how many were
+// added. Capping the block to a window that is ranked least-used /
+// least-recently-used first, and recording usage on the window each run,
+// forces variety and pulls fresh cards in. This is a tuning knob, not
+// client data. Libraries with fewer approved cards than this show all of
+// them, so small or brand-new tenants are unaffected. Must stay >= the
+// largest fresh-path reference-material take (6 at source_reliance 5) so the
+// reference material is always a subset of what may be cited.
+const TRUSTED_SOURCE_WINDOW = 14;
+
 function parseJSON(text: string): any {
   let content = text.trim();
   const fence = content.match(/```(?:\w*)?\s*([\s\S]*?)\s*```/i);
@@ -340,6 +353,42 @@ serve(async (req) => {
       const q = c.content_quality ?? "";
       return q !== "error" && q !== "title_only" && c.status !== "archived" && c.status !== "inactive";
     });
+
+    // One rotation ranking, used for BOTH the citable trusted-source window
+    // and the fresh-path reference material, so the two can never disagree
+    // (a card the post is told to build on is always one it may cite).
+    // Least-used first, then least-recently-used (never-used sorts first via
+    // -Infinity), then first-party-weighted relevance, then newest.
+    const lastUsedMs = (c: any) => (c.last_used_at ? new Date(c.last_used_at).getTime() : -Infinity);
+    const rankScore = (c: any) => (c.global_relevance_score ?? 0) + (c.from_company ? gen.first_party_weight * 2 : 0);
+    const rankedCards = [...approvedCards].sort((a, b) =>
+      ((a.times_used ?? 0) - (b.times_used ?? 0)) ||
+      (lastUsedMs(a) - lastUsedMs(b)) ||
+      (rankScore(b) - rankScore(a)) ||
+      (new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    );
+    // The citable set is a rotating window off the top of that ranking, not
+    // the whole library. Cards cited recently fall to the bottom and drop
+    // out until the rest have had their turn.
+    const trustedCards = rankedCards.slice(0, TRUSTED_SOURCE_WINDOW);
+
+    // Records a rotation turn against every card that was offered as citable
+    // this run, so the window actually advances instead of surfacing the same
+    // top cards forever. Runs on both the fresh and reuse paths (both send
+    // the trusted list to the model) and only when a draft was produced.
+    // Test runs never record.
+    const recordSourceUsage = async () => {
+      if (isTestRun || !trustedCards.length) return;
+      const now = new Date().toISOString();
+      for (const c of trustedCards) {
+        await supabase.from("reference_cards").update({
+          times_used: (c.times_used ?? 0) + 1,
+          last_used_at: now,
+          is_used: true,
+        }).eq("id", c.id);
+      }
+    };
+
     const sourceLine = (c: any) => {
       const summary = (c.ai_summary && String(c.ai_summary).trim()) ? String(c.ai_summary).trim() : String(c.original_text || "").slice(0, 400);
       const tag = c.from_company ? "[FROM THE COMPANY] " : "";
@@ -366,10 +415,10 @@ serve(async (req) => {
     systemLines.push("- State a figure or statistic only if it is attributable to one of the TRUSTED SOURCES below. Never invent a number and never cite a source that is not listed.");
     systemLines.push("- Weave each citation into the prose. Do not write it as a parenthetical footnote.");
     systemLines.push('- For every figure you state, record the figure and the exact source title it came from in "stat_attributions".');
-    if (approvedCards.length) {
+    if (trustedCards.length) {
       systemLines.push("");
       systemLines.push("TRUSTED SOURCES (the only sources you may cite figures from):");
-      for (const c of approvedCards) systemLines.push(sourceLine(c));
+      for (const c of trustedCards) systemLines.push(sourceLine(c));
     } else {
       systemLines.push("- No trusted sources are available, so do not state any figures or statistics.");
     }
@@ -482,18 +531,9 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
       if (gen.source_reliance > 1) {
         const topByReliance: Record<number, number> = { 2: 2, 3: 3, 4: 5, 5: 6 };
         const takeN = topByReliance[gen.source_reliance] ?? 0;
-        const scored = approvedCards.map((c) => ({
-          card: c,
-          score: (c.global_relevance_score ?? 0) + (c.from_company ? gen.first_party_weight * 2 : 0),
-        }));
-        const lastUsedMs = (c: any) => (c.last_used_at ? new Date(c.last_used_at).getTime() : -Infinity);
-        scored.sort((a, b) =>
-          ((a.card.times_used ?? 0) - (b.card.times_used ?? 0)) ||
-          (lastUsedMs(a.card) - lastUsedMs(b.card)) ||
-          (b.score - a.score) ||
-          (new Date(b.card.created_at).getTime() - new Date(a.card.created_at).getTime())
-        );
-        const chosen = scored.slice(0, takeN).map((s) => s.card);
+        // Same ranking as the trusted window, so the reference material is
+        // always a subset of what the post is allowed to cite.
+        const chosen = rankedCards.slice(0, takeN);
         chosenCards = chosen;
         if (chosen.length) {
           const cardLines = chosen.map((c) => {
@@ -560,17 +600,6 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "stat_attributions": [{"
           }).eq("id", seed.id);
         }
 
-        if (chosenCards.length && !isTestRun) {
-          const now = new Date().toISOString();
-          for (const c of chosenCards) {
-            await supabase.from("reference_cards").update({
-              times_used: (c.times_used ?? 0) + 1,
-              last_used_at: now,
-              is_used: true,
-            }).eq("id", c.id);
-          }
-        }
-
         // Companion child: a short LinkedIn feed post that teases the parent article.
         // It opens a loop from one specific insight in the article and drives the reader
         // to the full piece. It is NOT a summary and NOT a copy of the parent.
@@ -622,6 +651,10 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
         }
       }
     }
+
+    // Advance the source rotation once per run that actually produced a draft.
+    // Covers both paths; no-op on test runs.
+    if (createdDrafts.length) await recordSourceUsage();
 
     for (const d of createdDrafts) {
       await supabase.functions.invoke("send-draft-notification", {

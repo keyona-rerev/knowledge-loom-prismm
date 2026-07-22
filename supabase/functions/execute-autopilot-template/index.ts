@@ -6,9 +6,9 @@ import { resolveNext, type Frequency } from "../_shared/schedule-resolver.ts";
 // Knowledge Loom autopilot. A schedule slot is a standing instruction: produce a post
 // of this format and nature, doing this job, for this lane and reader. Generation reads
 // the strategy and audience libraries plus the seed bank, and the fresh path also pulls
-// from the reference-card library, ranked by rotation first and then a first-party-weighted
-// relevance, governed by the source faders. Newsletter intake still feeds reference cards
-// in parallel and is untouched here.
+// from the reference-card library: rotation decides which cards are eligible, then a
+// weighted random draw picks the actual set, governed by the source faders. Newsletter
+// intake still feeds reference cards in parallel and is untouched here.
 //
 // Per run a slot either resurfaces an eligible parent (reuse) or generates fresh. When the
 // slot requires a child, fresh runs also produce a companion post in the child format.
@@ -25,18 +25,28 @@ const corsHeaders = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-// Size of the rotating citable-source window. The model is told it may only
-// cite figures from the TRUSTED SOURCES block; when that block was the whole
-// approved library, the model just kept reaching for the same few loudest
-// numbers and newly approved cards were never cited no matter how many were
-// added. Capping the block to a window that is ranked least-used /
-// least-recently-used first, and recording usage on the window each run,
-// forces variety and pulls fresh cards in. This is a tuning knob, not
-// client data. Libraries with fewer approved cards than this show all of
-// them, so small or brand-new tenants are unaffected. Must stay >= the
-// largest fresh-path reference-material take (6 at source_reliance 5) so the
-// reference material is always a subset of what may be cited.
+// Source selection happens in two stages so we get BOTH rotation fairness and
+// run-to-run variety (the thing a burst of fast-forward runs needs):
+//
+//   1. Rotation decides ELIGIBILITY. Rank approved cards least-used /
+//      least-recently-used first and take a candidate pool off the top
+//      (SOURCE_POOL_SIZE). Freshly approved and long-idle cards are always in
+//      contention; cards cited a lot rotate out of the pool until the rest
+//      have had their turn.
+//   2. A weighted random draw picks the actual sets FROM that pool (the
+//      citable window, and the fresh-path reference material). Because each
+//      call rolls fresh dice, consecutive fast-forward runs draw different
+//      pairings even when the underlying data barely changed between them.
+//
+// Deterministic "take the top N" could never do this: with near-identical
+// inputs it returns the near-identical top N every time. These are tuning
+// knobs, not client data. Libraries smaller than these show/ði draw all their
+// cards, so small or brand-new tenants are unaffected. TRUSTED_SOURCE_WINDOW
+// must stay >= the largest reference-material take (6 at source_reliance 5)
+// so the reference material is always a subset of what may be cited, and
+// SOURCE_POOL_SIZE must stay >= TRUSTED_SOURCE_WINDOW.
 const TRUSTED_SOURCE_WINDOW = 14;
+const SOURCE_POOL_SIZE = 24;
 
 function parseJSON(text: string): any {
   let content = text.trim();
@@ -50,6 +60,28 @@ function parseJSON(text: string): any {
 const arr = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]) : []);
 const sampleLines = (v: unknown, n: number): string =>
   arr(v).slice(0, n).map((s, i) => `Sample ${i + 1}:\n${String(s).slice(0, 600)}`).join("\n\n");
+
+// Weighted random sampling WITHOUT replacement (Efraimidis-Spirakis, the
+// "A-Res" key method): give each item a key of U^(1/weight) with U uniform in
+// (0,1), then take the items with the highest keys. Single pass, no repeats,
+// and each item's probability of being drawn is proportional to its weight —
+// so higher-weight (more relevant / first-party) cards come up more often but
+// are never guaranteed, which is exactly what keeps the mix varied instead of
+// pinned to the same top few. When n covers the whole list there is nothing to
+// subset, so we just return it in a random order (emphasis still varies).
+function weightedSample<T>(items: T[], n: number, weight: (t: T) => number): T[] {
+  if (n >= items.length) {
+    return [...items]
+      .map((item) => ({ item, key: Math.random() }))
+      .sort((a, b) => b.key - a.key)
+      .map((x) => x.item);
+  }
+  return items
+    .map((item) => ({ item, key: Math.pow(Math.random(), 1 / Math.max(weight(item), 1e-9)) }))
+    .sort((a, b) => b.key - a.key)
+    .slice(0, n)
+    .map((x) => x.item);
+}
 
 const statAttributions = (v: unknown): { figure: string; source: string }[] =>
   Array.isArray(v)
@@ -354,29 +386,34 @@ serve(async (req) => {
       return q !== "error" && q !== "title_only" && c.status !== "archived" && c.status !== "inactive";
     });
 
-    // One rotation ranking, used for BOTH the citable trusted-source window
-    // and the fresh-path reference material, so the two can never disagree
-    // (a card the post is told to build on is always one it may cite).
-    // Least-used first, then least-recently-used (never-used sorts first via
-    // -Infinity), then first-party-weighted relevance, then newest.
+    // STAGE 1 — rotation decides eligibility. Rank least-used, then
+    // least-recently-used (never-used sorts first via -Infinity), then
+    // first-party-weighted relevance, then newest; take a candidate pool off
+    // the top. Over-cited veterans fall out of the pool until the rest catch
+    // up; freshly approved cards enter it immediately.
     const lastUsedMs = (c: any) => (c.last_used_at ? new Date(c.last_used_at).getTime() : -Infinity);
-    const rankScore = (c: any) => (c.global_relevance_score ?? 0) + (c.from_company ? gen.first_party_weight * 2 : 0);
     const rankedCards = [...approvedCards].sort((a, b) =>
       ((a.times_used ?? 0) - (b.times_used ?? 0)) ||
       (lastUsedMs(a) - lastUsedMs(b)) ||
-      (rankScore(b) - rankScore(a)) ||
+      ((b.global_relevance_score ?? 0) - (a.global_relevance_score ?? 0)) ||
       (new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     );
-    // The citable set is a rotating window off the top of that ranking, not
-    // the whole library. Cards cited recently fall to the bottom and drop
-    // out until the rest have had their turn.
-    const trustedCards = rankedCards.slice(0, TRUSTED_SOURCE_WINDOW);
+    const candidatePool = rankedCards.slice(0, SOURCE_POOL_SIZE);
+
+    // Weight for the STAGE 2 random draws: relevance plus a first-party boost,
+    // with a baseline so every pooled card can still come up. Higher weight =
+    // higher chance, never a guarantee.
+    const weightOf = (c: any) => 1 + (c.global_relevance_score ?? 0) + (c.from_company ? gen.first_party_weight * 2 : 0);
+
+    // STAGE 2a — the citable set: a weighted random draw from the pool, so
+    // which sources a post MAY cite shifts run to run instead of being the
+    // same fixed window every time.
+    const trustedCards = weightedSample(candidatePool, TRUSTED_SOURCE_WINDOW, weightOf);
 
     // Records a rotation turn against every card that was offered as citable
-    // this run, so the window actually advances instead of surfacing the same
-    // top cards forever. Runs on both the fresh and reuse paths (both send
-    // the trusted list to the model) and only when a draft was produced.
-    // Test runs never record.
+    // this run, so the pool keeps advancing and no card dominates. Runs on
+    // both the fresh and reuse paths (both send the trusted list to the
+    // model) and only when a draft was produced. Test runs never record.
     const recordSourceUsage = async () => {
       if (isTestRun || !trustedCards.length) return;
       const now = new Date().toISOString();
@@ -531,9 +568,10 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
       if (gen.source_reliance > 1) {
         const topByReliance: Record<number, number> = { 2: 2, 3: 3, 4: 5, 5: 6 };
         const takeN = topByReliance[gen.source_reliance] ?? 0;
-        // Same ranking as the trusted window, so the reference material is
-        // always a subset of what the post is allowed to cite.
-        const chosen = rankedCards.slice(0, takeN);
+        // STAGE 2b — the reference material the post builds on: a weighted
+        // random draw from the citable set (so it is always a subset of what
+        // the post may cite), giving a different pairing each run.
+        const chosen = weightedSample(trustedCards, takeN, weightOf);
         chosenCards = chosen;
         if (chosen.length) {
           const cardLines = chosen.map((c) => {

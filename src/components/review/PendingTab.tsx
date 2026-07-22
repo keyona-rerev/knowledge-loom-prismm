@@ -77,7 +77,6 @@ export const PendingTab = () => {
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [selectedDraft, setSelectedDraft] = useState<Draft | null>(null);
   const [rejectionFeedback, setRejectionFeedback] = useState("");
-  const [requestRevision, setRequestRevision] = useState(true);
 
   // Sort/filter by platform then post type. Formats already carry a
   // platform column (defaults to "linkedin" today, but the field exists
@@ -231,60 +230,73 @@ export const PendingTab = () => {
   const handleSmartReject = (draft: Draft) => {
     setSelectedDraft(draft);
     setRejectionFeedback("");
-    setRequestRevision(true);
     setRejectModalOpen(true);
   };
 
-  const submitSmartRejection = async () => {
+  // Send the draft back to the AI to be rewritten with the reviewer's
+  // feedback. Requires feedback -- regeneration has nothing to act on
+  // without it. The draft stays in this tab (needs_revision matches its
+  // filter), so a normal reload keeps it in place.
+  const handleRequestRevision = async () => {
+    if (!selectedDraft) return;
+    if (!rejectionFeedback.trim()) {
+      toast.error("Add feedback so the AI knows what to change");
+      return;
+    }
+    const draftId = selectedDraft.id;
+    try {
+      const { error } = await supabase
+        .from("drafts")
+        .update({
+          approval_status: "needs_revision",
+          review_notes: rejectionFeedback,
+          revision_feedback: rejectionFeedback,
+          reviewed_at: new Date().toISOString()
+        })
+        .eq("id", draftId);
+      if (error) { toast.error("Failed to request revision"); return; }
+      const { error: functionError } = await supabase.functions.invoke("regenerate-draft-with-feedback", {
+        body: { draftId, feedback: rejectionFeedback }
+      });
+      if (functionError) {
+        toast.success("Revision requested! The draft will be updated shortly.");
+      } else {
+        toast.success("Revision requested! AI is regenerating with your feedback.");
+      }
+      setRejectModalOpen(false);
+      setRejectionFeedback("");
+      loadDrafts();
+    } catch (error) {
+      toast.error("Something went wrong");
+    }
+  };
+
+  // Permanent rejection: the draft is done. Feedback is OPTIONAL here (it is
+  // only logged to the Rejected tab as the reason), so this never forces the
+  // reviewer to type a note just to throw a draft away. Writes
+  // approval_status = "rejected", which is exactly what the Rejected tab
+  // reads, so the row shows up there as a permanent record.
+  const handleRejectPermanently = async () => {
     if (!selectedDraft) return;
     const draftId = selectedDraft.id;
     try {
-      if (requestRevision && rejectionFeedback.trim()) {
-        const { error } = await supabase
-          .from("drafts")
-          .update({
-            approval_status: "needs_revision",
-            review_notes: rejectionFeedback,
-            revision_feedback: rejectionFeedback,
-            reviewed_at: new Date().toISOString()
-          })
-          .eq("id", draftId);
-        if (error) { toast.error("Failed to request revision"); return; }
-        const { error: functionError } = await supabase.functions.invoke("regenerate-draft-with-feedback", {
-          body: { draftId, feedback: rejectionFeedback }
-        });
-        if (functionError) {
-          toast.success("Revision requested! The draft will be updated shortly.");
-        } else {
-          toast.success("Revision requested! AI is regenerating with your feedback.");
-        }
-        // needs_revision still matches this tab's own filter, so the row
-        // staying put through a normal reload is correct here (unlike the
-        // permanent-reject branch below, which needs the settle delay
-        // instead of an immediate reload).
-        setRejectModalOpen(false);
-        setRejectionFeedback("");
-        setRequestRevision(true);
-        loadDrafts();
-      } else {
-        setTransition(draftId, "rejecting");
-        const { error } = await supabase
-          .from("drafts")
-          .update({ approval_status: "rejected", review_notes: rejectionFeedback, reviewed_at: new Date().toISOString() })
-          .eq("id", draftId);
-        if (error) {
-          clearTransition(draftId);
-          toast.error("Failed to reject draft");
-          return;
-        }
-        setTransition(draftId, "rejected");
-        toast.success("Draft rejected.");
-        setRejectModalOpen(false);
-        setRejectionFeedback("");
-        setRequestRevision(true);
-        settleAndRemove(draftId);
+      setTransition(draftId, "rejecting");
+      const { error } = await supabase
+        .from("drafts")
+        .update({ approval_status: "rejected", review_notes: rejectionFeedback.trim() || null, reviewed_at: new Date().toISOString() })
+        .eq("id", draftId);
+      if (error) {
+        clearTransition(draftId);
+        toast.error("Failed to reject draft");
+        return;
       }
+      setTransition(draftId, "rejected");
+      toast.success("Draft rejected permanently.");
+      setRejectModalOpen(false);
+      setRejectionFeedback("");
+      settleAndRemove(draftId);
     } catch (error) {
+      clearTransition(draftId);
       toast.error("Something went wrong");
     }
   };
@@ -534,29 +546,29 @@ export const PendingTab = () => {
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Reject Draft</DialogTitle>
-            <DialogDescription>Provide feedback for {selectedDraft?.title || "this draft"}</DialogDescription>
+            <DialogDescription>Send {selectedDraft?.title || "this draft"} back for revision, or reject it permanently.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="rejection-feedback">Feedback</Label>
+              <Label htmlFor="rejection-feedback">
+                Feedback <span className="text-muted-foreground font-normal">(required to revise, optional to reject)</span>
+              </Label>
               <Textarea id="rejection-feedback" placeholder="What needs to be improved? Be specific so the AI can revise it effectively..." value={rejectionFeedback} onChange={(e) => setRejectionFeedback(e.target.value)} rows={4} />
-              <p className="text-sm text-muted-foreground">Clear feedback helps generate better revisions, and shows up in the Rejected log if you reject permanently.</p>
+              <p className="text-sm text-muted-foreground">
+                <strong>Request Revision</strong> sends this feedback to the AI to rewrite the draft. <strong>Reject Permanently</strong> throws the draft away and logs it in the Rejected tab, with this note as the reason if you added one.
+              </p>
             </div>
-            <div className="flex items-center space-x-2">
-              <Checkbox id="request-revision" checked={requestRevision} onCheckedChange={(checked) => setRequestRevision(checked as boolean)} />
-              <Label htmlFor="request-revision" className="text-sm font-medium leading-none">Request revision with this feedback</Label>
-            </div>
-            {!requestRevision && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
-                <p className="text-sm text-yellow-800">If unchecked, this draft will be permanently rejected without revision and move to the Rejected tab.</p>
-              </div>
-            )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
             <Button variant="outline" onClick={() => setRejectModalOpen(false)}>Cancel</Button>
-            <Button onClick={submitSmartRejection} disabled={!rejectionFeedback.trim()} className={requestRevision ? "bg-blue-600 hover:bg-blue-700" : "bg-red-600 hover:bg-red-700"}>
-              {requestRevision ? (<><MessageCircle className="h-4 w-4 mr-2" />Request Revision</>) : (<><Ban className="h-4 w-4 mr-2" />Reject Permanently</>)}
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button variant="outline" onClick={handleRejectPermanently} className="text-red-600 border-red-300 hover:bg-red-50 hover:text-red-700">
+                <Ban className="h-4 w-4 mr-2" />Reject Permanently
+              </Button>
+              <Button onClick={handleRequestRevision} disabled={!rejectionFeedback.trim()} className="bg-blue-600 hover:bg-blue-700">
+                <MessageCircle className="h-4 w-4 mr-2" />Request Revision
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

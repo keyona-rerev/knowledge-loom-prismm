@@ -11,7 +11,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { toast } from "sonner";
-import { ArrowLeft, Trash2, Moon, Sun, AlertTriangle, Shield, Loader2, Linkedin, CheckCircle2, DollarSign, Eye, ChevronDown, Clock } from "lucide-react";
+import { ArrowLeft, Trash2, Moon, Sun, AlertTriangle, Shield, Loader2, Linkedin, CheckCircle2, DollarSign, Eye, ChevronDown, Clock, RefreshCw } from "lucide-react";
 import { useTheme } from "next-themes";
 
 // Settings: appearance and AI provider only.
@@ -114,6 +114,7 @@ const Settings = () => {
   const { theme, setTheme } = useTheme();
   const [loading, setLoading] = useState(false);
   const [deletingData, setDeletingData] = useState(false);
+  const [checkingQueue, setCheckingQueue] = useState(false);
   const [liConn, setLiConn] = useState<any>(null);
   const [liBusy, setLiBusy] = useState(false);
   const [profile, setProfile] = useState({
@@ -246,6 +247,37 @@ const Settings = () => {
     setLoading(false);
   };
 
+  const handleCheckQueueNow = async () => {
+    setCheckingQueue(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("check-approved-queue", { body: {} });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      const result = data?.results?.[0];
+      if (!result) {
+        toast.info("No profile found to check.");
+      } else if (result.error) {
+        toast.error("Check failed: " + result.error);
+      } else if (result.status === "alert_sent") {
+        toast.success(`Below threshold (${result.approvedCount}/${result.threshold}) — alert email sent.`);
+      } else if (result.status === "below_already_alerted") {
+        toast.info(`Still below threshold (${result.approvedCount}/${result.threshold}) — you were already alerted for this dip.`);
+      } else if (result.status === "below_no_email_on_profile") {
+        toast.warning(`Below threshold (${result.approvedCount}/${result.threshold}), but there's no email on file to alert.`);
+      } else if (result.status === "below_resend_key_missing") {
+        toast.warning(`Below threshold (${result.approvedCount}/${result.threshold}), but email sending isn't configured yet.`);
+      } else if (result.status === "below_send_failed") {
+        toast.error(`Below threshold (${result.approvedCount}/${result.threshold}), but the alert email failed to send.`);
+      } else {
+        toast.success(`Queue looks good: ${result.approvedCount} approved, ready to publish (threshold ${result.threshold}).`);
+      }
+    } catch (err: any) {
+      toast.error("Check failed: " + err.message);
+    } finally {
+      setCheckingQueue(false);
+    }
+  };
+
   const runPromptPreview = async () => {
     if (!inspectorFormat || !inspectorNature || !inspectorJob) {
       toast.error("Pick a format, nature, and job first");
@@ -370,9 +402,15 @@ const Settings = () => {
                 <p className="text-sm text-muted-foreground">Checked daily at 9am ET. One email per dip; re-arms once the queue recovers.</p>
               </div>
             </div>
-            <Button onClick={handleSave} disabled={loading}>
-              {loading ? "Saving..." : "Save Settings"}
-            </Button>
+            <div className="flex gap-2">
+              <Button onClick={handleSave} disabled={loading}>
+                {loading ? "Saving..." : "Save Settings"}
+              </Button>
+              <Button variant="outline" onClick={handleCheckQueueNow} disabled={checkingQueue}>
+                <RefreshCw className={`h-4 w-4 mr-2 ${checkingQueue ? "animate-spin" : ""}`} />
+                {checkingQueue ? "Checking..." : "Check queue now"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
 

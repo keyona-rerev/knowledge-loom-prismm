@@ -423,6 +423,8 @@ export type Database = {
       }
       draft_visuals: {
         Row: {
+          canvas_height: number | null
+          canvas_width: number | null
           created_at: string | null
           draft_id: string
           error_message: string | null
@@ -435,6 +437,8 @@ export type Database = {
           visual_type: string
         }
         Insert: {
+          canvas_height?: number | null
+          canvas_width?: number | null
           created_at?: string | null
           draft_id: string
           error_message?: string | null
@@ -447,6 +451,8 @@ export type Database = {
           visual_type: string
         }
         Update: {
+          canvas_height?: number | null
+          canvas_width?: number | null
           created_at?: string | null
           draft_id?: string
           error_message?: string | null

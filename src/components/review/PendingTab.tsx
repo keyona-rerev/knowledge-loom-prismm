@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { toast } from "sonner";
 import { Check, X, Clock, CheckCheck, Ban, MessageCircle, AlertTriangle, Loader2, CheckCircle2, Wand2 } from "lucide-react";
 import { ensureVisualImageUploaded } from "@/lib/ensureVisualImage";
+import { platformLabel } from "@/lib/platform";
 
 interface Draft {
   id: string;
@@ -401,7 +402,7 @@ export const PendingTab = () => {
             <SelectTrigger className="w-[160px]"><SelectValue placeholder="Platform" /></SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL}>All platforms</SelectItem>
-              {platforms.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+              {platforms.map((p) => <SelectItem key={p} value={p}>{platformLabel(p)}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={formatFilter} onValueChange={setFormatFilter}>

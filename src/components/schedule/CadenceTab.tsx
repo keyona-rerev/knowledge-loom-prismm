@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { Plus, Trash2, Loader2, Play, RefreshCw, Calendar, RotateCcw, CalendarClock, Pencil, Save as SaveIcon, FastForward, ChevronRight } from "lucide-react";
 import { resolveNext, nextOccurrence } from "@/lib/scheduleResolver";
 import { ScheduleWeekGrid } from "@/components/ScheduleWeekGrid";
+import { platformLabel } from "@/lib/platform";
 
 const DAYS_OF_WEEK = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DAYS_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -97,6 +98,7 @@ interface Slot {
 }
 
 interface NamedRow { id: string; name: string; }
+interface FormatOption extends NamedRow { platform: string; }
 
 interface EligibleParent {
   id: string;
@@ -159,7 +161,7 @@ export const CadenceTab = () => {
   const [slots, setSlots] = useState<Slot[]>([]);
   const [expandedSlots, setExpandedSlots] = useState<Set<string>>(new Set());
   const [deletedSlots, setDeletedSlots] = useState<string[]>([]);
-  const [formats, setFormats] = useState<NamedRow[]>([]);
+  const [formats, setFormats] = useState<FormatOption[]>([]);
   const [natures, setNatures] = useState<NamedRow[]>([]);
   const [jobs, setJobs] = useState<NamedRow[]>([]);
   const [lanes, setLanes] = useState<NamedRow[]>([]);
@@ -252,7 +254,7 @@ export const CadenceTab = () => {
     setUserId(uid);
 
     const [fmt, nat, jb, ln, rd, sched, ffRow, prof] = await Promise.all([
-      supabase.from("formats").select("id, name").eq("user_id", uid).eq("is_active", true).order("sort_order"),
+      supabase.from("formats").select("id, name, platform").eq("user_id", uid).eq("is_active", true).order("sort_order"),
       supabase.from("natures").select("id, name").eq("user_id", uid).eq("is_active", true).order("sort_order"),
       supabase.from("jobs").select("id, name").eq("user_id", uid).eq("kind", "engine_job").eq("is_active", true).order("sort_order"),
       supabase.from("lanes").select("id, name").eq("user_id", uid).eq("is_active", true).order("sort_order"),
@@ -262,7 +264,7 @@ export const CadenceTab = () => {
       supabase.from("profiles").select("default_timezone, default_post_time").eq("user_id", uid).maybeSingle(),
     ]);
 
-    setFormats((fmt.data || []) as NamedRow[]);
+    setFormats((fmt.data || []) as FormatOption[]);
     setNatures((nat.data || []) as NamedRow[]);
     setJobs((jb.data || []) as NamedRow[]);
     setLanes((ln.data || []) as NamedRow[]);
@@ -589,7 +591,7 @@ export const CadenceTab = () => {
                     disabled={batchRunning}
                     className="h-7"
                   >
-                    {f.name}
+                    {f.name} <span className="ml-1 opacity-70">({platformLabel(f.platform)})</span>
                   </Button>
                 );
               })}
@@ -723,7 +725,7 @@ export const CadenceTab = () => {
                           <Label className="text-xs">Format</Label>
                           <Select value={slot.format_id} onValueChange={(v) => updateSlot(slot.id, { format_id: v })}>
                             <SelectTrigger><SelectValue placeholder="Format" /></SelectTrigger>
-                            <SelectContent>{formats.map((f) => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}</SelectContent>
+                            <SelectContent>{formats.map((f) => <SelectItem key={f.id} value={f.id}>{f.name} ({platformLabel(f.platform)})</SelectItem>)}</SelectContent>
                           </Select>
                         </div>
                         <div>
@@ -841,7 +843,7 @@ export const CadenceTab = () => {
                                 <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select" /></SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value={NONE}>Same as parent</SelectItem>
-                                  {formats.map((f) => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
+                                  {formats.map((f) => <SelectItem key={f.id} value={f.id}>{f.name} ({platformLabel(f.platform)})</SelectItem>)}
                                 </SelectContent>
                               </Select>
                             </div>

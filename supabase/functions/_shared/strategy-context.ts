@@ -130,9 +130,29 @@ export function buildContextBlock(ctx: StrategyContext): string {
     }
     const formatSamples = sampleLines(ctx.format.writing_samples, 2);
     if (formatSamples) lines.push(`Examples in this format:\n${formatSamples}`);
+    if (ctx.format.platform === "instagram") {
+      lines.push("");
+      lines.push(instagramConventionsBlock());
+    }
     lines.push("");
   }
   return lines.join("\n");
+}
+
+// Instagram conventions differ enough from LinkedIn (shorter, visual-first,
+// no clickable links in the caption, hashtags) that just reusing the
+// LinkedIn-shaped prompt would produce a LinkedIn post with an Instagram
+// label on it. Shared so both the manual (CreateContent) and scheduled
+// (execute-autopilot-template) generation paths say the same thing.
+export function instagramConventionsBlock(): string {
+  return [
+    "PLATFORM CONVENTIONS (Instagram)",
+    "- This is an Instagram caption, not a LinkedIn post: shorter, more visual-first, casual and direct.",
+    "- Front-load the hook in the first 1-2 lines; Instagram truncates captions in-feed after that.",
+    "- Short paragraphs and line breaks for scannability, not dense blocks of text.",
+    "- If a link is needed, say \"link in bio\" — never a raw URL, never \"link in comments\" (that's a LinkedIn convention).",
+    "- End with a block of 5-15 relevant hashtags, separated from the caption body by a blank line.",
+  ].join("\n");
 }
 
 export function buildSystemPrompt(base: string, hardRules: string[], voiceRules: string[], inlineAttribution: string): string {

@@ -9,6 +9,10 @@ import { capturePngDataUrl } from "@/lib/visualCapture";
 interface VisualForgeProps {
   draftId: string;
   userId: string;
+  // Display label only (e.g. "Instagram"); falls back to the rendered
+  // dimensions alone when not provided so this still works for callers that
+  // haven't resolved the draft's platform.
+  platformLabel?: string;
 }
 
 interface DraftVisual {
@@ -18,7 +22,12 @@ interface DraftVisual {
   status: string;
   error_message?: string;
   created_at: string;
+  canvas_width?: number | null;
+  canvas_height?: number | null;
 }
+
+const DEFAULT_CANVAS_WIDTH = 1200;
+const DEFAULT_CANVAS_HEIGHT = 627;
 
 // The AI's real, actually-implemented visual types (see
 // supabase/functions/_shared/visual-prompt.ts, VISUAL_TYPES -- the single
@@ -38,7 +47,7 @@ const DEFAULT_NAVY = "#1b2b45";
 const DEFAULT_CORAL = "#f9655b";
 const DEFAULT_YELLOW = "#f5c070";
 
-export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
+export const VisualForge = ({ draftId, userId, platformLabel }: VisualForgeProps) => {
   const [visual, setVisual] = useState<DraftVisual | null>(null);
   const [loading, setLoading] = useState(true);
   const [regenerating, setRegenerating] = useState(false);
@@ -133,7 +142,9 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
     if (!visual?.html_content) return;
     setDownloading(true);
     try {
-      const dataUrl = await capturePngDataUrl(visual.html_content);
+      const dataUrl = visual.canvas_width && visual.canvas_height
+        ? await capturePngDataUrl(visual.html_content, undefined, visual.canvas_width, visual.canvas_height)
+        : await capturePngDataUrl(visual.html_content);
       const filename = `visual-${visual.visual_type}-${visual.id.slice(0, 8)}.png`;
       const link = document.createElement("a");
       link.download = filename;
@@ -207,6 +218,9 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
     );
   }
 
+  const canvasWidth = visual.canvas_width || DEFAULT_CANVAS_WIDTH;
+  const canvasHeight = visual.canvas_height || DEFAULT_CANVAS_HEIGHT;
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -217,7 +231,9 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
           >
             {VISUAL_TYPE_LABELS[visual.visual_type] || visual.visual_type}
           </Badge>
-          <span className="text-xs text-muted-foreground">LinkedIn 1200x627</span>
+          <span className="text-xs text-muted-foreground">
+            {platformLabel ? `${platformLabel} ` : ""}{canvasWidth}x{canvasHeight}
+          </span>
         </div>
         <div className="flex gap-2">
           <Button size="sm" variant="outline" onClick={handleRegenerate} disabled={regenerating}>
@@ -247,7 +263,7 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
       {/* Visual preview */}
       <div
         className="rounded-lg overflow-hidden border"
-        style={{ aspectRatio: "1200/627" }}
+        style={{ aspectRatio: `${canvasWidth}/${canvasHeight}` }}
       >
         <iframe
           ref={iframeRef}

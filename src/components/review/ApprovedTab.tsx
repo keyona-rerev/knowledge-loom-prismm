@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { CheckCheck, Send, AlertTriangle, RefreshCw, ExternalLink, ListRestart } from "lucide-react";
 import { ensureVisualImageUploaded } from "@/lib/ensureVisualImage";
+import { platformLabel } from "@/lib/platform";
 
 interface Draft {
   id: string;
@@ -94,6 +95,7 @@ export const ApprovedTab = () => {
 
   const handlePostNow = async (draft: Draft) => {
     setPostingNowId(draft.id);
+    const label = platformLabel(formats.find((f) => f.id === draft.format_id)?.platform);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user?.id) { toast.error("You must be logged in"); return; }
@@ -104,11 +106,11 @@ export const ApprovedTab = () => {
       if (error) throw error;
       if (data?.ok || data?.alreadyPosted) {
         toast.success(data.alreadyPosted
-          ? "Already posted to LinkedIn."
-          : "Posted to LinkedIn! Goes live within ~60 seconds.");
+          ? `Already posted to ${label}.`
+          : `Posted to ${label}! Goes live within ~60 seconds.`);
         loadDrafts();
       } else {
-        toast.error(data?.error || "Post Now failed — check LinkedIn connection in Settings.");
+        toast.error(data?.error || `Post Now failed — check ${label} connection in Settings.`);
       }
     } catch (err) {
       toast.error("Post Now failed: " + (err as any)?.message);
@@ -198,7 +200,8 @@ export const ApprovedTab = () => {
 
   const getScheduleLabel = (draft: Draft) => {
     if (draft.publish_status === "published_now") {
-      return <span className="text-xs font-medium" style={{ color: accentColor }}>Posted to LinkedIn</span>;
+      const label = platformLabel(formats.find((f) => f.id === draft.format_id)?.platform);
+      return <span className="text-xs font-medium" style={{ color: accentColor }}>Posted to {label}</span>;
     }
     if (draft.publish_status === "scheduled" && draft.scheduled_for) {
       const when = new Date(draft.scheduled_for).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -212,7 +215,7 @@ export const ApprovedTab = () => {
   // differently:
   //  - failed: publish-to-zernio ran and the provider rejected it
   //  - needs_attention: publish-to-zernio ran and caught a known blocker
-  //    (char limit, no LinkedIn connection, no schedule slot, etc.)
+  //    (char limit, platform not connected, no schedule slot, etc.)
   //  - null publish_status: publish-to-zernio never actually ran to
   //    completion at all — the approve action's fire-and-forget invoke()
   //    call dropped (network blip, tab closed, cold-start timeout) before
@@ -320,7 +323,7 @@ export const ApprovedTab = () => {
             <SelectTrigger className="w-[160px]"><SelectValue placeholder="Platform" /></SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL}>All platforms</SelectItem>
-              {platforms.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+              {platforms.map((p) => <SelectItem key={p} value={p}>{platformLabel(p)}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={formatFilter} onValueChange={setFormatFilter}>

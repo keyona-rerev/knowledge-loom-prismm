@@ -1,7 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAI } from "../_shared/ai-caller.ts";
-import { buildSystemPromptFromConfig, SAMPLE_DRAFT, type VisualConfig } from "../_shared/visual-prompt.ts";
+import { buildSystemPromptFromConfig, canvasDimsForPlatform, SAMPLE_DRAFT, type VisualConfig } from "../_shared/visual-prompt.ts";
+import { DEFAULT_PLATFORM } from "../_shared/publisher/platform-config.ts";
 
 // Visual Studio's live preview. Takes the CURRENT, possibly-unsaved config
 // straight from the browser (not read from profiles — someone tuning
@@ -60,8 +61,9 @@ serve(async (req) => {
     if (authError || !user) return json({ error: "Invalid or expired token" }, 401);
     const userId = user.id;
 
-    const { config, draftId } = await req.json().catch(() => ({}));
+    const { config, draftId, platform: platformInput } = await req.json().catch(() => ({}));
     if (!config) return json({ error: "config is required" }, 400);
+    const platform = platformInput || DEFAULT_PLATFORM;
 
     const { data: profile } = await supabase
       .from("profiles")
@@ -87,9 +89,8 @@ serve(async (req) => {
     }
 
     const visualConfig = config as VisualConfig;
-    const systemPrompt = buildSystemPromptFromConfig(visualConfig, profile?.business_name, profile?.business_description);
-    const canvasWidth = visualConfig.canvas_width || 1200;
-    const canvasHeight = visualConfig.canvas_height || 627;
+    const systemPrompt = buildSystemPromptFromConfig(visualConfig, profile?.business_name, profile?.business_description, platform);
+    const { width: canvasWidth, height: canvasHeight } = canvasDimsForPlatform(visualConfig, platform);
 
     const aiProfile = {
       ai_provider: profile.ai_provider,

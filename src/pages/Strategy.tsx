@@ -12,6 +12,7 @@ import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, Trash2, Pencil, Save as SaveIcon, TrendingUp, AlertTriangle, Lightbulb, ShieldAlert, Crown, Building2, Briefcase, LineChart, Users, Headphones, User } from "lucide-react";
+import { KNOWN_PLATFORMS, platformLabel } from "@/lib/platform";
 
 // Strategy is the single source of truth for who the business is, who it writes to,
 // and what its content does. Formerly split across Strategy and Audience
@@ -29,6 +30,7 @@ interface FormatRow {
   id: string;
   key: string;
   name: string;
+  platform: string;
   definition: string;
   min_words: number | null;
   max_words: number | null;
@@ -317,7 +319,7 @@ const Strategy = () => {
       const { data: fmt } = await supabase
         .from("formats").select("*").eq("user_id", uid).order("sort_order");
       setFormats((fmt || []).map((f) => ({
-        id: f.id, key: f.key, name: f.name, definition: f.definition || "",
+        id: f.id, key: f.key, name: f.name, platform: f.platform || "linkedin", definition: f.definition || "",
         min_words: f.min_words, max_words: f.max_words,
         writing_samples: toArray(f.writing_samples), sort_order: f.sort_order,
       })));
@@ -433,7 +435,7 @@ const Strategy = () => {
   const addFormat = () => {
     const id = `new_${Date.now()}`;
     setFormats((p) => [...p, {
-      id, key: "", name: "", definition: "",
+      id, key: "", name: "", platform: "linkedin", definition: "",
       min_words: null, max_words: null, writing_samples: [], sort_order: p.length, _isNew: true,
     }]);
   };
@@ -550,7 +552,7 @@ const Strategy = () => {
       for (let i = 0; i < formats.length; i++) {
         const f = formats[i];
         const payload = {
-          key: f.key || slugify(f.name), name: f.name, definition: f.definition || null,
+          key: f.key || slugify(f.name), name: f.name, platform: f.platform || "linkedin", definition: f.definition || null,
           min_words: f.min_words, max_words: f.max_words,
           writing_samples: f.writing_samples, sort_order: i,
         };
@@ -1371,6 +1373,14 @@ const Strategy = () => {
                   <div key={f.id} className="border rounded-lg p-4 space-y-3">
                     <div className="flex items-center justify-between gap-3">
                       <Input className="font-medium" placeholder="Format name (e.g. Feed post)" value={f.name} onChange={(e) => setFormat(i, { name: e.target.value })} />
+                      <Select value={f.platform || "linkedin"} onValueChange={(v) => setFormat(i, { platform: v })}>
+                        <SelectTrigger className="w-36 shrink-0"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {KNOWN_PLATFORMS.map((p) => (
+                            <SelectItem key={p} value={p}>{platformLabel(p)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <Button variant="ghost" size="icon" onClick={() => removeFormat(i)}><Trash2 className="h-4 w-4" /></Button>
                     </div>
                     <Textarea rows={2} placeholder="Definition: how this format is written" value={f.definition} onChange={(e) => setFormat(i, { definition: e.target.value })} />
@@ -1393,6 +1403,8 @@ const Strategy = () => {
                 {formats.map((f) => (
                   <li key={f.id}>
                     <span className="font-medium">{f.name || "Untitled format"}</span>
+                    {" · "}
+                    <Badge variant="outline" className="text-xs align-middle">{platformLabel(f.platform)}</Badge>
                     {" · "}
                     <span className="text-muted-foreground">{wordRangeText(f.min_words, f.max_words)}</span>
                   </li>

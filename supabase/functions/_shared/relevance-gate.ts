@@ -14,7 +14,7 @@ export interface RelevanceVerdict {
   reason: string;
 }
 
-const GATE_SYSTEM_PROMPT = `You are a fast relevance filter for a content pipeline that turns source material into reference cards used to ground LinkedIn thought-leadership posts. Given a title and excerpt, decide whether it is substantive enough to be worth saving as a reference card, or whether it is noise: ads, unsubscribe/footer boilerplate, paywall stubs, broken or empty scrapes, spam, or content that is wildly off-topic from business, professional, or industry insight. Respond with ONLY minified JSON, no other text: {"relevant":true|false,"reason":"<max 15 words>"}. Err toward relevant when genuinely unsure.`;
+const GATE_SYSTEM_PROMPT = `You are a fast relevance filter for a content pipeline that turns source material into reference cards used to ground thought-leadership posts (LinkedIn, Instagram, and other platforms). Given a title and excerpt, decide whether it is substantive enough to be worth saving as a reference card, or whether it is noise: ads, unsubscribe/footer boilerplate, paywall stubs, broken or empty scrapes, spam, or content that is wildly off-topic from business, professional, or industry insight. Respond with ONLY minified JSON, no other text: {"relevant":true|false,"reason":"<max 15 words>"}. Err toward relevant when genuinely unsure.`;
 
 export async function assessRelevance(
   supabase: ReturnType<typeof import("https://esm.sh/@supabase/supabase-js@2").createClient>,

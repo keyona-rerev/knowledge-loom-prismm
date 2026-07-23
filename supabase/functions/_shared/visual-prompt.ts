@@ -6,14 +6,43 @@
 // that will actually run on their next real draft — no drift between
 // "what I previewed" and "what actually generates."
 
+import { platformSpec, DEFAULT_PLATFORM } from "../publisher/platform-config.ts";
+
 export interface DesignRule { id: string; text: string; tag: "do" | "avoid"; }
 export interface VisualConfig {
   color_background: string; color_accent: string; color_highlight: string; color_sparing_accent: string;
   display_font: string; body_font: string;
   logo_url: string; logo_min_height: number;
-  canvas_width: number; canvas_height: number;
+  canvas_width: number; canvas_height: number; // LinkedIn canvas size (the original, still the default)
+  instagram_canvas_width?: number; instagram_canvas_height?: number; // Instagram canvas size, defaults to a 1080x1080 square
   design_rules: DesignRule[];
   enabled_visual_types: string[];
+}
+
+// The canvas size to actually render at for a given platform: the user's
+// saved per-platform value if set, else that platform's sane default. Used
+// by both the prompt builder below and generate-draft-visual's render call,
+// so the AI is always told the exact dimensions the PNG is captured at.
+export function canvasDimsForPlatform(
+  config: VisualConfig | null | undefined,
+  platform: string,
+): { width: number; height: number } {
+  const spec = platformSpec(platform);
+  if (platform === "instagram") {
+    return {
+      width: config?.instagram_canvas_width || spec.canvasWidth,
+      height: config?.instagram_canvas_height || spec.canvasHeight,
+    };
+  }
+  return {
+    width: config?.canvas_width || spec.canvasWidth,
+    height: config?.canvas_height || spec.canvasHeight,
+  };
+}
+
+function orientationLabel(width: number, height: number): string {
+  if (width === height) return "square";
+  return width > height ? "landscape" : "portrait";
 }
 
 // The AI's real, actually-implemented visual types. This is the single
@@ -67,7 +96,14 @@ function buildVisualIdentityLine(businessName?: string | null, businessDescripti
   return "You are a visual designer for this brand. Set a business name and description in Strategy for a more specific voice.";
 }
 
-export function buildSystemPromptFromConfig(config: VisualConfig, businessName?: string | null, businessDescription?: string | null): string {
+export function buildSystemPromptFromConfig(
+  config: VisualConfig,
+  businessName?: string | null,
+  businessDescription?: string | null,
+  platform: string = DEFAULT_PLATFORM,
+): string {
+  const { width, height } = canvasDimsForPlatform(config, platform);
+  const platformLabel = platformSpec(platform).label;
   const rulesLines: string[] = ["DESIGN RULES (read every rule before generating):"];
   const dos = config.design_rules.filter((r) => r.tag === "do");
   const avoids = config.design_rules.filter((r) => r.tag === "avoid");
@@ -108,7 +144,7 @@ OUTPUT RULES:
 - JSON must have exactly two keys: "visual_type" (string, must be one of the ids listed above) and "html" (string)
 - The html must be a complete self-contained HTML document
 - Include Google Fonts import for ${config.display_font} and ${config.body_font}
-- Fixed width ${config.canvas_width}px, height ${config.canvas_height}px (LinkedIn landscape)
+- Fixed width ${width}px, height ${height}px (${platformLabel} ${orientationLabel(width, height)})
 - Inline CSS only, no external stylesheets
 - ${config.color_background} background as the base
 - The 10-word-or-fewer statement must be the insight extracted from the draft, NOT a copy of its opening line`;

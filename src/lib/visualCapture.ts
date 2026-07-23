@@ -3,10 +3,15 @@
 // load. There is no server-side renderer available (Supabase edge functions
 // run in Deno with no headless browser), so this only works client-side.
 
-const CAPTURE_WIDTH = 1200;
-const CAPTURE_HEIGHT = 627;
+// LinkedIn's landscape size, kept as the default so any existing caller that
+// doesn't pass dimensions renders byte-identical to before. Instagram (and
+// anything else) passes its own width/height explicitly, read from the
+// draft_visuals row's canvas_width/canvas_height (see generate-draft-visual,
+// which now stamps the actual render size onto that row per platform).
+const DEFAULT_CAPTURE_WIDTH = 1200;
+const DEFAULT_CAPTURE_HEIGHT = 627;
 
-function buildCapturePage(html: string): string {
+function buildCapturePage(html: string, width: number, height: number): string {
   const script = `
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"><\/script>
 <script>
@@ -17,8 +22,8 @@ window.addEventListener('load', function() {
       useCORS: true,
       backgroundColor: null,
       logging: false,
-      width: ${CAPTURE_WIDTH},
-      height: ${CAPTURE_HEIGHT}
+      width: ${width},
+      height: ${height}
     }).then(function(canvas) {
       window.parent.postMessage({ type: 'PRISMM_PNG', dataUrl: canvas.toDataURL('image/png') }, '*');
     }).catch(function(err) {
@@ -31,14 +36,19 @@ window.addEventListener('load', function() {
   return html + "\n" + script;
 }
 
-export function capturePngDataUrl(html: string, timeoutMs = 15000): Promise<string> {
+export function capturePngDataUrl(
+  html: string,
+  timeoutMs = 15000,
+  width: number = DEFAULT_CAPTURE_WIDTH,
+  height: number = DEFAULT_CAPTURE_HEIGHT,
+): Promise<string> {
   return new Promise((resolve, reject) => {
-    const capturePage = buildCapturePage(html);
+    const capturePage = buildCapturePage(html, width, height);
     const blob = new Blob([capturePage], { type: "text/html" });
     const blobUrl = URL.createObjectURL(blob);
 
     const frame = document.createElement("iframe");
-    frame.style.cssText = `position:fixed;left:-9999px;top:-9999px;width:${CAPTURE_WIDTH}px;height:${CAPTURE_HEIGHT}px;border:none;visibility:hidden;`;
+    frame.style.cssText = `position:fixed;left:-9999px;top:-9999px;width:${width}px;height:${height}px;border:none;visibility:hidden;`;
     frame.src = blobUrl;
 
     let settled = false;

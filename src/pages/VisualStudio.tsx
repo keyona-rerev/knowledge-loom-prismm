@@ -27,8 +27,10 @@ interface VisualConfig {
   body_font: string;
   logo_url: string;
   logo_min_height: number;
-  canvas_width: number;
+  canvas_width: number; // LinkedIn canvas size
   canvas_height: number;
+  instagram_canvas_width: number; // Instagram canvas size, defaults to a square
+  instagram_canvas_height: number;
   design_rules: DesignRule[];
   enabled_visual_types: string[];
 }
@@ -36,6 +38,11 @@ interface VisualConfig {
 interface DraftOption { id: string; title: string | null; }
 
 const SAMPLE_OPTION_VALUE = "__sample__";
+
+const PREVIEW_PLATFORMS = [
+  { id: "linkedin", label: "LinkedIn" },
+  { id: "instagram", label: "Instagram" },
+] as const;
 
 const DISPLAY_FONTS = [
   { label: "Bricolage Grotesque", value: "Bricolage Grotesque", weight: "800", category: "Grotesque" },
@@ -96,6 +103,8 @@ const DEFAULT_CONFIG: VisualConfig = {
   logo_min_height: 56,
   canvas_width: 1200,
   canvas_height: 627,
+  instagram_canvas_width: 1080,
+  instagram_canvas_height: 1080,
   design_rules: DEFAULT_RULES,
   enabled_visual_types: ["hero_number", "before_after", "logic_diagram", "transformation"],
 };
@@ -130,6 +139,7 @@ const VisualStudio = () => {
   // actually see what a real graphic would look like before committing to it.
   const [draftOptions, setDraftOptions] = useState<DraftOption[]>([]);
   const [selectedDraftId, setSelectedDraftId] = useState<string>(SAMPLE_OPTION_VALUE);
+  const [previewPlatform, setPreviewPlatform] = useState<string>("linkedin");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
@@ -183,6 +193,15 @@ const VisualStudio = () => {
     if (customBodyFont.trim()) loadGoogleFont(customBodyFont.trim());
   }, [customBodyFont]);
 
+  // A cached preview from the other platform would be shown at the wrong
+  // aspect ratio otherwise (square Instagram canvas rendered into a
+  // LinkedIn-shaped preview frame, or vice versa).
+  useEffect(() => {
+    setPreviewImage(null);
+    setPreviewHtml(null);
+    setPreviewError(null);
+  }, [previewPlatform]);
+
   const activeDisplayFont = showCustomDisplay && customDisplayFont.trim()
     ? customDisplayFont.trim() : config.display_font;
   const activeBodyFont = showCustomBody && customBodyFont.trim()
@@ -195,6 +214,10 @@ const VisualStudio = () => {
     body_font: showCustomBody && customBodyFont.trim() ? customBodyFont.trim() : config.body_font,
   });
 
+  const previewCanvas = previewPlatform === "instagram"
+    ? { width: config.instagram_canvas_width, height: config.instagram_canvas_height }
+    : { width: config.canvas_width, height: config.canvas_height };
+
   const handleGeneratePreview = async () => {
     setPreviewLoading(true);
     setPreviewError(null);
@@ -203,6 +226,7 @@ const VisualStudio = () => {
         body: {
           config: buildCurrentConfig(),
           draftId: selectedDraftId === SAMPLE_OPTION_VALUE ? undefined : selectedDraftId,
+          platform: previewPlatform,
         },
       });
       if (error) throw error;
@@ -350,6 +374,13 @@ const VisualStudio = () => {
                   <option key={d.id} value={d.id}>{d.title || "Untitled draft"}</option>
                 ))}
               </select>
+              <select
+                className="rounded-md border bg-muted px-3 py-2 text-sm text-foreground outline-none sm:w-40"
+                value={previewPlatform}
+                onChange={e => setPreviewPlatform(e.target.value)}
+              >
+                {PREVIEW_PLATFORMS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </select>
               <Button onClick={handleGeneratePreview} disabled={previewLoading} className="shrink-0">
                 <Sparkles className="h-4 w-4 mr-2" />
                 {previewLoading ? "Generating..." : "Generate preview"}
@@ -358,7 +389,7 @@ const VisualStudio = () => {
 
             <div
               className="rounded-md border overflow-hidden bg-white flex items-center justify-center"
-              style={{ aspectRatio: `${config.canvas_width} / ${config.canvas_height}` }}
+              style={{ aspectRatio: `${previewCanvas.width} / ${previewCanvas.height}` }}
             >
               {previewLoading ? (
                 <p className="text-sm text-muted-foreground">Generating a real graphic with these settings...</p>
@@ -369,7 +400,7 @@ const VisualStudio = () => {
                   title="Visual preview"
                   srcDoc={previewHtml}
                   className="w-full h-full border-0"
-                  style={{ width: config.canvas_width, height: config.canvas_height, transform: "scale(1)" }}
+                  style={{ width: previewCanvas.width, height: previewCanvas.height, transform: "scale(1)" }}
                 />
               ) : (
                 <p className="text-sm text-muted-foreground px-4 text-center">
@@ -562,6 +593,15 @@ const VisualStudio = () => {
                   <span className="text-muted-foreground text-sm">x</span>
                   <div className="rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground flex-1 text-center">{config.canvas_height}</div>
                   <span className="text-xs text-muted-foreground whitespace-nowrap">LinkedIn</span>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground uppercase tracking-wide">Canvas size (px)</Label>
+                <div className="flex items-center gap-2">
+                  <div className="rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground flex-1 text-center">{config.instagram_canvas_width}</div>
+                  <span className="text-muted-foreground text-sm">x</span>
+                  <div className="rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground flex-1 text-center">{config.instagram_canvas_height}</div>
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">Instagram</span>
                 </div>
               </div>
               <div className="space-y-1">

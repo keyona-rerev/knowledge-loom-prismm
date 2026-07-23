@@ -6,8 +6,8 @@ import { getPublisher } from "../_shared/publisher/index.ts";
 // have always assumed publish_status='scheduled' AND scheduled_for < now
 // means the post actually went out. That's a guess based on the clock, not
 // a fact confirmed with Zernio — if Zernio silently failed to fire a post
-// (LinkedIn rejected it, the connection token expired, whatever), the app
-// would still show it as posted with nothing to indicate otherwise.
+// (the platform rejected it, the connection token expired, whatever), the
+// app would still show it as posted with nothing to indicate otherwise.
 //
 // This function asks Zernio directly, per draft, via getPost(). Three
 // outcomes:

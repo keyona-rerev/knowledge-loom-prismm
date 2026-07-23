@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAI } from "../_shared/ai-caller.ts";
 import { resolveNext, type Frequency } from "../_shared/schedule-resolver.ts";
+import { instagramConventionsBlock } from "../_shared/strategy-context.ts";
 
 // Knowledge Loom autopilot. A schedule slot is a standing instruction: produce a post
 // of this format and nature, doing this job, for this lane and reader. Generation reads
@@ -13,8 +14,9 @@ import { resolveNext, type Frequency } from "../_shared/schedule-resolver.ts";
 // Per run a slot either resurfaces an eligible parent (reuse) or generates fresh. When the
 // slot requires a child, fresh runs also produce a companion post in the child format.
 //
-// The child post is always a SHORT LinkedIn feed post that teases the parent article
-// and drives readers to it. It is not a summary and not a copy. It opens a loop,
+// The child post is always a SHORT feed post/caption (LinkedIn or Instagram,
+// per the child format's own platform) that teases the parent article and
+// drives readers to it. It is not a summary and not a copy. It opens a loop,
 // surfaces one specific insight or provocation from the parent, and lets the article close it.
 
 const corsHeaders = {
@@ -227,7 +229,25 @@ function buildContextBlock(ctx: SlotContext): string {
   }
   const formatSamples = sampleLines(ctx.format.writing_samples, 2);
   if (formatSamples) lines.push(`Examples in this format:\n${formatSamples}`);
+  if (ctx.format.platform === "instagram") {
+    lines.push("");
+    lines.push(instagramConventionsBlock());
+  }
   return lines.join("\n");
+}
+
+// The teaser/child post's instruction text names the artifact and, for the
+// closing CTA line, the platform's own convention ("link in bio" for
+// Instagram vs. the LinkedIn "no link in comments" note) instead of always
+// describing a LinkedIn feed post regardless of what the child format
+// actually is.
+function teaserArtifactLabel(format: any): string {
+  return format?.platform === "instagram" ? "short Instagram caption" : "short LinkedIn feed post";
+}
+function teaserCtaRule(format: any): string {
+  return format?.platform === "instagram"
+    ? 'Ends naturally in a way that makes the full article the obvious next step — if a link is needed, say "link in bio", never a raw URL. Let the writing do most of the work.'
+    : 'Ends naturally in a way that makes the full article the obvious next step — but do not write "link in comments" or any explicit CTA. Let the writing do it.';
 }
 
 function pickReader(readers: any[], lane: any | null): any | null {
@@ -508,7 +528,7 @@ serve(async (req) => {
       const prompt = `${buildContextBlock(childCtx)}
 
 TEASER POST FOR THIS PUBLISHED ARTICLE
-The parent article is a long-form piece. Your job is to write a short LinkedIn feed post that:
+The parent article is a long-form piece. Your job is to write a ${teaserArtifactLabel(cf)} that:
 1. Opens a loop — surface ONE specific insight, provocation, or tension from the article that the reader wants resolved.
 2. Does NOT summarize or restate the article. The feed post is the door, not the room.
 3. Ends in a way that makes the full article the natural next step.
@@ -638,9 +658,10 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "stat_attributions": [{"
           }).eq("id", seed.id);
         }
 
-        // Companion child: a short LinkedIn feed post that teases the parent article.
-        // It opens a loop from one specific insight in the article and drives the reader
-        // to the full piece. It is NOT a summary and NOT a copy of the parent.
+        // Companion child: a short feed post/caption that teases the parent
+        // article. It opens a loop from one specific insight in the article
+        // and drives the reader to the full piece. It is NOT a summary and
+        // NOT a copy of the parent.
         if (slot.requires_child) {
           const { cf, cn } = await loadChildLibs();
           if (cf && cn) {
@@ -648,11 +669,11 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "stat_attributions": [{"
             const childPrompt = `${buildContextBlock(childCtx)}
 
 TEASER POST FOR THIS NEW ARTICLE
-The parent post above is a long-form article. Your job is to write a short LinkedIn feed post that:
+The parent post above is a long-form article. Your job is to write a ${teaserArtifactLabel(cf)} that:
 1. Opens a loop — surface ONE specific insight, provocation, statistic, or tension from the article that the reader wants resolved.
 2. Does NOT summarize the article or restate its structure. The feed post is the door, not the room.
 3. Stands on its own as a piece of writing. Someone who never reads the article should still get value from this post.
-4. Ends naturally in a way that makes the full article the obvious next step — but do not write "link in comments" or any explicit CTA. Let the writing do it.
+4. ${teaserCtaRule(cf)}
 5. Keep it short. This is a feed post, not a mini-article. Under 200 words.
 
 Parent article title: ${parent.title}

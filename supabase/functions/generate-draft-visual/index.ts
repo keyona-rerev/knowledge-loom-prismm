@@ -1,7 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAI } from "../_shared/ai-caller.ts";
-import { buildSystemPromptFromConfig, type VisualConfig } from "../_shared/visual-prompt.ts";
+import { buildSystemPromptFromConfig, canvasDimsForPlatform, type VisualConfig } from "../_shared/visual-prompt.ts";
+import { platformSpec, resolveDraftPlatform } from "../_shared/publisher/platform-config.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -56,7 +57,13 @@ FORBIDDEN:
 // once, this switches to buildSystemPromptFromConfig entirely, with no path
 // back to these hardcoded values short of them explicitly re-editing Visual
 // Studio itself.
-const LEGACY_BASE_SYSTEM_PROMPT = `You are a visual designer for Prismm, inheritance infrastructure for community banks and credit unions.
+//
+// Parametrized only on canvas size/orientation label, so an Instagram draft
+// hitting this fallback (a user who has never touched Visual Studio) still
+// gets a sensible square canvas instead of LinkedIn's landscape crop; the
+// LinkedIn case renders byte-identical to the original hardcoded prompt.
+function legacyBaseSystemPrompt(width: number, height: number, orientation: string): string {
+  return `You are a visual designer for Prismm, inheritance infrastructure for community banks and credit unions.
 
 BRAND:
 - Colors: Navy #1b2b45 (background base), Coral #f9655b (accent/energy), Purple #6658ea (highlights), Yellow #f5c070 (sparingly), White #ffffff, Paper #f4f1ea
@@ -78,10 +85,11 @@ OUTPUT RULES:
 - JSON must have exactly two keys: "visual_type" (string) and "html" (string)
 - The html must be a complete self-contained HTML document
 - Include Google Fonts import for Bricolage Grotesque and Hanken Grotesk
-- Fixed width 1200px, height 627px (LinkedIn landscape)
+- Fixed width ${width}px, height ${height}px (${orientation})
 - Inline CSS only, no external stylesheets
 - Navy background (#1b2b45) as the base
 - The 10-word-or-fewer statement must be the insight extracted from the draft, NOT a copy of its opening line`;
+}
 
 // Renders HTML to a PNG via the prismm-renderer service (real headless
 // Chromium via Puppeteer: page.setContent + waitUntil networkidle0, then
@@ -178,32 +186,42 @@ serve(async (req) => {
       );
     }
 
+    // A draft carries no platform column of its own; it's reachable only via
+    // its format (format_id -> formats.platform), defaulting to LinkedIn for
+    // ad-hoc drafts predating the format system.
+    const platform = await resolveDraftPlatform(supabase, draft.format_id);
+    const spec = platformSpec(platform);
+    const legacyOrientation = platform === "instagram" ? "Instagram square" : "LinkedIn landscape";
+
     // Visual Studio's saved config is the permanent source once it exists —
     // no path back to the legacy hardcoded prompt below short of a user
     // explicitly clearing it. Until a user has saved Visual Studio at least
     // once, behavior is byte-identical to before it was wired in (legacy
-    // prompt + visual_design_rules override, exactly as before).
+    // prompt + visual_design_rules override, exactly as before) for LinkedIn;
+    // an Instagram draft hitting this same fallback still gets a square
+    // canvas instead of LinkedIn's landscape crop.
     let systemPrompt: string;
-    let canvasWidth = 1200;
-    let canvasHeight = 627;
+    let canvasWidth = spec.canvasWidth;
+    let canvasHeight = spec.canvasHeight;
     const rawConfig = (profile as any).visual_studio_config as string | null | undefined;
     if (rawConfig && rawConfig.trim()) {
       try {
         const config = JSON.parse(rawConfig) as VisualConfig;
-        systemPrompt = buildSystemPromptFromConfig(config, profile.business_name, profile.business_description);
-        canvasWidth = config.canvas_width || 1200;
-        canvasHeight = config.canvas_height || 627;
+        systemPrompt = buildSystemPromptFromConfig(config, profile.business_name, profile.business_description, platform);
+        const dims = canvasDimsForPlatform(config, platform);
+        canvasWidth = dims.width;
+        canvasHeight = dims.height;
       } catch (e) {
         console.error("Failed to parse visual_studio_config, falling back to legacy prompt:", e);
         const designRules = (profile as any).visual_design_rules?.trim() || DEFAULT_DESIGN_RULES;
-        systemPrompt = `${LEGACY_BASE_SYSTEM_PROMPT}\n\n${designRules}`;
+        systemPrompt = `${legacyBaseSystemPrompt(canvasWidth, canvasHeight, legacyOrientation)}\n\n${designRules}`;
       }
     } else {
       const designRules: string =
         (profile as any).visual_design_rules?.trim()
           ? (profile as any).visual_design_rules.trim()
           : DEFAULT_DESIGN_RULES;
-      systemPrompt = `${LEGACY_BASE_SYSTEM_PROMPT}\n\n${designRules}`;
+      systemPrompt = `${legacyBaseSystemPrompt(canvasWidth, canvasHeight, legacyOrientation)}\n\n${designRules}`;
     }
 
     // Insert generating placeholder
@@ -302,6 +320,8 @@ serve(async (req) => {
         html_content: parsed.html,
         status: "ready",
         image_url: imageUrl,
+        canvas_width: canvasWidth,
+        canvas_height: canvasHeight,
       })
       .eq("id", visual.id);
 

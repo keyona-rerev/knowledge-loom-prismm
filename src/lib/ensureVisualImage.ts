@@ -6,6 +6,8 @@ interface DraftVisualRow {
   status: string;
   html_content: string;
   image_url?: string | null;
+  canvas_width?: number | null;
+  canvas_height?: number | null;
 }
 
 async function fetchLatestVisual(draftId: string): Promise<DraftVisualRow | null> {
@@ -50,7 +52,9 @@ export async function ensureVisualImageUploaded(
   if (visual.image_url) return visual.image_url;
 
   try {
-    const dataUrl = await capturePngDataUrl(visual.html_content);
+    const dataUrl = visual.canvas_width && visual.canvas_height
+      ? await capturePngDataUrl(visual.html_content, undefined, visual.canvas_width, visual.canvas_height)
+      : await capturePngDataUrl(visual.html_content);
     const blob = dataUrlToBlob(dataUrl);
     const path = `${userId}/${visual.id}.png`;
 

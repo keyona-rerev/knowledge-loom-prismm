@@ -89,6 +89,12 @@ export function buildSystemPromptFromConfig(config: VisualConfig, businessName?:
   const typeLines = enabledIds.map((id, i) => `${i + 1}. ${VISUAL_TYPES[id].label} — ${VISUAL_TYPES[id].description}`);
   const selectionHints = enabledIds.map((id) => VISUAL_TYPES[id].selectionHint).join(" ");
 
+  const shape = config.canvas_width === config.canvas_height
+    ? "square"
+    : config.canvas_width > config.canvas_height
+    ? "landscape"
+    : "portrait";
+
   const brandBlock = `${buildVisualIdentityLine(businessName, businessDescription)}
 
 BRAND:
@@ -108,7 +114,7 @@ OUTPUT RULES:
 - JSON must have exactly two keys: "visual_type" (string, must be one of the ids listed above) and "html" (string)
 - The html must be a complete self-contained HTML document
 - Include Google Fonts import for ${config.display_font} and ${config.body_font}
-- Fixed width ${config.canvas_width}px, height ${config.canvas_height}px (LinkedIn landscape)
+- Fixed width ${config.canvas_width}px, height ${config.canvas_height}px (${shape})
 - Inline CSS only, no external stylesheets
 - ${config.color_background} background as the base
 - The 10-word-or-fewer statement must be the insight extracted from the draft, NOT a copy of its opening line`;

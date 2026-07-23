@@ -185,7 +185,7 @@ const Dashboard = () => {
     },
     {
       title: "Settings",
-      description: "AI provider, LinkedIn connection, and review pipeline",
+      description: "AI provider, publishing connections, and review pipeline",
       icon: Settings,
       path: "/settings",
     },
@@ -225,7 +225,7 @@ const Dashboard = () => {
 1. Set up a source or capture an observation directly in Sources
 2. Approve the reference cards you trust in Reference Cards — only approved cards can be cited in generated content
 3. Create content from your insights
-4. Approve drafts in Review; approval automatically schedules them to LinkedIn
+4. Approve drafts in Review; approval automatically schedules them to their platform (connect LinkedIn/Instagram in Settings first)
 5. Drag a post to a different day on the Schedule page's Upcoming tab if a time needs to move
 
 The dashboard shows your review pipeline and quick access to everything else.`}

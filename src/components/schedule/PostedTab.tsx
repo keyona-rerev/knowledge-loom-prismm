@@ -131,7 +131,7 @@ export const PostedTab = () => {
   return (
     <>
       <div className="flex items-center justify-between mb-6 flex-wrap gap-2">
-        <p className="text-muted-foreground">Posts that have actually gone out on LinkedIn.</p>
+        <p className="text-muted-foreground">Posts that have actually gone out.</p>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={handleReconcile} disabled={reconciling}>
             <ShieldCheck className={`h-3.5 w-3.5 mr-2 ${reconciling ? "animate-pulse" : ""}`} />

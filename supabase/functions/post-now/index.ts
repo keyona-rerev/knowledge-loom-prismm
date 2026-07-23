@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.0";
 import { getPublisher } from "../_shared/publisher/index.ts";
 import { getDraftImageUrl } from "../_shared/get-draft-image-url.ts";
+import { charLimitFor, platformLabel, requiresMedia, resolveDraftPlatform } from "../_shared/publisher/platform-rules.ts";
 
 // Publishes an approved draft immediately (or within ~60 seconds) by scheduling
 // it at the current time. Unlike publish-to-zernio, this bypasses the slot
@@ -21,8 +22,6 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-const LINKEDIN_MAX_CHARS = 3000;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -55,7 +54,7 @@ serve(async (req) => {
     // Load the draft (scoped to the user).
     const { data: draft } = await supabase
       .from("drafts")
-      .select("id, user_id, body, approval_status, external_post_id, publish_status")
+      .select("id, user_id, body, approval_status, external_post_id, publish_status, format_id")
       .eq("id", draftId)
       .eq("user_id", userId)
       .single();
@@ -71,29 +70,32 @@ serve(async (req) => {
       return json({ error: "Draft must be approved before posting" }, 409);
     }
 
+    const platform = await resolveDraftPlatform(supabase, draft.format_id);
+
     const text = (draft.body ?? "").trim();
     if (!text) return json({ error: "Draft has no body to publish" }, 400);
-    if (text.length > LINKEDIN_MAX_CHARS) {
+    const maxChars = charLimitFor(platform);
+    if (text.length > maxChars) {
       return json(
-        { error: `Draft is ${text.length} characters; LinkedIn allows ${LINKEDIN_MAX_CHARS}` },
+        { error: `Draft is ${text.length} characters; ${platformLabel(platform)} allows ${maxChars}` },
         400,
       );
     }
 
     const publisher = getPublisher();
 
-    // The connected LinkedIn account.
+    // The connected account for this draft's platform.
     const { data: conn } = await supabase
       .from("social_connections")
       .select("external_account_id, status")
       .eq("user_id", userId)
       .eq("provider", publisher.name)
-      .eq("platform", "linkedin")
+      .eq("platform", platform)
       .maybeSingle();
 
     if (!conn?.external_account_id) {
       return json(
-        { error: "LinkedIn is not connected. Connect it in Settings first." },
+        { error: `${platformLabel(platform)} is not connected. Connect it in Settings first.` },
         400,
       );
     }
@@ -105,9 +107,15 @@ serve(async (req) => {
 
     try {
       const imageUrl = await getDraftImageUrl(supabase, draft.id);
+      if (requiresMedia(platform) && !imageUrl) {
+        return json(
+          { error: `${platformLabel(platform)} requires an image on every post. Generate this draft's visual before posting.` },
+          400,
+        );
+      }
       const result = await publisher.publish({
         text,
-        platform: "linkedin",
+        platform,
         accountId: conn.external_account_id,
         scheduledFor,
         timezone,

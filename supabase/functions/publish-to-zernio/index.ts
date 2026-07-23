@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.0";
 import { getPublisher } from "../_shared/publisher/index.ts";
 import { resolveForApproval, nextOccurrence, type Frequency } from "../_shared/schedule-resolver.ts";
 import { getDraftImageUrl } from "../_shared/get-draft-image-url.ts";
+import { charLimitFor, platformLabel, requiresMedia, resolveDraftPlatform } from "../_shared/publisher/platform-rules.ts";
 
 // Hand an approved draft to the provider's scheduler at its slot time.
 // Invoked on approval with { draftId }. Idempotent: a draft already handed off
@@ -44,7 +45,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const LINKEDIN_MAX_CHARS = 3000; // confirmed from Zernio's LinkedIn platform page
 const MAX_SLOT_ADVANCES = 200; // safety cap; nextOccurrence itself searches up to 830 days per call
 
 const json = (body: unknown, status = 200) =>
@@ -77,11 +77,13 @@ serve(async (req) => {
     // Load the draft (scoped to the user).
     const { data: draft } = await supabase
       .from("drafts")
-      .select("id, user_id, body, approval_status, schedule_id, scheduled_for, external_post_id")
+      .select("id, user_id, body, approval_status, schedule_id, scheduled_for, external_post_id, format_id")
       .eq("id", draftId)
       .eq("user_id", userId)
       .single();
     if (!draft) return json({ error: "Draft not found or access denied" }, 404);
+
+    const platform = await resolveDraftPlatform(supabase, draft.format_id);
 
     // Idempotency: already handed off.
     if (draft.external_post_id) {
@@ -103,24 +105,25 @@ serve(async (req) => {
 
     const text = (draft.body ?? "").trim();
     if (!text) return await needsAttention("Draft has no body to publish");
-    if (text.length > LINKEDIN_MAX_CHARS) {
+    const maxChars = charLimitFor(platform);
+    if (text.length > maxChars) {
       return await needsAttention(
-        `Draft is ${text.length} characters; LinkedIn allows ${LINKEDIN_MAX_CHARS}`,
+        `Draft is ${text.length} characters; ${platformLabel(platform)} allows ${maxChars}`,
       );
     }
 
     const publisher = getPublisher();
 
-    // The connected LinkedIn destination.
+    // The connected destination for this draft's platform.
     const { data: conn } = await supabase
       .from("social_connections")
       .select("external_account_id, status")
       .eq("user_id", userId)
       .eq("provider", publisher.name)
-      .eq("platform", "linkedin")
+      .eq("platform", platform)
       .maybeSingle();
     if (!conn?.external_account_id) {
-      return await needsAttention("LinkedIn is not connected. Connect it in Settings first.");
+      return await needsAttention(`${platformLabel(platform)} is not connected. Connect it in Settings first.`);
     }
 
     // The slot timing. No slot -> we have no schedule to publish against.
@@ -178,9 +181,14 @@ serve(async (req) => {
     // Hand off to the provider's scheduler.
     try {
       const imageUrl = await getDraftImageUrl(supabase, draft.id);
+      if (requiresMedia(platform) && !imageUrl) {
+        return await needsAttention(
+          `${platformLabel(platform)} requires an image on every post. Generate this draft's visual before publishing.`,
+        );
+      }
       const result = await publisher.publish({
         text,
-        platform: "linkedin",
+        platform,
         accountId: conn.external_account_id,
         scheduledFor: scheduledForFinal,
         timezone: resolved.timezone,

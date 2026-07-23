@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.0";
 import { getPublisher } from "../_shared/publisher/index.ts";
 import { getDraftImageUrl } from "../_shared/get-draft-image-url.ts";
+import { charLimitFor, platformLabel, requiresMedia, resolveDraftPlatform } from "../_shared/publisher/platform-rules.ts";
 
 // Moves an already-scheduled draft to a new time. Invoked from the calendar
 // view's inline time edit with { draftId, newScheduledFor, timezone }.
@@ -34,8 +35,6 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-const LINKEDIN_MAX_CHARS = 3000;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -71,11 +70,13 @@ serve(async (req) => {
 
     const { data: draft, error: draftError } = await supabase
       .from("drafts")
-      .select("id, user_id, body, external_post_id, publish_status, scheduled_for")
+      .select("id, user_id, body, external_post_id, publish_status, scheduled_for, format_id")
       .eq("id", draftId)
       .eq("user_id", userId)
       .single();
     if (draftError || !draft) return json({ error: "Draft not found or access denied" }, 404);
+
+    const platform = await resolveDraftPlatform(supabase, draft.format_id);
 
     if (!draft.external_post_id) {
       return json({ error: "Draft is not scheduled yet; nothing to reschedule." }, 409);
@@ -147,8 +148,9 @@ serve(async (req) => {
       }).eq("id", draft.id);
       return json({ ok: false, status: "needs_attention", error: "Draft has no body to publish" }, 200);
     }
-    if (text.length > LINKEDIN_MAX_CHARS) {
-      const msg = `Draft is ${text.length} characters; LinkedIn allows ${LINKEDIN_MAX_CHARS}`;
+    const maxChars = charLimitFor(platform);
+    if (text.length > maxChars) {
+      const msg = `Draft is ${text.length} characters; ${platformLabel(platform)} allows ${maxChars}`;
       await supabase.from("drafts").update({
         external_post_id: null,
         scheduled_for: null,
@@ -163,10 +165,10 @@ serve(async (req) => {
       .select("external_account_id, status")
       .eq("user_id", userId)
       .eq("provider", publisher.name)
-      .eq("platform", "linkedin")
+      .eq("platform", platform)
       .maybeSingle();
     if (!conn?.external_account_id) {
-      const msg = "LinkedIn is not connected. Connect it in Settings first.";
+      const msg = `${platformLabel(platform)} is not connected. Connect it in Settings first.`;
       await supabase.from("drafts").update({
         external_post_id: null,
         scheduled_for: null,
@@ -178,9 +180,19 @@ serve(async (req) => {
 
     try {
       const imageUrl = await getDraftImageUrl(supabase, draft.id);
+      if (requiresMedia(platform) && !imageUrl) {
+        const msg = `${platformLabel(platform)} requires an image on every post. Generate this draft's visual before rescheduling.`;
+        await supabase.from("drafts").update({
+          external_post_id: null,
+          scheduled_for: null,
+          publish_status: "needs_attention",
+          publish_error: msg,
+        }).eq("id", draft.id);
+        return json({ ok: false, status: "needs_attention", error: msg }, 200);
+      }
       const result = await publisher.publish({
         text,
-        platform: "linkedin",
+        platform,
         accountId: conn.external_account_id,
         scheduledFor: scheduledForIso,
         timezone,

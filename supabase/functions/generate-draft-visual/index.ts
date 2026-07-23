@@ -2,6 +2,15 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAI } from "../_shared/ai-caller.ts";
 import { buildSystemPromptFromConfig, type VisualConfig } from "../_shared/visual-prompt.ts";
+import { resolveDraftPlatform } from "../_shared/publisher/platform-rules.ts";
+
+// Instagram has no per-user canvas config yet (Visual Studio only exposes
+// one canvas size, oriented around LinkedIn's landscape default) but it
+// hard-requires a square-ish image, so it gets a fixed override here rather
+// than silently reusing whatever the user picked for LinkedIn. 1080x1080 is
+// Instagram's safest universal feed size (works for feed, is croppable for
+// stories/reels without losing the subject).
+const INSTAGRAM_CANVAS = { width: 1080, height: 1080 };
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -56,7 +65,13 @@ FORBIDDEN:
 // once, this switches to buildSystemPromptFromConfig entirely, with no path
 // back to these hardcoded values short of them explicitly re-editing Visual
 // Studio itself.
-const LEGACY_BASE_SYSTEM_PROMPT = `You are a visual designer for Prismm, inheritance infrastructure for community banks and credit unions.
+// A function (not a plain string) only so an Instagram draft can still get
+// its correct 1080x1080 dimensions stated even when the user has never
+// touched Visual Studio. For every other platform, called with (1200, 627,
+// "LinkedIn landscape"), producing the exact byte-identical text this was
+// before.
+function legacyBaseSystemPrompt(width: number, height: number, shapeLabel: string): string {
+  return `You are a visual designer for Prismm, inheritance infrastructure for community banks and credit unions.
 
 BRAND:
 - Colors: Navy #1b2b45 (background base), Coral #f9655b (accent/energy), Purple #6658ea (highlights), Yellow #f5c070 (sparingly), White #ffffff, Paper #f4f1ea
@@ -78,10 +93,11 @@ OUTPUT RULES:
 - JSON must have exactly two keys: "visual_type" (string) and "html" (string)
 - The html must be a complete self-contained HTML document
 - Include Google Fonts import for Bricolage Grotesque and Hanken Grotesk
-- Fixed width 1200px, height 627px (LinkedIn landscape)
+- Fixed width ${width}px, height ${height}px (${shapeLabel})
 - Inline CSS only, no external stylesheets
 - Navy background (#1b2b45) as the base
 - The 10-word-or-fewer statement must be the insight extracted from the draft, NOT a copy of its opening line`;
+}
 
 // Renders HTML to a PNG via the prismm-renderer service (real headless
 // Chromium via Puppeteer: page.setContent + waitUntil networkidle0, then
@@ -183,27 +199,34 @@ serve(async (req) => {
     // explicitly clearing it. Until a user has saved Visual Studio at least
     // once, behavior is byte-identical to before it was wired in (legacy
     // prompt + visual_design_rules override, exactly as before).
+    const platform = await resolveDraftPlatform(supabase, draft.format_id ?? null);
+    const instagramOverride = platform === "instagram" ? INSTAGRAM_CANVAS : null;
+
     let systemPrompt: string;
-    let canvasWidth = 1200;
-    let canvasHeight = 627;
+    let canvasWidth = instagramOverride?.width ?? 1200;
+    let canvasHeight = instagramOverride?.height ?? 627;
     const rawConfig = (profile as any).visual_studio_config as string | null | undefined;
     if (rawConfig && rawConfig.trim()) {
       try {
         const config = JSON.parse(rawConfig) as VisualConfig;
+        if (instagramOverride) {
+          config.canvas_width = instagramOverride.width;
+          config.canvas_height = instagramOverride.height;
+        }
         systemPrompt = buildSystemPromptFromConfig(config, profile.business_name, profile.business_description);
-        canvasWidth = config.canvas_width || 1200;
-        canvasHeight = config.canvas_height || 627;
+        canvasWidth = config.canvas_width || canvasWidth;
+        canvasHeight = config.canvas_height || canvasHeight;
       } catch (e) {
         console.error("Failed to parse visual_studio_config, falling back to legacy prompt:", e);
         const designRules = (profile as any).visual_design_rules?.trim() || DEFAULT_DESIGN_RULES;
-        systemPrompt = `${LEGACY_BASE_SYSTEM_PROMPT}\n\n${designRules}`;
+        systemPrompt = `${legacyBaseSystemPrompt(canvasWidth, canvasHeight, instagramOverride ? "square" : "LinkedIn landscape")}\n\n${designRules}`;
       }
     } else {
       const designRules: string =
         (profile as any).visual_design_rules?.trim()
           ? (profile as any).visual_design_rules.trim()
           : DEFAULT_DESIGN_RULES;
-      systemPrompt = `${LEGACY_BASE_SYSTEM_PROMPT}\n\n${designRules}`;
+      systemPrompt = `${legacyBaseSystemPrompt(canvasWidth, canvasHeight, instagramOverride ? "square" : "LinkedIn landscape")}\n\n${designRules}`;
     }
 
     // Insert generating placeholder

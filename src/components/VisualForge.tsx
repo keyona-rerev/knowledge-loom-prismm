@@ -9,7 +9,15 @@ import { capturePngDataUrl } from "@/lib/visualCapture";
 interface VisualForgeProps {
   draftId: string;
   userId: string;
+  platform?: string;
 }
+
+// Mirrors INSTAGRAM_CANVAS in supabase/functions/generate-draft-visual —
+// this is the preview label/frame only, the actual render size lives there.
+const CANVAS_SIZES: Record<string, { width: number; height: number; label: string }> = {
+  linkedin: { width: 1200, height: 627, label: "LinkedIn 1200x627" },
+  instagram: { width: 1080, height: 1080, label: "Instagram 1080x1080" },
+};
 
 interface DraftVisual {
   id: string;
@@ -38,7 +46,8 @@ const DEFAULT_NAVY = "#1b2b45";
 const DEFAULT_CORAL = "#f9655b";
 const DEFAULT_YELLOW = "#f5c070";
 
-export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
+export const VisualForge = ({ draftId, userId, platform = "linkedin" }: VisualForgeProps) => {
+  const canvas = CANVAS_SIZES[platform] || CANVAS_SIZES.linkedin;
   const [visual, setVisual] = useState<DraftVisual | null>(null);
   const [loading, setLoading] = useState(true);
   const [regenerating, setRegenerating] = useState(false);
@@ -217,7 +226,7 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
           >
             {VISUAL_TYPE_LABELS[visual.visual_type] || visual.visual_type}
           </Badge>
-          <span className="text-xs text-muted-foreground">LinkedIn 1200x627</span>
+          <span className="text-xs text-muted-foreground">{canvas.label}</span>
         </div>
         <div className="flex gap-2">
           <Button size="sm" variant="outline" onClick={handleRegenerate} disabled={regenerating}>
@@ -247,7 +256,7 @@ export const VisualForge = ({ draftId, userId }: VisualForgeProps) => {
       {/* Visual preview */}
       <div
         className="rounded-lg overflow-hidden border"
-        style={{ aspectRatio: "1200/627" }}
+        style={{ aspectRatio: `${canvas.width}/${canvas.height}` }}
       >
         <iframe
           ref={iframeRef}

@@ -1,9 +1,11 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.0";
 import { getPublisher } from "../_shared/publisher/index.ts";
+import { DEFAULT_PLATFORM, platformLabel } from "../_shared/publisher/platform-rules.ts";
 
-// Connect a LinkedIn account (company page) for publishing, via the configured
-// provider. Three actions:
+// Connect a social account for publishing, via the configured provider.
+// Three actions, each taking { platform } (defaults to linkedin so older
+// callers that don't send it yet keep working):
 //   start  -> returns an authorization URL to send the user to (OAuth).
 //   sync   -> after the user returns, read the connected account from the
 //             provider and upsert it into social_connections.
@@ -15,8 +17,6 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-const PLATFORM = "linkedin";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -42,7 +42,8 @@ serve(async (req) => {
     if (authError || !user) return json({ error: "Invalid or expired token" }, 401);
     const userId = user.id;
 
-    const { action, redirectUrl } = await req.json().catch(() => ({ action: "status" }));
+    const { action, redirectUrl, platform: requestedPlatform } = await req.json().catch(() => ({ action: "status" }));
+    const platform = requestedPlatform || DEFAULT_PLATFORM;
     const publisher = getPublisher();
     const provider = publisher.name;
 
@@ -51,7 +52,7 @@ serve(async (req) => {
       // Zernio organizes accounts under a profile; reuse the default one.
       const profileId = (await publisher.getDefaultProfileId()) ?? undefined;
       const { authorizationUrl } = await publisher.getConnectUrl({
-        platform: PLATFORM,
+        platform,
         profileId,
         redirectUrl,
       });
@@ -59,15 +60,15 @@ serve(async (req) => {
     }
 
     if (action === "sync") {
-      const accounts = await publisher.listAccounts(PLATFORM);
+      const accounts = await publisher.listAccounts(platform);
       if (!accounts.length) {
-        return json({ connected: false, error: "No LinkedIn account found on the provider yet" }, 404);
+        return json({ connected: false, error: `No ${platformLabel(platform)} account found on the provider yet` }, 404);
       }
       const acct = accounts[0];
       const row = {
         user_id: userId,
         provider,
-        platform: PLATFORM,
+        platform,
         external_account_id: acct.accountId,
         external_profile_id: acct.profileId ?? null,
         account_label: acct.displayName ?? acct.username ?? null,
@@ -89,7 +90,7 @@ serve(async (req) => {
       .select("*")
       .eq("user_id", userId)
       .eq("provider", provider)
-      .eq("platform", PLATFORM)
+      .eq("platform", platform)
       .maybeSingle();
     return json({ connected: !!data, connection: data ?? null });
   } catch (e) {

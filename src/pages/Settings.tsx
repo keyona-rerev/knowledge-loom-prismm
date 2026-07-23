@@ -11,7 +11,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { toast } from "sonner";
-import { ArrowLeft, Trash2, Moon, Sun, AlertTriangle, Shield, Loader2, Linkedin, CheckCircle2, DollarSign, Eye, ChevronDown, Clock, RefreshCw } from "lucide-react";
+import { ArrowLeft, Trash2, Moon, Sun, AlertTriangle, Shield, Loader2, Linkedin, Instagram, CheckCircle2, DollarSign, Eye, ChevronDown, Clock, RefreshCw } from "lucide-react";
 import { useTheme } from "next-themes";
 
 // Settings: appearance and AI provider only.
@@ -99,6 +99,21 @@ const TIMEZONES = [
   { value: "UTC", label: "UTC" },
 ];
 
+const PUBLISH_PLATFORMS = [
+  {
+    key: "linkedin",
+    label: "LinkedIn",
+    icon: Linkedin,
+    description: "Approved posts are scheduled to your LinkedIn company page. Connect once here.",
+  },
+  {
+    key: "instagram",
+    label: "Instagram",
+    icon: Instagram,
+    description: "Approved posts are scheduled to your connected Instagram Business or Creator account. Instagram requires an image on every post, generated in Visual Studio, or it won't publish.",
+  },
+];
+
 interface NamedRow { id: string; name: string; }
 
 interface PromptPreview {
@@ -115,8 +130,8 @@ const Settings = () => {
   const [loading, setLoading] = useState(false);
   const [deletingData, setDeletingData] = useState(false);
   const [checkingQueue, setCheckingQueue] = useState(false);
-  const [liConn, setLiConn] = useState<any>(null);
-  const [liBusy, setLiBusy] = useState(false);
+  const [connections, setConnections] = useState<Record<string, any>>({});
+  const [connectingPlatform, setConnectingPlatform] = useState<string | null>(null);
   const [profile, setProfile] = useState({
     ai_provider: "anthropic",
     ai_model: "claude-sonnet-4-6",
@@ -191,36 +206,40 @@ const Settings = () => {
     loadProfile();
   }, [navigate]);
 
-  const callConnect = async (action: "status" | "start" | "sync") => {
+  const platformLabel = (platform: string) =>
+    PUBLISH_PLATFORMS.find((p) => p.key === platform)?.label ?? platform;
+
+  const callConnect = async (action: "status" | "start" | "sync", platform: string) => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
     if (action === "start") {
-      const redirectUrl = `${window.location.origin}${import.meta.env.BASE_URL}settings?zernio=connected`;
-      const { data, error } = await supabase.functions.invoke("zernio-connect", { body: { action: "start", redirectUrl } });
+      const redirectUrl = `${window.location.origin}${import.meta.env.BASE_URL}settings?zernio=connected&platform=${platform}`;
+      const { data, error } = await supabase.functions.invoke("zernio-connect", { body: { action: "start", redirectUrl, platform } });
       if (error || !data?.authorizationUrl) {
-        toast.error("Could not start LinkedIn connect: " + (error?.message || data?.error || "unknown"));
+        toast.error(`Could not start ${platformLabel(platform)} connect: ` + (error?.message || data?.error || "unknown"));
         return;
       }
       window.location.href = data.authorizationUrl;
       return;
     }
-    const { data, error } = await supabase.functions.invoke("zernio-connect", { body: { action } });
+    const { data, error } = await supabase.functions.invoke("zernio-connect", { body: { action, platform } });
     if (error) { if (action === "sync") toast.error("Sync failed: " + error.message); return; }
     if (action === "sync") {
-      if (data?.connected) toast.success("LinkedIn connected");
-      else toast.warning(data?.error || "No LinkedIn account found yet");
+      if (data?.connected) toast.success(`${platformLabel(platform)} connected`);
+      else toast.warning(data?.error || `No ${platformLabel(platform)} account found yet`);
     }
-    setLiConn(data?.connection ?? null);
+    setConnections((prev) => ({ ...prev, [platform]: data?.connection ?? null }));
   };
 
   useEffect(() => {
     const run = async () => {
       const params = new URLSearchParams(window.location.search);
       if (params.get("zernio") === "connected") {
-        await callConnect("sync");
+        const returningPlatform = params.get("platform") || "linkedin";
+        await callConnect("sync", returningPlatform);
         window.history.replaceState({}, "", window.location.pathname);
       } else {
-        await callConnect("status");
+        await Promise.all(PUBLISH_PLATFORMS.map((p) => callConnect("status", p.key)));
       }
     };
     run();
@@ -567,36 +586,44 @@ const Settings = () => {
           </Card>
         </Collapsible>
 
-        {/* LinkedIn */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Linkedin className="h-5 w-5" />Publishing, LinkedIn
-            </CardTitle>
-            <CardDescription>
-              Approved posts are scheduled to your LinkedIn company page. Connect once here.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {liConn?.external_account_id ? (
-              <div className="flex items-center justify-between rounded-lg border p-3">
-                <div className="flex items-center gap-2 text-sm">
-                  <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  <span>Connected{liConn.account_label ? `: ${liConn.account_label}` : ""}</span>
-                  <Badge variant="outline">{liConn.status}</Badge>
-                </div>
-                <Button variant="outline" size="sm" onClick={() => callConnect("sync")}>Refresh</Button>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">No LinkedIn account connected yet.</p>
-            )}
-            <Button onClick={async () => { setLiBusy(true); await callConnect("start"); setLiBusy(false); }} disabled={liBusy}>
-              {liBusy
-                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Connecting...</>
-                : (liConn?.external_account_id ? "Reconnect LinkedIn" : "Connect LinkedIn")}
-            </Button>
-          </CardContent>
-        </Card>
+        {/* Publishing platforms */}
+        {PUBLISH_PLATFORMS.map((p) => {
+          const conn = connections[p.key];
+          const busy = connectingPlatform === p.key;
+          const Icon = p.icon;
+          return (
+            <Card className="mb-6" key={p.key}>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Icon className="h-5 w-5" />Publishing, {p.label}
+                </CardTitle>
+                <CardDescription>{p.description}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {conn?.external_account_id ? (
+                  <div className="flex items-center justify-between rounded-lg border p-3">
+                    <div className="flex items-center gap-2 text-sm">
+                      <CheckCircle2 className="h-4 w-4 text-green-600" />
+                      <span>Connected{conn.account_label ? `: ${conn.account_label}` : ""}</span>
+                      <Badge variant="outline">{conn.status}</Badge>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => callConnect("sync", p.key)}>Refresh</Button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No {p.label} account connected yet.</p>
+                )}
+                <Button
+                  onClick={async () => { setConnectingPlatform(p.key); await callConnect("start", p.key); setConnectingPlatform(null); }}
+                  disabled={busy}
+                >
+                  {busy
+                    ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Connecting...</>
+                    : (conn?.external_account_id ? `Reconnect ${p.label}` : `Connect ${p.label}`)}
+                </Button>
+              </CardContent>
+            </Card>
+          );
+        })}
 
         {/* Privacy */}
         <Card className="mb-6 border-destructive/50">

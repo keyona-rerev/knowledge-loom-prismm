@@ -563,6 +563,7 @@ const VisualStudio = () => {
                   <div className="rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground flex-1 text-center">{config.canvas_height}</div>
                   <span className="text-xs text-muted-foreground whitespace-nowrap">LinkedIn</span>
                 </div>
+                <p className="text-xs text-muted-foreground">Instagram posts render at a fixed 1080x1080 square automatically; this size applies to LinkedIn only.</p>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground uppercase tracking-wide">Logo min-height (px)</Label>

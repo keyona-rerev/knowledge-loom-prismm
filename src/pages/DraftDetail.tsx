@@ -15,6 +15,8 @@ import { ensureVisualImageUploaded } from "@/lib/ensureVisualImage";
 
 const FALLBACK_ACCENT = "#f9655b";
 
+const platformLabel = (p: string) => p.charAt(0).toUpperCase() + p.slice(1);
+
 const DraftDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -33,6 +35,7 @@ const DraftDetail = () => {
   const [copiedChildId, setCopiedChildId] = useState<string | null>(null);
   const [postingNow, setPostingNow] = useState(false);
   const [cancellingSchedule, setCancellingSchedule] = useState(false);
+  const [formatPlatform, setFormatPlatform] = useState<string>("linkedin");
   // Previously hardcoded to Prismm's coral (#f9655b) directly in three
   // places on this page, while Dashboard.tsx correctly reads the same
   // value from profiles.primary_color. Now reads the same column, with the
@@ -70,6 +73,13 @@ const DraftDetail = () => {
     setEditedBody(data.body || "");
     setEditedSeedInsight(data.seed_insight || "");
     setLoading(false);
+
+    if (data.format_id) {
+      const { data: fmt } = await supabase.from("formats").select("platform").eq("id", data.format_id).maybeSingle();
+      setFormatPlatform(fmt?.platform || "linkedin");
+    } else {
+      setFormatPlatform("linkedin");
+    }
 
     if (data.parent_draft_id) {
       const { data: parent } = await supabase
@@ -320,13 +330,13 @@ const DraftDetail = () => {
       if (error) throw error;
       if (data?.ok) {
         if (data.alreadyPosted) {
-          toast.success("This post has already been sent to LinkedIn.");
+          toast.success(`This post has already been sent to ${platformLabel(formatPlatform)}.`);
         } else {
-          toast.success("Posted to LinkedIn! It will go live within ~60 seconds.");
+          toast.success(`Posted to ${platformLabel(formatPlatform)}! It will go live within ~60 seconds.`);
         }
         await loadDraft();
       } else {
-        toast.error(data?.error || "Post Now failed — check LinkedIn connection in Settings.");
+        toast.error(data?.error || `Post Now failed — check ${platformLabel(formatPlatform)} connection in Settings.`);
       }
     } catch (err) {
       toast.error("Post Now failed: " + (err as any)?.message);
@@ -350,7 +360,7 @@ const DraftDetail = () => {
   // this case as posted (its filter is publish_status=published_now OR
   // (scheduled AND scheduled_for < now)); this page needs to agree with that
   // definition, or it keeps showing Approve/Reject/Cancel Schedule/Post Now
-  // as live actions on something that's already on LinkedIn.
+  // as live actions on something that's already posted.
   const isPastScheduled = draft.publish_status === "scheduled" && !!draft.scheduled_for && new Date(draft.scheduled_for).getTime() < Date.now();
   const isActuallyPosted = isPostedNow || isPastScheduled;
   const isScheduled = draft.publish_status === "scheduled" && draft.scheduled_for && !isPastScheduled;
@@ -439,7 +449,7 @@ const DraftDetail = () => {
                 {isActuallyPosted && (
                   <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: accentColor }}>
                     <Send className="h-4 w-4" />
-                    Posted to LinkedIn
+                    Posted to {platformLabel(formatPlatform)}
                   </p>
                 )}
                 {!isActuallyPosted && isScheduled && (
@@ -489,7 +499,7 @@ const DraftDetail = () => {
               {draft.revision_count > 0 && <Badge variant="secondary">v{draft.revision_count + 1}</Badge>}
               {isActuallyPosted && (
                 <Badge style={{ backgroundColor: accentColor, color: "#ffffff" }}>
-                  Posted to LinkedIn
+                  Posted to {platformLabel(formatPlatform)}
                 </Badge>
               )}
               {(draft.max_reuse_count || 0) > 0 && (
@@ -551,7 +561,7 @@ const DraftDetail = () => {
                     <h3 className="font-semibold">Visual</h3>
                     <span className="text-xs text-muted-foreground">Auto-generated on approval</span>
                   </div>
-                  <VisualForge draftId={draft.id} userId={userId} />
+                  <VisualForge draftId={draft.id} userId={userId} platform={formatPlatform} />
                 </div>
               </>
             )}
@@ -594,7 +604,7 @@ const DraftDetail = () => {
                 <Link2 className="h-4 w-4" />
                 Child posts ({childDrafts.length})
               </CardTitle>
-              <CardDescription>LinkedIn feed posts generated from this article. Copy any post directly.</CardDescription>
+              <CardDescription>Feed posts generated from this article. Copy any post directly.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               {childDrafts.map((child, i) => (

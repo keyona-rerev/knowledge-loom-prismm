@@ -54,6 +54,9 @@ export const ApprovedTab = () => {
   const [platformFilter, setPlatformFilter] = useState<string>(ALL);
   const [formatFilter, setFormatFilter] = useState<string>(ALL);
 
+  const platformFor = (draft: Draft) => formats.find((f) => f.id === draft.format_id)?.platform || "linkedin";
+  const platformLabel = (p: string) => p.charAt(0).toUpperCase() + p.slice(1);
+
   useEffect(() => {
     loadDrafts();
     loadAccentColor();
@@ -103,12 +106,13 @@ export const ApprovedTab = () => {
       });
       if (error) throw error;
       if (data?.ok || data?.alreadyPosted) {
+        const platform = platformLabel(platformFor(draft));
         toast.success(data.alreadyPosted
-          ? "Already posted to LinkedIn."
-          : "Posted to LinkedIn! Goes live within ~60 seconds.");
+          ? `Already posted to ${platform}.`
+          : `Posted to ${platform}! Goes live within ~60 seconds.`);
         loadDrafts();
       } else {
-        toast.error(data?.error || "Post Now failed — check LinkedIn connection in Settings.");
+        toast.error(data?.error || `Post Now failed — check ${platformLabel(platformFor(draft))} connection in Settings.`);
       }
     } catch (err) {
       toast.error("Post Now failed: " + (err as any)?.message);
@@ -198,7 +202,7 @@ export const ApprovedTab = () => {
 
   const getScheduleLabel = (draft: Draft) => {
     if (draft.publish_status === "published_now") {
-      return <span className="text-xs font-medium" style={{ color: accentColor }}>Posted to LinkedIn</span>;
+      return <span className="text-xs font-medium" style={{ color: accentColor }}>Posted to {platformLabel(platformFor(draft))}</span>;
     }
     if (draft.publish_status === "scheduled" && draft.scheduled_for) {
       const when = new Date(draft.scheduled_for).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });

@@ -30,12 +30,21 @@ interface FormatRow {
   key: string;
   name: string;
   definition: string;
+  platform: string;
   min_words: number | null;
   max_words: number | null;
   writing_samples: string[];
   sort_order: number;
   _isNew?: boolean;
 }
+
+// The platforms Knowledge Loom actually publishes to (via Zernio). formats.platform
+// is free text in the DB (any Zernio platform slug would technically work), but this
+// app only wires up publishing, char limits, and image requirements for these two.
+const FORMAT_PLATFORMS = [
+  { value: "linkedin", label: "LinkedIn" },
+  { value: "instagram", label: "Instagram" },
+];
 
 interface NatureRow {
   id: string;
@@ -318,6 +327,7 @@ const Strategy = () => {
         .from("formats").select("*").eq("user_id", uid).order("sort_order");
       setFormats((fmt || []).map((f) => ({
         id: f.id, key: f.key, name: f.name, definition: f.definition || "",
+        platform: f.platform || "linkedin",
         min_words: f.min_words, max_words: f.max_words,
         writing_samples: toArray(f.writing_samples), sort_order: f.sort_order,
       })));
@@ -433,7 +443,7 @@ const Strategy = () => {
   const addFormat = () => {
     const id = `new_${Date.now()}`;
     setFormats((p) => [...p, {
-      id, key: "", name: "", definition: "",
+      id, key: "", name: "", definition: "", platform: "linkedin",
       min_words: null, max_words: null, writing_samples: [], sort_order: p.length, _isNew: true,
     }]);
   };
@@ -551,6 +561,7 @@ const Strategy = () => {
         const f = formats[i];
         const payload = {
           key: f.key || slugify(f.name), name: f.name, definition: f.definition || null,
+          platform: f.platform || "linkedin",
           min_words: f.min_words, max_words: f.max_words,
           writing_samples: f.writing_samples, sort_order: i,
         };
@@ -1374,7 +1385,16 @@ const Strategy = () => {
                       <Button variant="ghost" size="icon" onClick={() => removeFormat(i)}><Trash2 className="h-4 w-4" /></Button>
                     </div>
                     <Textarea rows={2} placeholder="Definition: how this format is written" value={f.definition} onChange={(e) => setFormat(i, { definition: e.target.value })} />
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <Label className="text-xs">Platform</Label>
+                        <Select value={f.platform} onValueChange={(v) => setFormat(i, { platform: v })}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {FORMAT_PLATFORMS.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
                       <div><Label className="text-xs">Min words</Label><Input type="number" value={f.min_words ?? ""} onChange={(e) => setFormat(i, { min_words: e.target.value ? parseInt(e.target.value) : null })} /></div>
                       <div><Label className="text-xs">Max words</Label><Input type="number" value={f.max_words ?? ""} onChange={(e) => setFormat(i, { max_words: e.target.value ? parseInt(e.target.value) : null })} /></div>
                     </div>
@@ -1393,6 +1413,8 @@ const Strategy = () => {
                 {formats.map((f) => (
                   <li key={f.id}>
                     <span className="font-medium">{f.name || "Untitled format"}</span>
+                    {" · "}
+                    <span className="text-muted-foreground">{FORMAT_PLATFORMS.find((p) => p.value === f.platform)?.label || f.platform}</span>
                     {" · "}
                     <span className="text-muted-foreground">{wordRangeText(f.min_words, f.max_words)}</span>
                   </li>

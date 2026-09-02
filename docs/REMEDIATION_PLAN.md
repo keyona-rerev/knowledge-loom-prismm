@@ -154,25 +154,32 @@ confirm `command` no longer contains the literal URL/JWT for any of the three jo
 trigger `fire-due-schedules` manually once to confirm the new indirection still
 authenticates correctly.
 
-### 2b. Migration seeds a fresh fork's first user with Prismm's content
+### 2b. Migration seeds a fresh fork's first user with Prismm's content ✅ done
 
 **File:** `supabase/migrations/20260614170000_strategy_source_of_truth.sql`
 
-**Approach:** this migration mixes schema (safe to keep) with seed DML (not). Split them:
-1. New migration: re-affirm the schema-only parts if any drifted (table/column creation —
-   likely already correctly applied, this is just to make the historical file's *intent*
-   match going forward; skip if nothing to do here).
-2. Move the DML block (the `DELETE`/`INSERT` into `hard_rules`, the `UPDATE
-   profiles SET voice_profile = ...`, the 3 `reference_cards` inserts) out of
-   `supabase/migrations/` entirely and into `supabase/seed_knowledge_loom.sql`
-   (already the established, not-auto-run home for Prismm-specific bootstrap data, per
-   the existing file's own header comment) — append it there rather than creating a new
-   file, so there's one canonical "this is what seeded the real Prismm account" record
-   instead of two.
-3. Do **not** attempt to undo the DML that already ran against the live project — the
-   live `hard_rules`/`reference_cards`/`profiles.voice_profile` rows are real, in-use
-   Prismm data; this fix is about what a *future fork* inherits from the migration
-   history, not about touching this project's live rows.
+**What was done:** the migration mixed schema (kept as-is — already applied, still
+correct) with seed DML (removed). The `DELETE`/`INSERT` into `hard_rules`, the `UPDATE
+profiles SET voice_profile = ...`, and the 3 `reference_cards` inserts were moved,
+unchanged, out of `supabase/migrations/` and appended to `supabase/seed_knowledge_loom.sql`
+(the repo's existing, not-auto-run home for Prismm-specific bootstrap content — one
+canonical seed record instead of two). Both files got a note explaining the move and
+pointing at each other. The migration file's DDL section (`hard_rules` table,
+`reference_cards.approved`, `profiles.voice_profile`, `drafts.stat_attributions`/
+`stat_flag`) was left completely untouched.
+
+**Live data:** not touched. This project's live `hard_rules`/`reference_cards`/
+`profiles.voice_profile` rows are real, in-use Prismm data and this migration has already
+run here — removing DML from the file only changes what a *future* replay of the
+migration history does (a fresh fork, a `db reset`), not anything already on this
+database. No `execute_sql`/`apply_migration` was run against live data for this fix.
+
+**Note on editing an already-applied migration's content:** normally migrations that have
+run in production are left alone. This is a narrow, deliberate exception: `db push` applies
+by version number and never re-diffs the content of an already-tracked migration, so
+editing this file changes nothing for this project (already applied, tracked, done) — it
+only changes what a *different*, not-yet-existing database would do if it replayed this
+history from scratch, which is exactly the bug being fixed.
 
 **Verification:** confirm a fresh `supabase db push` replay of the migration history no
 longer inserts rows into `hard_rules`/`reference_cards` or mutates `profiles` beyond

@@ -12,6 +12,12 @@
 --
 -- Note: the mockups define no seed-bank premises, so the seeds table is intentionally
 -- left empty here (the prior placeholder premises are removed).
+--
+-- The hard_rules / voice_profile / reference_cards section at the end of this file was
+-- moved here from supabase/migrations/20260614170000_strategy_source_of_truth.sql during
+-- the Phase 2b hardcode/multi-tenancy audit fix, unchanged, so that migrating a fresh
+-- database no longer implicitly seeds Prismm's own content into its first user -- running
+-- this file by hand is now the only way to reproduce it.
 
 -- ---------------------------------------------------------------------------
 -- Clear prior library rows for this user (child-first to respect FKs).
@@ -221,3 +227,60 @@ JOIN (VALUES
   ('frontline_staff','How do I help without making a grieving family fill out more forms?',2),
   ('frontline_staff','Why does every death feel like starting from scratch?',3)
 ) AS q(reader_key, question, sort_order) ON q.reader_key = r.key;
+
+-- ---------------------------------------------------------------------------
+-- Hard rules, voice profile, and approved reference cards (moved from
+-- 20260614170000_strategy_source_of_truth.sql -- see the file header note above).
+-- ---------------------------------------------------------------------------
+
+-- Hard rules: the six current real rules, verbatim intent, no em-dashes.
+DELETE FROM public.hard_rules
+  WHERE user_id = (SELECT id FROM auth.users ORDER BY created_at LIMIT 1);
+
+INSERT INTO public.hard_rules (user_id, body, sort_order)
+SELECT u.id, v.body, v.sort_order
+FROM (SELECT id FROM auth.users ORDER BY created_at LIMIT 1) u
+CROSS JOIN (VALUES
+  ('Never say "digital vault."', 0),
+  ('Never say "probate."', 1),
+  ('Always frame the product as "inheritance infrastructure."', 2),
+  ('Competitive line: "no one has built this from the bank''s side of the transaction." Never claim "no infrastructure exists."', 3),
+  ('No em-dashes anywhere in output. Use commas, periods, or rewrite.', 4),
+  ('No fabricated case study or customer. Composite stakeholder stories only.', 5)
+) AS v(body, sort_order);
+
+-- Voice profile: voice rules carried over from the current brand voice, plus the
+-- inline-attribution rule. Customer edits this on the Strategy page.
+UPDATE public.profiles SET voice_profile = jsonb_build_object(
+  'rules', jsonb_build_array(
+    'Calm authority. Trusted financial software with a human pulse.',
+    'Direct, trustworthy, and human. Serious where it counts, warm where it matters.',
+    'Never soft or sentimental. Never bold or disruptive. Clarity earns confidence.',
+    'Emotional care around death and loss.'
+  ),
+  'inline_attribution',
+  'Weave citations into the prose, for example "In Cerulli''s 2024 report on wealth transfer," and never write them as a parenthetical academic footnote like "(Cerulli, 2024)."'
+)
+WHERE user_id = (SELECT id FROM auth.users ORDER BY created_at LIMIT 1);
+
+-- Approved sources, seeded as reference cards (the single source library). Only the
+-- sources the brief explicitly names, with the figures explicitly tied to each. Neutral
+-- titles, no invented report names or years. from_company false (third_party). approved
+-- true so they are immediately citable. Guarded so a re-run does not duplicate and does
+-- not clobber the user's real cards.
+INSERT INTO public.reference_cards
+  (user_id, title, source_type, status, approved, from_company, global_relevance_score, content_quality, ai_summary, original_text)
+SELECT u.id, v.title, 'manual', 'active', true, false, 8, 'good', v.ai_summary, v.ai_summary
+FROM (SELECT id FROM auth.users ORDER BY created_at LIMIT 1) u
+CROSS JOIN (VALUES
+  ('Cerulli research on generational wealth transfer and retention',
+   'Deposit and relationship retention falls across the generational handoff: roughly 72 percent retention when a spouse inherits, dropping to roughly 50 percent when children inherit.'),
+  ('U.S. Bank data on post-death asset-access delay',
+   'Heirs wait roughly 18 months to access inherited assets.'),
+  ('Alix national-average data on post-death asset-access delay',
+   'National-average delay of roughly 20 months before heirs can access inherited assets.')
+) AS v(title, ai_summary)
+WHERE NOT EXISTS (
+  SELECT 1 FROM public.reference_cards rc
+  WHERE rc.user_id = u.id AND rc.title = v.title
+);

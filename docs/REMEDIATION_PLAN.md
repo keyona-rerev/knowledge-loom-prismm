@@ -13,6 +13,30 @@ and cron jobs that hardcode this project's live URL and API key. This plan seque
 each fix identifying the pattern already used elsewhere in the codebase to stay
 consistent rather than inventing a new convention per fix.
 
+**Framing:** this is not template prep. This is the live Prismm instance, and the audit's
+point is that Prismm itself shouldn't have hardcoded values — making a future fork
+possible is the second benefit of fixing that, not the first. So when a fix is ambiguous,
+the question is "should Prismm be reading this from its own settings instead of a
+literal," not "does the template need this" — if yes, fix it, even where a fork would
+never notice. The one exception is Phase 2b: Prismm's already-seeded live content
+(`hard_rules`, `voice_profile`, the three `reference_cards`) is real production data and
+is left untouched; only what a *fresh fork* inherits from replaying the migration history
+changes.
+
+**Deploy model:** this repo deploys by commit through CI (`.github/workflows/main.yml`,
+`supabase db push` on push to `main` touching `supabase/**`), not by applying changes
+directly to the live project. All work below lands as commits on a branch; migrations
+take effect only when the user merges to `main` and CI runs. The one exception was
+`draft_visuals_canvas_dimensions`, applied directly as a deliberate, explicitly-approved
+one-off (see Phase 1) — that is not the default going forward.
+
+**Before merging this branch to `main`:** `db push` will run every migration in
+`supabase/migrations/` that isn't already in the live project's tracked history, all at
+once. Each new migration added by this plan uses a fresh timestamp later than anything
+currently live, so there's no collision risk from this work — but re-verify with
+`mcp__Supabase__list_migrations` right before merging in case anything else has landed on
+`main` in the meantime.
+
 ## Sequencing rationale
 
 Migration-history reconciliation has to happen **before** any new migration is written,
@@ -80,37 +104,55 @@ approximately right. A direct diff against `mcp__Supabase__list_migrations` and
 **Verification performed:** `mcp__Supabase__list_migrations` re-run after adding the 5
 backfilled files — every live-tracked entry now has a corresponding repo file at the same
 timestamp; the remaining untracked repo files are confirmed idempotent/harmless as
-described above rather than a reproduction risk.
+described above rather than a reproduction risk. Re-confirmed once more after the
+`draft_visuals_canvas_dimensions` rename: all 6 files added/renamed in this phase
+(`set_article_child_format`, `correct_false_failed_drafts`,
+`backfill_manual_card_relevance_scores`, `add_platform_to_schedules_and_drafts`,
+`fix_search_path_on_platform_trigger`, `draft_visuals_canvas_dimensions`) have a filename
+version prefix that exactly string-matches `supabase_migrations.schema_migrations.version`
+on the live project — repo and live agree in both directions. **Phase 1 is done.**
 
 ---
 
 ## Phase 2 — The 2 critical DB issues
 
-### 2a. Cron jobs hardcode this project's URL and API key
+### 2a. Cron jobs hardcode this project's URL and API key ✅ done (commit only, not yet live)
 
 **Files:** `supabase/migrations/20260613170001_schedule_auto_fire_cron.sql`,
-`supabase/migrations/20260703174200_newsletter_health_and_scan_cron.sql`
+`supabase/migrations/20260703174200_newsletter_health_and_scan_cron.sql`,
+`supabase/migrations/20260715210000_low_queue_email_alert.sql`. The audit's original pass
+only caught the first two — reading the live `cron.job` table directly during Phase 2
+work turned up a third job, `check-approved-queue-daily`, with the identical hardcoded
+URL/key pattern, defined by the third file.
 
-**Existing pattern to reuse:** both files already source their `x-cron-secret` header
-value dynamically — `(SELECT value FROM public.automation_config WHERE key =
+**Existing pattern to reuse:** all three files already source their `x-cron-secret`
+header value dynamically — `(SELECT value FROM public.automation_config WHERE key =
 'cron_fire_secret')`, substituted via `format(...)`'s `%L`. `automation_config` is a
-`key`/`value` table, RLS-restricted to service role, seeded once in
-`20260613170000_automation_config.sql`. The `url` and `apikey`/`Authorization` values
-should follow the exact same pattern instead of being string literals.
+`key`/`value` table, RLS-restricted to service role, seeded in
+`20260613170000_automation_config.sql`; `low_queue_email_alert.sql` already stores
+`app_url` there for the same "config, not code" reason. The `url` and
+`apikey`/`Authorization` values follow the exact same pattern instead of being string
+literals.
 
-**New migration:**
-1. Insert two new rows into `automation_config`: `project_url` (e.g.
-   `https://bzykoqpjbzaojpbroelu.supabase.co`) and `project_anon_key` (the anon JWT
-   currently hardcoded in these two files).
-2. Re-run (or `cron.alter_job`) both `cron.schedule(...)` calls so `url`, `apikey`, and
-   `Authorization` are all pulled from `automation_config` via the same `format(...)`/`%L`
-   substitution already used for the secret, rather than literals.
-3. Leave the two original migration files untouched (never rewrite migrations already
+**New migration** (`20260902233000_route_cron_jobs_through_automation_config.sql`):
+1. Insert two new rows into `automation_config`: `project_url`
+   (`https://bzykoqpjbzaojpbroelu.supabase.co`) and `project_anon_key` (the anon JWT
+   previously hardcoded in all three files).
+2. Re-run all three `cron.schedule(...)` calls with their existing job names so `url`,
+   `apikey`, and `Authorization` are all pulled from `automation_config` via the same
+   `format(...)`/`%L` substitution already used for the secret, rather than literals —
+   calling `cron.schedule()` again with an existing job name updates that job in place
+   (pg_cron semantics), so nothing needs to be unscheduled first.
+3. Left the three original migration files untouched (never rewrite migrations already
    applied to prod) — this is a new, additive migration.
 
-**Verification:** `mcp__Supabase__execute_sql` against `cron.job` to confirm
-`command` no longer contains the literal URL/JWT; trigger `fire-due-schedules` manually
-once to confirm the new indirection still authenticates correctly.
+**Status:** committed to the branch, **not yet applied live** — per the deploy model
+above, it takes effect on the next `db push` after this branch merges to `main`.
+
+**Verification (after merge):** `mcp__Supabase__execute_sql` against `cron.job` to
+confirm `command` no longer contains the literal URL/JWT for any of the three jobs;
+trigger `fire-due-schedules` manually once to confirm the new indirection still
+authenticates correctly.
 
 ### 2b. Migration seeds a fresh fork's first user with Prismm's content
 

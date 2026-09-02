@@ -68,13 +68,14 @@ approximately right. A direct diff against `mcp__Supabase__list_migrations` and
   are untracked live but confirmed applied (`newsletter_emails.gmail_message_id` and the
   `draft_visuals` table both exist) — same "untracked but harmless/idempotent" bucket as
   `remote_schema.sql`, no action needed.
-- **`20260723150000_draft_visuals_canvas_dimensions.sql` is the one real gap in the
-  opposite direction**: it's in the repo but has *not* been applied live —
-  `draft_visuals.canvas_width`/`canvas_height` do not exist on
-  `bzykoqpjbzaojpbroelu` today. Left unapplied deliberately (applying a migration to the
-  live project is a live-database change, out of scope for a reconciliation pass) —
-  flagged here for a deliberate decision: either apply it, or confirm the per-platform
-  canvas-size feature is intentionally not live yet.
+- **`draft_visuals_canvas_dimensions` was the one real gap in the opposite direction**:
+  it was in the repo but had *not* been applied live. Flagged to the user and, on their
+  go-ahead, applied via `mcp__Supabase__apply_migration` — `draft_visuals.canvas_width`/
+  `canvas_height` now exist on `bzykoqpjbzaojpbroelu`. `apply_migration` tracks it under
+  a fresh timestamp (`20260902230701`, the apply date) rather than the repo file's
+  original `20260723150000`, so the local file was renamed to match (`git mv`) —
+  otherwise a future `db push` would treat the old timestamp as a distinct, still-unapplied
+  migration and create a harmless but confusing duplicate tracking entry.
 
 **Verification performed:** `mcp__Supabase__list_migrations` re-run after adding the 5
 backfilled files — every live-tracked entry now has a corresponding repo file at the same

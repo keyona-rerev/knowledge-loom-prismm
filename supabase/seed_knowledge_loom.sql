@@ -284,3 +284,17 @@ WHERE NOT EXISTS (
   SELECT 1 FROM public.reference_cards rc
   WHERE rc.user_id = u.id AND rc.title = v.title
 );
+
+-- ---------------------------------------------------------------------------
+-- Cron automation endpoint config (see 20260902233000_route_cron_jobs_through_
+-- automation_config.sql): that migration seeds project_url/project_anon_key as
+-- empty strings so a fresh fork's cron jobs stay inert until configured. This
+-- fills in Prismm's actual values -- project-specific data belongs here, not
+-- in the migration.
+-- ---------------------------------------------------------------------------
+UPDATE public.automation_config AS ac SET value = v.value
+FROM (VALUES
+  ('project_url', 'https://bzykoqpjbzaojpbroelu.supabase.co'),
+  ('project_anon_key', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ6eWtvcXBqYnphb2pwYnJvZWx1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwMTE4OTAsImV4cCI6MjA5NjU4Nzg5MH0.05OToEyEpCH6fF9Z9J6N2v_OZyxip-j9ActCB9cEZ04')
+) AS v(key, value)
+WHERE ac.key = v.key;

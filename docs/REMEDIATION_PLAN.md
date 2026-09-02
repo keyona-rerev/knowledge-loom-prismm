@@ -130,29 +130,49 @@ header value dynamically — `(SELECT value FROM public.automation_config WHERE 
 'cron_fire_secret')`, substituted via `format(...)`'s `%L`. `automation_config` is a
 `key`/`value` table, RLS-restricted to service role, seeded in
 `20260613170000_automation_config.sql`; `low_queue_email_alert.sql` already stores
-`app_url` there for the same "config, not code" reason. The `url` and
-`apikey`/`Authorization` values follow the exact same pattern instead of being string
-literals.
+`app_url` there for the same "config, not code" reason.
 
-**New migration** (`20260902233000_route_cron_jobs_through_automation_config.sql`):
-1. Insert two new rows into `automation_config`: `project_url`
-   (`https://bzykoqpjbzaojpbroelu.supabase.co`) and `project_anon_key` (the anon JWT
-   previously hardcoded in all three files).
-2. Re-run all three `cron.schedule(...)` calls with their existing job names so `url`,
-   `apikey`, and `Authorization` are all pulled from `automation_config` via the same
-   `format(...)`/`%L` substitution already used for the secret, rather than literals —
-   calling `cron.schedule()` again with an existing job name updates that job in place
-   (pg_cron semantics), so nothing needs to be unscheduled first.
-3. Left the three original migration files untouched (never rewrite migrations already
-   applied to prod) — this is a new, additive migration.
+**Correctness note — a first version of this migration was wrong.** `format(...)`'s `%L`
+looks like it defers resolution, but `format()` runs its subqueries and substitutes the
+result at the point `cron.schedule()` is *called* (migration time), not when the job later
+*fires*. That first version would have baked the resolved URL/JWT into `cron.job.command`
+as literals — functionally identical to the original bug — and its `INSERT` seeded
+`automation_config` with Prismm's real values, so a fresh fork's cron jobs would have
+silently fired at Prismm's project. Caught before merge; not applied.
+
+**New migration** (`20260902233000_route_cron_jobs_through_automation_config.sql`),
+rewritten so resolution happens at run time:
+1. `public.fire_automation_endpoint(function_name text)` — a `SECURITY DEFINER` function
+   (`automation_config` RLS restricts reads to service role; `search_path` pinned, same
+   reason as `20260723144232_fix_search_path_on_platform_trigger.sql`) that reads
+   `project_url`, `project_anon_key`, and `cron_fire_secret` from `automation_config` and
+   performs the `net.http_post` itself, every time it's called.
+2. All three jobs re-scheduled (existing job names — `cron.schedule()` on an existing name
+   updates in place) to `select public.fire_automation_endpoint('<function-name>')` — the
+   stored command now contains no literals at all.
+3. `automation_config` seeded with `project_url`/`project_anon_key` as **empty strings**,
+   not Prismm's values, so an unconfigured fork's jobs fail harmlessly (`http_post` to
+   `''`) instead of firing at Prismm. Prismm's real values are set by a single `UPDATE …
+   FROM (VALUES …)` appended to `seed_knowledge_loom.sql`, keeping project-specific data
+   out of the migration per the Phase 2b split.
+4. Side effect: `3f`'s eventual anon-key rotation becomes a single-row `UPDATE
+   automation_config` instead of re-running `cron.schedule()` for every job.
 
 **Status:** committed to the branch, **not yet applied live** — per the deploy model
 above, it takes effect on the next `db push` after this branch merges to `main`.
 
-**Verification (after merge):** `mcp__Supabase__execute_sql` against `cron.job` to
-confirm `command` no longer contains the literal URL/JWT for any of the three jobs;
-trigger `fire-due-schedules` manually once to confirm the new indirection still
-authenticates correctly.
+**⚠️ Operational dependency on merge:** once this migration applies, all three cron jobs
+call `fire_automation_endpoint`, which reads an *empty* `project_url`/`project_anon_key`
+until the `seed_knowledge_loom.sql` UPDATE (or an equivalent manual `UPDATE
+automation_config`) is run against the live project — until then the jobs fire and fail
+harmlessly (no URL to hit) rather than doing nothing silently, but automation is paused.
+Run that UPDATE immediately after merging, before relying on the cron jobs again.
+
+**Verification (after merge + config filled in):** read `cron.job.command` for all three
+jobs and confirm no URL or JWT literal appears anywhere (only
+`select public.fire_automation_endpoint('...')`); trigger `fire-due-schedules` manually
+once to confirm the function resolves config at call time and still authenticates
+correctly.
 
 ### 2b. Migration seeds a fresh fork's first user with Prismm's content ✅ done
 

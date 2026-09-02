@@ -1,5 +1,13 @@
-
-
+-- Reconciliation note (Phase 1, hardcode/multi-tenancy audit): this file and the following
+-- eight 2025-12-10 migrations (55e063be.. through 29624b6a..) are not recorded as applied in
+-- this project's live migration history (supabase_migrations.schema_migrations), even though
+-- the schema they describe matches what's live. Every statement in this file uses
+-- `CREATE TABLE IF NOT EXISTS`/`IF NOT EXISTS`, and the eight that follow use
+-- `DROP CONSTRAINT IF EXISTS`/`DROP POLICY IF EXISTS` guards, so replaying them (a fresh
+-- `supabase db push`, including against this same project) is a safe no-op wherever the
+-- objects already exist -- there is no fresh-fork divergence risk here. Left as-is rather
+-- than tombstoned, since -- unlike the genuinely-superseded migrations elsewhere in this
+-- directory -- this one is a live, accurate description of the base schema.
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;

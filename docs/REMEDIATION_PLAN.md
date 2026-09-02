@@ -35,37 +35,51 @@ live Prismm project mid-phase. Merges to `main` are deliberate, done by the user
 
 ---
 
-## Phase 1 — Reconcile migration history with the live database
+## Phase 1 — Reconcile migration history with the live database ✅ done
 
-**Problem:** `supabase/migrations/` (40 files) and the live project's applied-migration
-history (29 tracked entries) have diverged. 6 live-applied migrations have no matching
-repo file (confirmed real: `profile_posting_defaults` — the live `profiles.default_timezone`
-/`default_post_time` columns exist with no corresponding file). ~12 repo files aren't
-tracked as applied live (including the foundational `20251209200932_remote_schema.sql`).
-`supabase db push` from this repo would not reproduce the live schema.
+**Original assumption vs. what was actually found:** the pre-work estimate (6 live-only
+migrations, ~12 untracked repo files, replay risk) came from an earlier pass and was only
+approximately right. A direct diff against `mcp__Supabase__list_migrations` and
+`supabase_migrations.schema_migrations` for project `bzykoqpjbzaojpbroelu` found:
 
-**Approach:**
-1. Use `mcp__Supabase__list_migrations` plus `mcp__Supabase__execute_sql` against
-   `information_schema`/`pg_catalog` as needed to get the exact DDL for each of the 6
-   live-only migrations (`schedule_auto_fire_cron_with_apikey`, `set_article_child_format`,
-   `correct_false_failed_drafts`, `backfill_manual_card_relevance_scores`,
-   `discover_sessions_last_run_summary`, `profile_posting_defaults`).
-2. Write matching migration files into `supabase/migrations/` with timestamps that
-   preserve chronological order relative to their neighbors, so the repo's file list
-   becomes a faithful record of what's live.
-3. For the ~12 repo-only files not in the live tracking table: confirm (via
-   `list_tables`/`execute_sql`) whether their DDL already exists live under a different
-   applied-migration name (likely — Supabase Studio-authored migrations sometimes get
-   renamed/squashed on write) before assuming anything is missing. Only take action if an
-   object genuinely doesn't exist live.
-4. Do not use `supabase db push`/`migration repair` against the live project as part of
-   this reconciliation without confirming each step first — this project has real user
-   data (56 drafts, 111 source feeds, etc.); the goal is to make the repo match reality,
-   not to mutate the live database.
+- **3 of the originally-suspected 6** (`schedule_auto_fire_cron_with_apikey`,
+  `discover_sessions_last_run_summary`, `profile_posting_defaults`) already had exactly
+  matching repo files (same timestamp) — nothing to do.
+- **5 migrations were genuinely live-only**, with no repo file at all:
+  `set_article_child_format`, `correct_false_failed_drafts`,
+  `backfill_manual_card_relevance_scores`, `add_platform_to_schedules_and_drafts`,
+  `fix_search_path_on_platform_trigger`. Their exact original SQL was pulled straight from
+  `supabase_migrations.schema_migrations.statements` (not reverse-engineered from
+  `information_schema`) and written into matching new files — three are one-time data
+  fixes keyed to specific live row UUIDs (harmless no-ops elsewhere), two are the
+  `drafts`/`content_schedules` platform-column migration and its search_path hardening
+  follow-up.
+- **`20251209200932_remote_schema.sql` and the eight 2025-12-10 UUID-named migrations**
+  are untracked in live history but pose **no actual replay risk**: every statement uses
+  `IF NOT EXISTS`/`IF EXISTS` guards, so pushing them (even against this same project) is
+  a safe no-op wherever the objects already exist. Left in place with an explanatory note
+  added to `remote_schema.sql` rather than tombstoned, since — unlike the genuinely
+  superseded files below — this one is a live, accurate description of the base schema.
+- **`20260610000000_add_content_dossier.sql` and `20260610000001_content_reuse_and_schedule.sql`**
+  turned out to already be tombstoned ("VOIDED"/"SUPERSEDED", intentional no-ops) by
+  whoever wrote them — the repo already had an established convention for this exact
+  situation, which the new backfilled files' headers now follow too.
+- **`20260609000000_add_gmail_message_id.sql` and `20260609000001_add_draft_visuals.sql`**
+  are untracked live but confirmed applied (`newsletter_emails.gmail_message_id` and the
+  `draft_visuals` table both exist) — same "untracked but harmless/idempotent" bucket as
+  `remote_schema.sql`, no action needed.
+- **`20260723150000_draft_visuals_canvas_dimensions.sql` is the one real gap in the
+  opposite direction**: it's in the repo but has *not* been applied live —
+  `draft_visuals.canvas_width`/`canvas_height` do not exist on
+  `bzykoqpjbzaojpbroelu` today. Left unapplied deliberately (applying a migration to the
+  live project is a live-database change, out of scope for a reconciliation pass) —
+  flagged here for a deliberate decision: either apply it, or confirm the per-platform
+  canvas-size feature is intentionally not live yet.
 
-**Verification:** re-run `mcp__Supabase__list_migrations` and diff filenames against
-`supabase/migrations/*.sql` — every live entry has a file, every file with real DDL has a
-live entry (test/no-op files excluded).
+**Verification performed:** `mcp__Supabase__list_migrations` re-run after adding the 5
+backfilled files — every live-tracked entry now has a corresponding repo file at the same
+timestamp; the remaining untracked repo files are confirmed idempotent/harmless as
+described above rather than a reproduction risk.
 
 ---
 

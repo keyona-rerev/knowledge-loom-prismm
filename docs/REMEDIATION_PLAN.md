@@ -112,6 +112,37 @@ described above rather than a reproduction risk. Re-confirmed once more after th
 version prefix that exactly string-matches `supabase_migrations.schema_migrations.version`
 on the live project — repo and live agree in both directions. **Phase 1 is done.**
 
+**Post-merge incident:** after this branch merged to `main`, CI's `supabase db push` failed
+with "Remote migration versions not found in local migrations directory," listing 21
+versions. Root cause: the original Phase 1 verification only checked the 6 files it had
+just created/renamed — it never re-checked the ~30 other files where earlier investigation
+had already noted "same name, different timestamp" and incorrectly treated a name match as
+sufficient. `db push` matches purely on the version prefix; name is irrelevant. Separately,
+`remote_schema.sql` (~50 `CREATE POLICY`, ~35 `ADD CONSTRAINT`, 1 `CREATE TRIGGER`) and
+`add_draft_visuals.sql` (4 `CREATE POLICY`, 2 `CREATE INDEX`) turned out not to be fully
+idempotent despite the "safe no-op" conclusion in the original Phase 1 write-up above —
+that conclusion was based on grepping `CREATE TABLE IF NOT EXISTS` counts, not on checking
+every statement type in a 1300-line file.
+
+Fixed, on a fresh branch off `main` (`claude/fix-migration-ledger-mismatch`), by renaming
+files only — no database touched:
+- All 21 mismatched files renamed so their prefix exactly string-matches
+  `supabase_migrations.schema_migrations.version` (content unchanged, including the
+  `automation_config` → `automation_config_for_cron` rename, where the live-tracked name
+  differs but the DDL is identical).
+- `remote_schema.sql`: every `CREATE POLICY` guarded with a preceding
+  `DROP POLICY IF EXISTS`, every `ALTER TABLE ... ADD CONSTRAINT` wrapped in
+  `DO $$ BEGIN ... EXCEPTION WHEN duplicate_object THEN NULL; END $$;`, the one
+  `CREATE TRIGGER` guarded with `DROP TRIGGER IF EXISTS` — done via script given the scale
+  (37 constraints, 52 policies), then verified with a second pass that finds zero remaining
+  unguarded instances.
+- `add_draft_visuals.sql`: same `DROP POLICY IF EXISTS` treatment on its 4 policies,
+  `CREATE INDEX` → `CREATE INDEX IF NOT EXISTS` on its 2 indexes.
+- Re-verified both directions from scratch (not just the files touched this time): every
+  `list_migrations` entry has an exact-prefix file; every repo-only file confirmed
+  idempotent by pattern (not by assumption) via a full sweep for unguarded
+  `CREATE POLICY`/`CREATE INDEX`/`CREATE TABLE`/`ADD CONSTRAINT`/`CREATE TRIGGER`.
+
 ---
 
 ## Phase 2 — The 2 critical DB issues

@@ -112,6 +112,37 @@ described above rather than a reproduction risk. Re-confirmed once more after th
 version prefix that exactly string-matches `supabase_migrations.schema_migrations.version`
 on the live project — repo and live agree in both directions. **Phase 1 is done.**
 
+**Post-merge incident:** after this branch merged to `main`, CI's `supabase db push` failed
+with "Remote migration versions not found in local migrations directory," listing 21
+versions. Root cause: the original Phase 1 verification only checked the 6 files it had
+just created/renamed — it never re-checked the ~30 other files where earlier investigation
+had already noted "same name, different timestamp" and incorrectly treated a name match as
+sufficient. `db push` matches purely on the version prefix; name is irrelevant. Separately,
+`remote_schema.sql` (~50 `CREATE POLICY`, ~35 `ADD CONSTRAINT`, 1 `CREATE TRIGGER`) and
+`add_draft_visuals.sql` (4 `CREATE POLICY`, 2 `CREATE INDEX`) turned out not to be fully
+idempotent despite the "safe no-op" conclusion in the original Phase 1 write-up above —
+that conclusion was based on grepping `CREATE TABLE IF NOT EXISTS` counts, not on checking
+every statement type in a 1300-line file.
+
+Fixed, on a fresh branch off `main` (`claude/fix-migration-ledger-mismatch`), by renaming
+files only — no database touched:
+- All 21 mismatched files renamed so their prefix exactly string-matches
+  `supabase_migrations.schema_migrations.version` (content unchanged, including the
+  `automation_config` → `automation_config_for_cron` rename, where the live-tracked name
+  differs but the DDL is identical).
+- `remote_schema.sql`: every `CREATE POLICY` guarded with a preceding
+  `DROP POLICY IF EXISTS`, every `ALTER TABLE ... ADD CONSTRAINT` wrapped in
+  `DO $$ BEGIN ... EXCEPTION WHEN duplicate_object THEN NULL; END $$;`, the one
+  `CREATE TRIGGER` guarded with `DROP TRIGGER IF EXISTS` — done via script given the scale
+  (37 constraints, 52 policies), then verified with a second pass that finds zero remaining
+  unguarded instances.
+- `add_draft_visuals.sql`: same `DROP POLICY IF EXISTS` treatment on its 4 policies,
+  `CREATE INDEX` → `CREATE INDEX IF NOT EXISTS` on its 2 indexes.
+- Re-verified both directions from scratch (not just the files touched this time): every
+  `list_migrations` entry has an exact-prefix file; every repo-only file confirmed
+  idempotent by pattern (not by assumption) via a full sweep for unguarded
+  `CREATE POLICY`/`CREATE INDEX`/`CREATE TABLE`/`ADD CONSTRAINT`/`CREATE TRIGGER`.
+
 ---
 
 ## Phase 2 — The 2 critical DB issues
@@ -208,6 +239,84 @@ schema; confirm this project's live data is unaffected (no DML executed against
 
 ---
 
+## Phase 2.5 — Edge function reconciliation (same class of gap as the migration ledger)
+
+**How this surfaced:** before merging the migration-ledger fix (PR #3), a second deploy
+risk was flagged: `.github/workflows/main.yml`'s "Deploy all edge functions" step pushes
+*every* folder in `supabase/functions/` on every qualifying merge to `main`. If any
+function folder in the repo is stale relative to what's actually deployed, merging
+silently overwrites the live version with the old one — no migration-style error, no
+warning, just a regression. `post-now`, `publish-to-zernio`, and `zernio-connect` were
+confirmed stale: their live versions (deployed via the Supabase dashboard, evidenced by
+`/tmp/user_fn_...` entrypoint paths vs the `file:///home/runner/...` CI-deployed paths
+everything else has) carried Instagram-platform work never committed to the repo.
+
+**Fixed, by pulling live source via `mcp__Supabase__get_edge_function` and diffing before
+committing:**
+- **`post-now`, `publish-to-zernio`, `zernio-connect`**: repo copies replaced with live
+  source. Live reads `draft.platform` directly (the denormalized column from
+  `add_platform_to_schedules_and_drafts`, Phase 1) and uses a new shared file,
+  `_shared/publisher/platform-rules.ts` (`maxCharsFor`/`requiresMedia`/`platformLabel`),
+  which the repo didn't have at all — added it. Left `_shared/publisher/platform-config.ts`
+  untouched: it's a *different*, still-in-use platform module (see below), not a
+  duplicate of `platform-rules.ts`.
+- **`_shared/publisher/zernio.ts`**: live had one extra comment paragraph the repo
+  lacked (flagging that Instagram's `/connect`/`/accounts` response shapes have never
+  been probed against the real API) — code was already byte-identical otherwise; added
+  the paragraph.
+- **4 live-only functions with no repo folder at all** — `pull-rss-feed`,
+  `generate-content-from-card`, `process-newsletter-email`, `backfill-newsletter-scores`
+  — added, using live's `index.ts` for each. Their bundled `_shared/ai-caller.ts`,
+  `_shared/relevance-gate.ts`, `_shared/relevance-scorer.ts` snapshots were older than
+  what's already in the repo (missing the multi-platform relevance-gate prompt and the
+  full `buildScoreSystemPrompt` dynamic-positioning scorer) — did **not** overwrite the
+  current shared files with these stale bundled copies; only the function-specific
+  `index.ts` files were added.
+
+**Verified both directions, all 29 live functions / 29 repo folders:**
+- Direction A (every live function has a repo folder): confirmed by exact set match after
+  adding the 4 above.
+- Direction B (every repo folder matches its live source): every function pulled and
+  diffed against its repo file (large ones — `execute-autopilot-template` — delegated to
+  a subagent to keep the ~60KB bundle out of context). Results:
+  - **19 match byte-for-byte**: `cancel-schedule`, `check-approved-queue`,
+    `cleanup-old-emails`, `create-manual-source`, `delete-user-data`,
+    `execute-autopilot-template`, `fire-due-schedules`, `generate-content-directions`,
+    `generate-final-content`, `ingest-gmail-content`, `preview-prompt`,
+    `process-reference-card`, `reconcile-scheduled-posts`,
+    `regenerate-draft-with-feedback`, `revise-draft`, `scan-newsletter-health`,
+    `search-sources`, `send-draft-notification`, `sync-post-analytics`.
+  - **3 fixed** (above): `post-now`, `publish-to-zernio`, `zernio-connect`.
+  - **4 added** (above): `pull-rss-feed`, `generate-content-from-card`,
+    `process-newsletter-email`, `backfill-newsletter-scores`.
+  - **3 found to be the *opposite* of stale — repo is ahead of live, left unchanged**:
+    `reschedule-draft`, `generate-draft-visual`, `preview-visual`. Their repo versions
+    (and the shared `_shared/visual-prompt.ts` they and `platform-config.ts` use) already
+    implement a *different, more complete* Instagram-platform system than what's live —
+    per-platform canvas dimensions (`canvasDimsForPlatform`, writing the real
+    `draft_visuals.canvas_width`/`canvas_height` columns Phase 1 confirmed exist),
+    platform resolved via `resolveDraftPlatform(draft.format_id)` rather than the
+    `drafts.platform` column. Live is still the older, LinkedIn-only hardcoded version
+    for these three. Deploying the repo's version on merge is a genuine improvement, not
+    a regression, so nothing was changed here — but this means **two different,
+    non-shared platform-resolution systems now coexist post-merge**:
+    `platform-rules.ts` + `drafts.platform` (post-now, publish-to-zernio, zernio-connect)
+    vs. `platform-config.ts` + `resolveDraftPlatform(format_id)` (reschedule-draft,
+    generate-draft-visual, preview-visual, execute-autopilot-template's own inlined
+    Instagram handling). Not broken — each function's own data path is internally
+    consistent — but worth a deliberate unification pass later rather than leaving two
+    parallel systems permanently. Flagged here rather than fixed, since fixing it wasn't
+    part of what broke and reconciling two live architectures is a design decision, not a
+    mechanical sync. Confirmed against live: all 91 existing drafts are `linkedin`, so
+    the split can't disagree on today's data — it's latent, not active. Tracked as
+    **Phase 3i** below, with the trigger condition (unify before the first Instagram
+    draft) and failure mode spelled out there rather than fixed speculatively here.
+
+**Status:** approved to merge as-is via PR #3; the platform-resolution split is tracked
+separately as Phase 3i rather than blocking this merge.
+
+---
+
 ## Phase 3 — Remaining High findings (9)
 
 Group by file/pattern so related fixes land together:
@@ -291,6 +400,39 @@ copy in `generate-draft-visual/index.ts`).
   with, old way vs new way)"` to `"...old way vs new way, before vs after)"` in both
   locations (keep them identical, matching the existing "legacy copy stays byte-identical
   to its source" convention documented in the prior audit).
+
+**3i. Two non-unified platform-resolution systems (from Phase 2.5's edge function
+reconciliation) — latent, not yet triggered**
+Confirmed against live: all 91 existing drafts are `linkedin`, so the two systems
+currently resolve identically and cannot disagree on today's data. This is dormant risk,
+not an active bug — **do not fix speculatively; unify before the first Instagram draft is
+created**, and treat that event as the trigger to pick this up, not a nice-to-have.
+- **System A** — `_shared/publisher/platform-rules.ts` + `drafts.platform` column
+  (denormalized by the `set_draft_platform_from_schedule` trigger). Used by `post-now`,
+  `publish-to-zernio`, `zernio-connect` (Phase 2.5).
+- **System B** — `_shared/publisher/platform-config.ts` + `resolveDraftPlatform(supabase,
+  draft.format_id)` (resolves platform by joining through `formats.platform`). Used by
+  `reschedule-draft`, `generate-draft-visual`, `preview-visual`.
+- **System C** — `execute-autopilot-template`'s own inlined Instagram handling
+  (`instagramConventionsBlock()` gated on `ctx.format.platform === "instagram"`, plus its
+  own child-artifact/CTA branching) — a third path, never wired to either shared module.
+  Fold this in too when unifying, not just A and B.
+- **The failure mode once this triggers:** publish (System A) and visual generation
+  (System B) can read a *different* platform for the same draft whenever a draft's
+  `schedule_id`-linked schedule and its `format_id`-linked format disagree on platform —
+  e.g. a schedule retargeted from LinkedIn to Instagram after the draft's format was
+  picked, or any future path that sets one without the other. The result isn't a thrown
+  error: `generate-draft-visual` would render and store a LinkedIn-sized (1200x627)
+  image for a draft that `post-now`/`publish-to-zernio` treat as Instagram, and Instagram
+  requires an image (`requiresMedia`) — the post would either publish with a
+  wrong-aspect-ratio image or, if the media check inspects the visual's own recorded
+  dimensions, silently pass a check it shouldn't. Nothing fails loudly; it just produces
+  a malformed live post.
+- **Fix, when triggered:** pick one resolution source (the `drafts.platform` column is
+  the more recent, purpose-built one — see `20260723143700_add_platform_to_schedules_and_drafts.sql`'s
+  own header) and point all three systems at it; retire `resolveDraftPlatform`/
+  `platform-config.ts`'s platform-lookup role (its canvas-dimension data can still move
+  over) and `execute-autopilot-template`'s separate inline check.
 
 ---
 

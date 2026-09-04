@@ -2,11 +2,17 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.0";
 import { getPublisher } from "../_shared/publisher/index.ts";
 import { getDraftImageUrl } from "../_shared/get-draft-image-url.ts";
-import { platformSpec, resolveDraftPlatform } from "../_shared/publisher/platform-config.ts";
+import { maxCharsFor, requiresMedia, platformLabel } from "../_shared/publisher/platform-rules.ts";
 
 // Publishes an approved draft immediately (or within ~60 seconds) by scheduling
 // it at the current time. Unlike publish-to-zernio, this bypasses the slot
-// resolver — it's a manual "send now" action.
+// resolver -- it's a manual "send now" action.
+//
+// Platform-aware: draft.platform drives the char limit, the media
+// requirement, and which social_connections row is used -- same rules as
+// publish-to-zernio (see platform-rules.ts). A platform that requires media
+// and has no ready image is rejected outright here (400), never
+// substituted with a fallback/reused image.
 //
 // Idempotent: if external_post_id is already set and publish_status is
 // "published_now", returns success immediately without re-posting.
@@ -54,7 +60,7 @@ serve(async (req) => {
     // Load the draft (scoped to the user).
     const { data: draft } = await supabase
       .from("drafts")
-      .select("id, user_id, body, approval_status, external_post_id, publish_status, format_id")
+      .select("id, user_id, body, approval_status, external_post_id, publish_status, platform")
       .eq("id", draftId)
       .eq("user_id", userId)
       .single();
@@ -70,14 +76,15 @@ serve(async (req) => {
       return json({ error: "Draft must be approved before posting" }, 409);
     }
 
-    const platform = await resolveDraftPlatform(supabase, draft.format_id);
-    const spec = platformSpec(platform);
+    const platform: string = draft.platform ?? "linkedin";
+    const label = platformLabel(platform);
 
     const text = (draft.body ?? "").trim();
     if (!text) return json({ error: "Draft has no body to publish" }, 400);
-    if (text.length > spec.maxChars) {
+    const maxChars = maxCharsFor(platform);
+    if (text.length > maxChars) {
       return json(
-        { error: `Draft is ${text.length} characters; ${spec.label} allows ${spec.maxChars}` },
+        { error: `Draft is ${text.length} characters; ${label} allows ${maxChars}` },
         400,
       );
     }
@@ -95,7 +102,18 @@ serve(async (req) => {
 
     if (!conn?.external_account_id) {
       return json(
-        { error: `${spec.label} is not connected. Connect it in Settings first.` },
+        { error: `${label} is not connected. Connect it in Settings first.` },
+        400,
+      );
+    }
+
+    // Image lookup before the media-requirement check -- never fall back to
+    // a default/reused image for a platform that requires one (see
+    // platform-rules.ts and the no-repeat/no-fallback rule for Instagram).
+    const imageUrl = await getDraftImageUrl(supabase, draft.id);
+    if (requiresMedia(platform) && !imageUrl) {
+      return json(
+        { error: `${label} requires an image and none is ready yet for this draft. Generate/approve the visual first -- this will never auto-substitute a fallback image.` },
         400,
       );
     }
@@ -106,13 +124,6 @@ serve(async (req) => {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
     try {
-      const imageUrl = await getDraftImageUrl(supabase, draft.id);
-      if (spec.requiresImage && !imageUrl) {
-        return json(
-          { error: `${spec.label} requires an image before it can be posted. Generate a visual for this draft first.` },
-          400,
-        );
-      }
       const result = await publisher.publish({
         text,
         platform,

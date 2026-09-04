@@ -6,6 +6,12 @@
 // OpenAPI summary (whose text/socialAccountIds/scheduledAt names the API silently
 // ignores). Connect/account shapes are handled defensively across known variants.
 //
+// getConnectUrl/listAccounts below were confirmed against Zernio's LinkedIn
+// integration only. Instagram's /connect/instagram and /accounts response
+// shape for platform="instagram" rows has NOT been probed live -- do that
+// before trusting this file's defensive field-name guessing for Instagram
+// specifically.
+//
 // updateSchedule()'s PUT /v1/posts/{id} has NOT been probed against a live
 // scheduled post (no Zernio credentials available where this was written).
 // reschedule-draft therefore never trusts this path alone: it always falls

@@ -14,21 +14,25 @@ CREATE TABLE IF NOT EXISTS public.draft_visuals (
 -- RLS
 ALTER TABLE public.draft_visuals ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can view own visuals" ON public.draft_visuals;
 CREATE POLICY "Users can view own visuals" ON public.draft_visuals
   FOR SELECT USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can insert own visuals" ON public.draft_visuals;
 CREATE POLICY "Users can insert own visuals" ON public.draft_visuals
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own visuals" ON public.draft_visuals;
 CREATE POLICY "Users can update own visuals" ON public.draft_visuals
   FOR UPDATE USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete own visuals" ON public.draft_visuals;
 CREATE POLICY "Users can delete own visuals" ON public.draft_visuals
   FOR DELETE USING (auth.uid() = user_id);
 
 -- Index
-CREATE INDEX idx_draft_visuals_draft_id ON public.draft_visuals(draft_id);
-CREATE INDEX idx_draft_visuals_user_id ON public.draft_visuals(user_id);
+CREATE INDEX IF NOT EXISTS idx_draft_visuals_draft_id ON public.draft_visuals(draft_id);
+CREATE INDEX IF NOT EXISTS idx_draft_visuals_user_id ON public.draft_visuals(user_id);
 
 -- Updated at trigger
 CREATE OR REPLACE TRIGGER update_draft_visuals_updated_at

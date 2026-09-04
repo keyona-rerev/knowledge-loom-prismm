@@ -432,98 +432,155 @@ CREATE TABLE IF NOT EXISTS "public"."user_newsletter_emails" (
 ALTER TABLE "public"."user_newsletter_emails" OWNER TO "postgres";
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."autopilot_templates"
     ADD CONSTRAINT "autopilot_templates_pkey" PRIMARY KEY ("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."content_calendar"
     ADD CONSTRAINT "content_calendar_pkey" PRIMARY KEY ("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."content_templates"
     ADD CONSTRAINT "content_templates_pkey" PRIMARY KEY ("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."draft_revisions"
     ADD CONSTRAINT "draft_revisions_pkey" PRIMARY KEY ("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."drafts"
     ADD CONSTRAINT "drafts_pkey" PRIMARY KEY ("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."email_notifications"
     ADD CONSTRAINT "email_notifications_pkey" PRIMARY KEY ("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."user_newsletter_emails"
     ADD CONSTRAINT "email_prefix_unique" UNIQUE ("email_prefix");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."insight_cards"
     ADD CONSTRAINT "insight_cards_pkey" PRIMARY KEY ("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."insight_ratings"
     ADD CONSTRAINT "insight_ratings_pkey" PRIMARY KEY ("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."newsletter_emails"
     ADD CONSTRAINT "newsletter_emails_pkey" PRIMARY KEY ("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."profiles"
     ADD CONSTRAINT "profiles_pkey" PRIMARY KEY ("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."profiles"
     ADD CONSTRAINT "profiles_user_id_key" UNIQUE ("user_id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."question_sets"
     ADD CONSTRAINT "question_sets_pkey" PRIMARY KEY ("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."rate_limit_logs"
     ADD CONSTRAINT "rate_limit_logs_pkey" PRIMARY KEY ("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."reference_card_templates"
     ADD CONSTRAINT "reference_card_templates_pkey" PRIMARY KEY ("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."reference_cards"
     ADD CONSTRAINT "reference_cards_pkey" PRIMARY KEY ("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."source_feeds"
     ADD CONSTRAINT "source_feeds_pkey" PRIMARY KEY ("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."user_newsletter_emails"
     ADD CONSTRAINT "user_newsletter_emails_email_address_key" UNIQUE ("email_address");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."user_newsletter_emails"
     ADD CONSTRAINT "user_newsletter_emails_pkey" PRIMARY KEY ("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
@@ -615,308 +672,414 @@ CREATE OR REPLACE TRIGGER "update_templates_updated_at" BEFORE UPDATE ON "public
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."autopilot_templates"
     ADD CONSTRAINT "autopilot_templates_custom_template_id_fkey" FOREIGN KEY ("custom_template_id") REFERENCES "public"."reference_card_templates"("id") ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."content_calendar"
     ADD CONSTRAINT "content_calendar_draft_id_fkey" FOREIGN KEY ("draft_id") REFERENCES "public"."drafts"("id") ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."content_templates"
     ADD CONSTRAINT "content_templates_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."draft_revisions"
     ADD CONSTRAINT "draft_revisions_draft_id_fkey" FOREIGN KEY ("draft_id") REFERENCES "public"."drafts"("id") ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."drafts"
     ADD CONSTRAINT "drafts_autopilot_template_id_fkey" FOREIGN KEY ("autopilot_template_id") REFERENCES "public"."autopilot_templates"("id") ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."drafts"
     ADD CONSTRAINT "drafts_revised_from_fkey" FOREIGN KEY ("revised_from") REFERENCES "public"."drafts"("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."drafts"
     ADD CONSTRAINT "drafts_template_id_fkey" FOREIGN KEY ("template_id") REFERENCES "public"."content_templates"("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."email_notifications"
     ADD CONSTRAINT "email_notifications_draft_id_fkey" FOREIGN KEY ("draft_id") REFERENCES "public"."drafts"("id") ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."email_notifications"
     ADD CONSTRAINT "email_notifications_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."insight_cards"
     ADD CONSTRAINT "insight_cards_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("user_id") ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."insight_ratings"
     ADD CONSTRAINT "insight_ratings_draft_id_fkey" FOREIGN KEY ("draft_id") REFERENCES "public"."drafts"("id") ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."insight_ratings"
     ADD CONSTRAINT "insight_ratings_reference_card_id_fkey" FOREIGN KEY ("reference_card_id") REFERENCES "public"."reference_cards"("id") ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."newsletter_emails"
     ADD CONSTRAINT "newsletter_emails_reference_card_id_fkey" FOREIGN KEY ("reference_card_id") REFERENCES "public"."reference_cards"("id") ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."newsletter_emails"
     ADD CONSTRAINT "newsletter_emails_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."reference_cards"
     ADD CONSTRAINT "reference_cards_source_feed_id_fkey" FOREIGN KEY ("source_feed_id") REFERENCES "public"."source_feeds"("id") ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."reference_cards"
     ADD CONSTRAINT "reference_cards_template_id_fkey" FOREIGN KEY ("template_id") REFERENCES "public"."reference_card_templates"("id") ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."source_feeds"
     ADD CONSTRAINT "source_feeds_default_template_id_fkey" FOREIGN KEY ("default_template_id") REFERENCES "public"."reference_card_templates"("id");
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DO $$ BEGIN
 ALTER TABLE ONLY "public"."user_newsletter_emails"
     ADD CONSTRAINT "user_newsletter_emails_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 
+DROP POLICY IF EXISTS "Anyone can view global question sets" ON "public"."question_sets";
 CREATE POLICY "Anyone can view global question sets" ON "public"."question_sets" FOR SELECT USING (("is_global" = true));
 
 
 
+DROP POLICY IF EXISTS "Service role can manage rate limits" ON "public"."rate_limit_logs";
 CREATE POLICY "Service role can manage rate limits" ON "public"."rate_limit_logs" USING (("auth"."role"() = 'service_role'::"text"));
 
 
 
+DROP POLICY IF EXISTS "Users can delete own autopilot templates" ON "public"."autopilot_templates";
 CREATE POLICY "Users can delete own autopilot templates" ON "public"."autopilot_templates" FOR DELETE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can delete own calendar slots" ON "public"."content_calendar";
 CREATE POLICY "Users can delete own calendar slots" ON "public"."content_calendar" FOR DELETE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can delete own cards" ON "public"."reference_cards";
 CREATE POLICY "Users can delete own cards" ON "public"."reference_cards" FOR DELETE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can delete own drafts" ON "public"."drafts";
 CREATE POLICY "Users can delete own drafts" ON "public"."drafts" FOR DELETE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can delete own feeds" ON "public"."source_feeds";
 CREATE POLICY "Users can delete own feeds" ON "public"."source_feeds" FOR DELETE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can delete own insight cards" ON "public"."insight_cards";
 CREATE POLICY "Users can delete own insight cards" ON "public"."insight_cards" FOR DELETE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can delete own question sets" ON "public"."question_sets";
 CREATE POLICY "Users can delete own question sets" ON "public"."question_sets" FOR DELETE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can delete own templates" ON "public"."content_templates";
 CREATE POLICY "Users can delete own templates" ON "public"."content_templates" FOR DELETE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can delete own templates" ON "public"."reference_card_templates";
 CREATE POLICY "Users can delete own templates" ON "public"."reference_card_templates" FOR DELETE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can insert own autopilot templates" ON "public"."autopilot_templates";
 CREATE POLICY "Users can insert own autopilot templates" ON "public"."autopilot_templates" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can insert own calendar slots" ON "public"."content_calendar";
 CREATE POLICY "Users can insert own calendar slots" ON "public"."content_calendar" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can insert own cards" ON "public"."reference_cards";
 CREATE POLICY "Users can insert own cards" ON "public"."reference_cards" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can insert own draft revisions" ON "public"."draft_revisions";
 CREATE POLICY "Users can insert own draft revisions" ON "public"."draft_revisions" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
    FROM "public"."drafts"
   WHERE (("drafts"."id" = "draft_revisions"."draft_id") AND ("drafts"."user_id" = "auth"."uid"())))));
 
 
 
+DROP POLICY IF EXISTS "Users can insert own drafts" ON "public"."drafts";
 CREATE POLICY "Users can insert own drafts" ON "public"."drafts" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can insert own email notifications" ON "public"."email_notifications";
 CREATE POLICY "Users can insert own email notifications" ON "public"."email_notifications" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can insert own feeds" ON "public"."source_feeds";
 CREATE POLICY "Users can insert own feeds" ON "public"."source_feeds" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can insert own insight cards" ON "public"."insight_cards";
 CREATE POLICY "Users can insert own insight cards" ON "public"."insight_cards" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can insert own insight ratings" ON "public"."insight_ratings";
 CREATE POLICY "Users can insert own insight ratings" ON "public"."insight_ratings" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
    FROM "public"."drafts"
   WHERE (("drafts"."id" = "insight_ratings"."draft_id") AND ("drafts"."user_id" = "auth"."uid"())))));
 
 
 
+DROP POLICY IF EXISTS "Users can insert own newsletter email" ON "public"."user_newsletter_emails";
 CREATE POLICY "Users can insert own newsletter email" ON "public"."user_newsletter_emails" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can insert own profile" ON "public"."profiles";
 CREATE POLICY "Users can insert own profile" ON "public"."profiles" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can insert own question sets" ON "public"."question_sets";
 CREATE POLICY "Users can insert own question sets" ON "public"."question_sets" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can insert own templates" ON "public"."content_templates";
 CREATE POLICY "Users can insert own templates" ON "public"."content_templates" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can insert own templates" ON "public"."reference_card_templates";
 CREATE POLICY "Users can insert own templates" ON "public"."reference_card_templates" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can update own autopilot templates" ON "public"."autopilot_templates";
 CREATE POLICY "Users can update own autopilot templates" ON "public"."autopilot_templates" FOR UPDATE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can update own calendar slots" ON "public"."content_calendar";
 CREATE POLICY "Users can update own calendar slots" ON "public"."content_calendar" FOR UPDATE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can update own cards" ON "public"."reference_cards";
 CREATE POLICY "Users can update own cards" ON "public"."reference_cards" FOR UPDATE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can update own drafts" ON "public"."drafts";
 CREATE POLICY "Users can update own drafts" ON "public"."drafts" FOR UPDATE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can update own email notifications" ON "public"."email_notifications";
 CREATE POLICY "Users can update own email notifications" ON "public"."email_notifications" FOR UPDATE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can update own feeds" ON "public"."source_feeds";
 CREATE POLICY "Users can update own feeds" ON "public"."source_feeds" FOR UPDATE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can update own insight cards" ON "public"."insight_cards";
 CREATE POLICY "Users can update own insight cards" ON "public"."insight_cards" FOR UPDATE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can update own newsletter email" ON "public"."user_newsletter_emails";
 CREATE POLICY "Users can update own newsletter email" ON "public"."user_newsletter_emails" FOR UPDATE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can update own profile" ON "public"."profiles";
 CREATE POLICY "Users can update own profile" ON "public"."profiles" FOR UPDATE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can update own question sets" ON "public"."question_sets";
 CREATE POLICY "Users can update own question sets" ON "public"."question_sets" FOR UPDATE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can update own templates" ON "public"."content_templates";
 CREATE POLICY "Users can update own templates" ON "public"."content_templates" FOR UPDATE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can update own templates" ON "public"."reference_card_templates";
 CREATE POLICY "Users can update own templates" ON "public"."reference_card_templates" FOR UPDATE USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can view own autopilot templates" ON "public"."autopilot_templates";
 CREATE POLICY "Users can view own autopilot templates" ON "public"."autopilot_templates" FOR SELECT USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can view own calendar slots" ON "public"."content_calendar";
 CREATE POLICY "Users can view own calendar slots" ON "public"."content_calendar" FOR SELECT USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can view own cards" ON "public"."reference_cards";
 CREATE POLICY "Users can view own cards" ON "public"."reference_cards" FOR SELECT USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can view own draft revisions" ON "public"."draft_revisions";
 CREATE POLICY "Users can view own draft revisions" ON "public"."draft_revisions" FOR SELECT USING ((EXISTS ( SELECT 1
    FROM "public"."drafts"
   WHERE (("drafts"."id" = "draft_revisions"."draft_id") AND ("drafts"."user_id" = "auth"."uid"())))));
 
 
 
+DROP POLICY IF EXISTS "Users can view own drafts" ON "public"."drafts";
 CREATE POLICY "Users can view own drafts" ON "public"."drafts" FOR SELECT USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can view own email notifications" ON "public"."email_notifications";
 CREATE POLICY "Users can view own email notifications" ON "public"."email_notifications" FOR SELECT USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can view own feeds" ON "public"."source_feeds";
 CREATE POLICY "Users can view own feeds" ON "public"."source_feeds" FOR SELECT USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can view own insight cards" ON "public"."insight_cards";
 CREATE POLICY "Users can view own insight cards" ON "public"."insight_cards" FOR SELECT USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can view own insight ratings" ON "public"."insight_ratings";
 CREATE POLICY "Users can view own insight ratings" ON "public"."insight_ratings" FOR SELECT USING ((EXISTS ( SELECT 1
    FROM "public"."drafts"
   WHERE (("drafts"."id" = "insight_ratings"."draft_id") AND ("drafts"."user_id" = "auth"."uid"())))));
 
 
 
+DROP POLICY IF EXISTS "Users can view own newsletter email" ON "public"."user_newsletter_emails";
 CREATE POLICY "Users can view own newsletter email" ON "public"."user_newsletter_emails" FOR SELECT USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can view own newsletter emails" ON "public"."newsletter_emails";
 CREATE POLICY "Users can view own newsletter emails" ON "public"."newsletter_emails" FOR SELECT USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can view own profile" ON "public"."profiles";
 CREATE POLICY "Users can view own profile" ON "public"."profiles" FOR SELECT USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can view own question sets" ON "public"."question_sets";
 CREATE POLICY "Users can view own question sets" ON "public"."question_sets" FOR SELECT USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can view own templates" ON "public"."reference_card_templates";
 CREATE POLICY "Users can view own templates" ON "public"."reference_card_templates" FOR SELECT USING (("auth"."uid"() = "user_id"));
 
 
 
+DROP POLICY IF EXISTS "Users can view own templates and system templates" ON "public"."content_templates";
 CREATE POLICY "Users can view own templates and system templates" ON "public"."content_templates" FOR SELECT USING ((("auth"."uid"() = "user_id") OR ("is_system_template" = true)));
 
 
@@ -1303,6 +1466,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 drop extension if exists "pg_net";
 
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 

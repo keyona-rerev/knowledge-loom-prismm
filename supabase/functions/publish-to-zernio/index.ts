@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.0";
 import { getPublisher } from "../_shared/publisher/index.ts";
 import { resolveForApproval, nextOccurrence, type Frequency } from "../_shared/schedule-resolver.ts";
 import { getDraftImageUrl } from "../_shared/get-draft-image-url.ts";
-import { platformSpec, resolveDraftPlatform } from "../_shared/publisher/platform-config.ts";
+import { maxCharsFor, requiresMedia, platformLabel } from "../_shared/publisher/platform-rules.ts";
 
 // Hand an approved draft to the provider's scheduler at its slot time.
 // Invoked on approval with { draftId }. Idempotent: a draft already handed off
@@ -11,13 +11,20 @@ import { platformSpec, resolveDraftPlatform } from "../_shared/publisher/platfor
 // posts silently when the timing can't be resolved; such cases land in
 // publish_status = 'needs_attention' for the UI.
 //
+// Platform-aware: draft.platform (denormalized from its schedule at
+// generation time, see the set_draft_platform_from_schedule trigger) drives
+// the char limit, the media requirement, and which social_connections row
+// is used. Platforms that require media (see platform-rules.ts) and have no
+// ready image NEVER publish text-only and NEVER substitute a fallback/reused
+// image -- they land in needs_attention instead.
+//
 // The idempotency check above is read-then-act, not an atomic lock. Three
 // separate call sites (PendingTab approve, DraftDetail approve, ApprovedTab
 // retry) can all invoke this function for the same draft close enough
 // together that two both read external_post_id as null and both proceed to
 // call the provider. The provider's own duplicate-content detection then
 // rejects the second call, which used to get written straight to
-// publish_status='failed' — clobbering the first call's success, since that
+// publish_status='failed' -- clobbering the first call's success, since that
 // failure write never checked whether a sibling call had meanwhile set
 // external_post_id. The write below guards against exactly that: it only
 // marks the draft failed if external_post_id is still null at write time; if
@@ -29,11 +36,11 @@ import { platformSpec, resolveDraftPlatform } from "../_shared/publisher/platfor
 // approval time" if that's passed). It has no idea whether another draft
 // already claimed that exact instant. Left alone, two drafts approved for
 // the same cadence slot around the same time both resolve to the identical
-// next occurrence and get stacked on top of each other with Zernio — two
+// next occurrence and get stacked on top of each other with Zernio -- two
 // live posts scheduled for the same second. The loop below walks the slot's
 // own cadence pattern forward, skipping any instant already genuinely
 // occupied (publish_status='scheduled' AND external_post_id set for another
-// draft on this same schedule_id — i.e. actually handed off, not just
+// draft on this same schedule_id -- i.e. actually handed off, not just
 // stamped at generation), until it lands on the first truly open one. This
 // is also what makes clearing a backlog of stuck same-slot drafts safe:
 // retrying them one at a time, in order, sequences them onto consecutive
@@ -77,14 +84,11 @@ serve(async (req) => {
     // Load the draft (scoped to the user).
     const { data: draft } = await supabase
       .from("drafts")
-      .select("id, user_id, body, approval_status, schedule_id, scheduled_for, external_post_id, format_id")
+      .select("id, user_id, body, approval_status, schedule_id, scheduled_for, external_post_id, platform")
       .eq("id", draftId)
       .eq("user_id", userId)
       .single();
     if (!draft) return json({ error: "Draft not found or access denied" }, 404);
-
-    const platform = await resolveDraftPlatform(supabase, draft.format_id);
-    const spec = platformSpec(platform);
 
     // Idempotency: already handed off.
     if (draft.external_post_id) {
@@ -94,6 +98,9 @@ serve(async (req) => {
     if (draft.approval_status !== "approved") {
       return json({ error: "Draft is not approved" }, 409);
     }
+
+    const platform: string = draft.platform ?? "linkedin";
+    const label = platformLabel(platform);
 
     // Helper to flag a draft as needing attention rather than posting.
     const needsAttention = async (msg: string) => {
@@ -106,9 +113,10 @@ serve(async (req) => {
 
     const text = (draft.body ?? "").trim();
     if (!text) return await needsAttention("Draft has no body to publish");
-    if (text.length > spec.maxChars) {
+    const maxChars = maxCharsFor(platform);
+    if (text.length > maxChars) {
       return await needsAttention(
-        `Draft is ${text.length} characters; ${spec.label} allows ${spec.maxChars}`,
+        `Draft is ${text.length} characters; ${label} allows ${maxChars}`,
       );
     }
 
@@ -123,7 +131,18 @@ serve(async (req) => {
       .eq("platform", platform)
       .maybeSingle();
     if (!conn?.external_account_id) {
-      return await needsAttention(`${spec.label} is not connected. Connect it in Settings first.`);
+      return await needsAttention(`${label} is not connected. Connect it in Settings first.`);
+    }
+
+    // Image lookup happens before the media-requirement check below, since
+    // platforms that require media need to know NOW whether one is ready --
+    // never fall back to a default/reused image (see platform-rules.ts and
+    // the no-repeat/no-fallback rule for Instagram specifically).
+    const imageUrl = await getDraftImageUrl(supabase, draft.id);
+    if (requiresMedia(platform) && !imageUrl) {
+      return await needsAttention(
+        `${label} requires an image and none is ready yet for this draft. Generate/approve the visual first -- this will never auto-substitute a fallback image.`,
+      );
     }
 
     // The slot timing. No slot -> we have no schedule to publish against.
@@ -180,12 +199,6 @@ serve(async (req) => {
 
     // Hand off to the provider's scheduler.
     try {
-      const imageUrl = await getDraftImageUrl(supabase, draft.id);
-      if (spec.requiresImage && !imageUrl) {
-        return await needsAttention(
-          `${spec.label} requires an image before it can be posted. Generate a visual for this draft first.`,
-        );
-      }
       const result = await publisher.publish({
         text,
         platform,

@@ -1,16 +1,20 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.0";
 import { getPublisher } from "../_shared/publisher/index.ts";
+import { platformLabel } from "../_shared/publisher/platform-rules.ts";
 
-// Connect a social account (LinkedIn company page, Instagram business
-// account, etc.) for publishing, via the configured provider. Three actions:
+// Connect a social account for publishing, via the configured provider.
+// Three actions:
 //   start  -> returns an authorization URL to send the user to (OAuth).
 //   sync   -> after the user returns, read the connected account from the
 //             provider and upsert it into social_connections.
 //   status -> return the stored connection for this user/platform.
 //
-// platform defaults to "linkedin" when omitted, so any caller written before
-// this function supported more than one platform keeps working unchanged.
+// `platform` is passed in the request body (e.g. "linkedin", "instagram").
+// Defaults to "linkedin" for backward compatibility with any caller that
+// hasn't been updated to pass it yet. To add a new platform here, no code
+// change is needed in this file -- it's already platform-agnostic; see the
+// platform-onboarding checklist in platform-rules.ts for the other steps.
 //
 // The provider API key lives only in this server (env), never in the client.
 
@@ -18,8 +22,6 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-const DEFAULT_PLATFORM = "linkedin";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -45,8 +47,8 @@ serve(async (req) => {
     if (authError || !user) return json({ error: "Invalid or expired token" }, 401);
     const userId = user.id;
 
-    const { action, redirectUrl, platform: platformInput } = await req.json().catch(() => ({ action: "status" }));
-    const platform = platformInput || DEFAULT_PLATFORM;
+    const { action, redirectUrl, platform } = await req.json().catch(() => ({ action: "status" }));
+    const PLATFORM = platform ?? "linkedin";
     const publisher = getPublisher();
     const provider = publisher.name;
 
@@ -55,7 +57,7 @@ serve(async (req) => {
       // Zernio organizes accounts under a profile; reuse the default one.
       const profileId = (await publisher.getDefaultProfileId()) ?? undefined;
       const { authorizationUrl } = await publisher.getConnectUrl({
-        platform,
+        platform: PLATFORM,
         profileId,
         redirectUrl,
       });
@@ -63,15 +65,15 @@ serve(async (req) => {
     }
 
     if (action === "sync") {
-      const accounts = await publisher.listAccounts(platform);
+      const accounts = await publisher.listAccounts(PLATFORM);
       if (!accounts.length) {
-        return json({ connected: false, error: `No ${platform} account found on the provider yet` }, 404);
+        return json({ connected: false, error: `No ${platformLabel(PLATFORM)} account found on the provider yet` }, 404);
       }
       const acct = accounts[0];
       const row = {
         user_id: userId,
         provider,
-        platform,
+        platform: PLATFORM,
         external_account_id: acct.accountId,
         external_profile_id: acct.profileId ?? null,
         account_label: acct.displayName ?? acct.username ?? null,
@@ -93,7 +95,7 @@ serve(async (req) => {
       .select("*")
       .eq("user_id", userId)
       .eq("provider", provider)
-      .eq("platform", platform)
+      .eq("platform", PLATFORM)
       .maybeSingle();
     return json({ connected: !!data, connection: data ?? null });
   } catch (e) {

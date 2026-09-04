@@ -239,6 +239,81 @@ schema; confirm this project's live data is unaffected (no DML executed against
 
 ---
 
+## Phase 2.5 — Edge function reconciliation (same class of gap as the migration ledger)
+
+**How this surfaced:** before merging the migration-ledger fix (PR #3), a second deploy
+risk was flagged: `.github/workflows/main.yml`'s "Deploy all edge functions" step pushes
+*every* folder in `supabase/functions/` on every qualifying merge to `main`. If any
+function folder in the repo is stale relative to what's actually deployed, merging
+silently overwrites the live version with the old one — no migration-style error, no
+warning, just a regression. `post-now`, `publish-to-zernio`, and `zernio-connect` were
+confirmed stale: their live versions (deployed via the Supabase dashboard, evidenced by
+`/tmp/user_fn_...` entrypoint paths vs the `file:///home/runner/...` CI-deployed paths
+everything else has) carried Instagram-platform work never committed to the repo.
+
+**Fixed, by pulling live source via `mcp__Supabase__get_edge_function` and diffing before
+committing:**
+- **`post-now`, `publish-to-zernio`, `zernio-connect`**: repo copies replaced with live
+  source. Live reads `draft.platform` directly (the denormalized column from
+  `add_platform_to_schedules_and_drafts`, Phase 1) and uses a new shared file,
+  `_shared/publisher/platform-rules.ts` (`maxCharsFor`/`requiresMedia`/`platformLabel`),
+  which the repo didn't have at all — added it. Left `_shared/publisher/platform-config.ts`
+  untouched: it's a *different*, still-in-use platform module (see below), not a
+  duplicate of `platform-rules.ts`.
+- **`_shared/publisher/zernio.ts`**: live had one extra comment paragraph the repo
+  lacked (flagging that Instagram's `/connect`/`/accounts` response shapes have never
+  been probed against the real API) — code was already byte-identical otherwise; added
+  the paragraph.
+- **4 live-only functions with no repo folder at all** — `pull-rss-feed`,
+  `generate-content-from-card`, `process-newsletter-email`, `backfill-newsletter-scores`
+  — added, using live's `index.ts` for each. Their bundled `_shared/ai-caller.ts`,
+  `_shared/relevance-gate.ts`, `_shared/relevance-scorer.ts` snapshots were older than
+  what's already in the repo (missing the multi-platform relevance-gate prompt and the
+  full `buildScoreSystemPrompt` dynamic-positioning scorer) — did **not** overwrite the
+  current shared files with these stale bundled copies; only the function-specific
+  `index.ts` files were added.
+
+**Verified both directions, all 29 live functions / 29 repo folders:**
+- Direction A (every live function has a repo folder): confirmed by exact set match after
+  adding the 4 above.
+- Direction B (every repo folder matches its live source): every function pulled and
+  diffed against its repo file (large ones — `execute-autopilot-template` — delegated to
+  a subagent to keep the ~60KB bundle out of context). Results:
+  - **19 match byte-for-byte**: `cancel-schedule`, `check-approved-queue`,
+    `cleanup-old-emails`, `create-manual-source`, `delete-user-data`,
+    `execute-autopilot-template`, `fire-due-schedules`, `generate-content-directions`,
+    `generate-final-content`, `ingest-gmail-content`, `preview-prompt`,
+    `process-reference-card`, `reconcile-scheduled-posts`,
+    `regenerate-draft-with-feedback`, `revise-draft`, `scan-newsletter-health`,
+    `search-sources`, `send-draft-notification`, `sync-post-analytics`.
+  - **3 fixed** (above): `post-now`, `publish-to-zernio`, `zernio-connect`.
+  - **4 added** (above): `pull-rss-feed`, `generate-content-from-card`,
+    `process-newsletter-email`, `backfill-newsletter-scores`.
+  - **3 found to be the *opposite* of stale — repo is ahead of live, left unchanged**:
+    `reschedule-draft`, `generate-draft-visual`, `preview-visual`. Their repo versions
+    (and the shared `_shared/visual-prompt.ts` they and `platform-config.ts` use) already
+    implement a *different, more complete* Instagram-platform system than what's live —
+    per-platform canvas dimensions (`canvasDimsForPlatform`, writing the real
+    `draft_visuals.canvas_width`/`canvas_height` columns Phase 1 confirmed exist),
+    platform resolved via `resolveDraftPlatform(draft.format_id)` rather than the
+    `drafts.platform` column. Live is still the older, LinkedIn-only hardcoded version
+    for these three. Deploying the repo's version on merge is a genuine improvement, not
+    a regression, so nothing was changed here — but this means **two different,
+    non-shared platform-resolution systems now coexist post-merge**:
+    `platform-rules.ts` + `drafts.platform` (post-now, publish-to-zernio, zernio-connect)
+    vs. `platform-config.ts` + `resolveDraftPlatform(format_id)` (reschedule-draft,
+    generate-draft-visual, preview-visual, execute-autopilot-template's own inlined
+    Instagram handling). Not broken — each function's own data path is internally
+    consistent — but worth a deliberate unification pass later rather than leaving two
+    parallel systems permanently. Flagged here rather than fixed, since fixing it wasn't
+    part of what broke and reconciling two live architectures is a design decision, not a
+    mechanical sync.
+
+**Status:** committed to `claude/fix-migration-ledger-mismatch` (the same branch as the
+migration-ledger fix, PR #3) — not yet merged.
+
+---
+
 ## Phase 3 — Remaining High findings (9)
 
 Group by file/pattern so related fixes land together:

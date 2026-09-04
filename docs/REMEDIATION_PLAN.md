@@ -307,10 +307,13 @@ committing:**
     consistent — but worth a deliberate unification pass later rather than leaving two
     parallel systems permanently. Flagged here rather than fixed, since fixing it wasn't
     part of what broke and reconciling two live architectures is a design decision, not a
-    mechanical sync.
+    mechanical sync. Confirmed against live: all 91 existing drafts are `linkedin`, so
+    the split can't disagree on today's data — it's latent, not active. Tracked as
+    **Phase 3i** below, with the trigger condition (unify before the first Instagram
+    draft) and failure mode spelled out there rather than fixed speculatively here.
 
-**Status:** committed to `claude/fix-migration-ledger-mismatch` (the same branch as the
-migration-ledger fix, PR #3) — not yet merged.
+**Status:** approved to merge as-is via PR #3; the platform-resolution split is tracked
+separately as Phase 3i rather than blocking this merge.
 
 ---
 
@@ -397,6 +400,39 @@ copy in `generate-draft-visual/index.ts`).
   with, old way vs new way)"` to `"...old way vs new way, before vs after)"` in both
   locations (keep them identical, matching the existing "legacy copy stays byte-identical
   to its source" convention documented in the prior audit).
+
+**3i. Two non-unified platform-resolution systems (from Phase 2.5's edge function
+reconciliation) — latent, not yet triggered**
+Confirmed against live: all 91 existing drafts are `linkedin`, so the two systems
+currently resolve identically and cannot disagree on today's data. This is dormant risk,
+not an active bug — **do not fix speculatively; unify before the first Instagram draft is
+created**, and treat that event as the trigger to pick this up, not a nice-to-have.
+- **System A** — `_shared/publisher/platform-rules.ts` + `drafts.platform` column
+  (denormalized by the `set_draft_platform_from_schedule` trigger). Used by `post-now`,
+  `publish-to-zernio`, `zernio-connect` (Phase 2.5).
+- **System B** — `_shared/publisher/platform-config.ts` + `resolveDraftPlatform(supabase,
+  draft.format_id)` (resolves platform by joining through `formats.platform`). Used by
+  `reschedule-draft`, `generate-draft-visual`, `preview-visual`.
+- **System C** — `execute-autopilot-template`'s own inlined Instagram handling
+  (`instagramConventionsBlock()` gated on `ctx.format.platform === "instagram"`, plus its
+  own child-artifact/CTA branching) — a third path, never wired to either shared module.
+  Fold this in too when unifying, not just A and B.
+- **The failure mode once this triggers:** publish (System A) and visual generation
+  (System B) can read a *different* platform for the same draft whenever a draft's
+  `schedule_id`-linked schedule and its `format_id`-linked format disagree on platform —
+  e.g. a schedule retargeted from LinkedIn to Instagram after the draft's format was
+  picked, or any future path that sets one without the other. The result isn't a thrown
+  error: `generate-draft-visual` would render and store a LinkedIn-sized (1200x627)
+  image for a draft that `post-now`/`publish-to-zernio` treat as Instagram, and Instagram
+  requires an image (`requiresMedia`) — the post would either publish with a
+  wrong-aspect-ratio image or, if the media check inspects the visual's own recorded
+  dimensions, silently pass a check it shouldn't. Nothing fails loudly; it just produces
+  a malformed live post.
+- **Fix, when triggered:** pick one resolution source (the `drafts.platform` column is
+  the more recent, purpose-built one — see `20260723143700_add_platform_to_schedules_and_drafts.sql`'s
+  own header) and point all three systems at it; retire `resolveDraftPlatform`/
+  `platform-config.ts`'s platform-lookup role (its canvas-dimension data can still move
+  over) and `execute-autopilot-template`'s separate inline check.
 
 ---
 

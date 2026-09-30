@@ -1,0 +1,49 @@
+{
+ "product": "Insight Forge",
+ "current": "2026-09-30",
+ "how_to_find": "Ask the client for the newest file name in the supabase/migrations folder of their repo. Match its date to the list below. If they have no such folder, choose Not sure and send them the newest version steps.",
+ "versions": [
+  {
+   "id": "2026-09-30",
+   "date": "2026-09-30",
+   "title": "Setup wizard released",
+   "summary": "The setup wizard replaces the old Render guide. The app code is the same as the version before it.",
+   "upgrade_type": "none",
+   "changes": [
+    {"kind": "Added", "text": "Setup wizard with 19 steps"},
+    {"kind": "Changed", "text": "Deploy target is GitHub Pages, not Render"}
+   ],
+   "upgrade_steps": []
+  },
+  {
+   "id": "2026-09-02",
+   "date": "2026-09-02",
+   "title": "Daily jobs use your own project",
+   "summary": "The three daily and weekly jobs no longer point at the Prismm project. They read the project address and key from your own database.",
+   "upgrade_type": "database",
+   "changes": [
+    {"kind": "Fixed", "text": "Daily jobs sent calls to the Prismm project"},
+    {"kind": "Added", "text": "fire_automation_endpoint function"},
+    {"kind": "Added", "text": "project_url and project_anon_key settings in automation_config"}
+   ],
+   "upgrade_steps": [
+    {"title": "Get the new database changes", "text": "Run these commands in your repo folder.", "copy": "git pull\nnpx supabase link --project-ref {{supabase_project_ref}}\nnpx supabase db push"},
+    {"title": "Set your project address and key", "text": "Open the SQL Editor in Supabase. Replace PASTE_YOUR_ANON_KEY with your anon public key from Project Settings, API.", "copy": "update public.automation_config set value = '{{supabase_url}}' where key = 'project_url';\nupdate public.automation_config set value = 'PASTE_YOUR_ANON_KEY' where key = 'project_anon_key';"}
+   ]
+  },
+  {
+   "id": "2026-06-13",
+   "date": "2026-06-13",
+   "title": "Daily auto-fire of schedules",
+   "summary": "Scheduled content now fires each day without a manual step. WARNING: installs from this version until 2026-09-02 send the daily call to the Prismm project. Upgrade these installs first.",
+   "upgrade_type": "database",
+   "changes": [
+    {"kind": "Added", "text": "Daily job that fires due schedules"},
+    {"kind": "Added", "text": "automation_config table with a secret for the job"}
+   ],
+   "upgrade_steps": [
+    {"title": "Deploy the function", "text": "Run this command in your repo folder.", "copy": "npx supabase functions deploy fire-due-schedules --project-ref {{supabase_project_ref}}"}
+   ]
+  }
+ ]
+}

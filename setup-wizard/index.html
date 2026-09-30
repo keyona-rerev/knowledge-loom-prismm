@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Setup Wizard</title>
+<style>
+:root{--bg:#f7f5f0;--ink:#14213d;--accent:#0f766e;--line:#d9d4c7;--card:#fff;--warn:#b45309;--bad:#b91c1c;--soft:#e6f2f0}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 Inter,system-ui,sans-serif}
+main{max-width:760px;margin:0 auto;padding:24px 16px 64px}
+h1{font-family:Newsreader,Georgia,serif;font-size:2rem;margin:.2em 0}
+.intro{color:#4b5563;margin-bottom:20px}
+.bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden}
+.bar>i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+.meta{font-size:.85rem;color:#4b5563;margin:8px 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px;margin-bottom:16px}
+.card h2{margin-top:0;font-family:Newsreader,Georgia,serif}
+.instr{white-space:pre-wrap}
+.hint{font-size:.9rem;color:#4b5563;border-left:3px solid var(--accent);padding-left:10px;margin:14px 0}
+.v{background:var(--soft);border-radius:4px;padding:0 4px;font-family:ui-monospace,Menlo,monospace;font-size:.92em}
+.v.empty{background:#fef3c7;color:var(--warn)}
+.field{margin:14px 0}
+.field label{display:block;font-weight:600;font-size:.92rem}
+.field small{display:block;color:#4b5563}
+.field input{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;margin-top:4px}
+.field input.bad{border-color:var(--bad)}
+.err{color:var(--bad);font-size:.85rem;min-height:1.1em}
+.copy{position:relative;background:#0f172a;color:#e2e8f0;border-radius:8px;padding:12px 84px 12px 12px;margin:12px 0;font:.88rem/1.5 ui-monospace,Menlo,monospace;white-space:pre-wrap;word-break:break-all}
+.copy .lbl{display:block;color:#94a3b8;font-size:.75rem;margin-bottom:4px}
+.copy button{position:absolute;top:8px;right:8px;padding:4px 10px;font-size:.8rem}
+label.chk{display:flex;gap:10px;align-items:flex-start;margin-top:16px;font-weight:600}
+.nav{display:flex;justify-content:space-between;margin-top:6px}
+button{font:inherit;padding:10px 18px;border-radius:8px;border:1px solid var(--ink);background:var(--card);cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.4;cursor:not-allowed}
+details.vals{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin-bottom:16px}
+details.vals summary{cursor:pointer;font-weight:600}
+table{width:100%;border-collapse:collapse;margin-top:10px;font-size:.9rem}
+td{padding:4px 6px;border-top:1px solid var(--line);vertical-align:top;word-break:break-all}
+td:first-child{width:38%;color:#4b5563}
+.note{font-size:.85rem;color:#4b5563;margin-top:24px}
+</style>
+</head>
+<body>
+<main>
+<h1 id="title">Loading…</h1>
+<p class="intro" id="intro"></p>
+<div class="bar"><i id="fill"></i></div>
+<div class="meta" id="meta"></div>
+<details class="vals" id="vals"><summary id="valsSum">Your values</summary><table id="valsTable"></table>
+<p><button id="copyVals">Copy my values</button> <button id="reset">Start over</button></p>
+<p><label for="impBox"><strong>Import values</strong> (paste key=value lines or JSON, for example from your intake record)</label></p>
+<textarea id="impBox" rows="4" style="width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px"></textarea>
+<p><button id="impBtn">Import</button> <span id="impMsg" class="err"></span></p></details>
+<div class="card" id="card"></div>
+<div class="nav"><button id="back">Back</button><button class="primary" id="next">Next</button></div>
+<p class="note">Values you type here stay in this browser only. This wizard never asks for passwords, keys or tokens. Enter those only inside your own accounts.</p>
+</main>
+<script>
+/*
+ steps.json format:
+ { title, intro,
+   variables: [ {key, label, help, placeholder, pattern, pattern_error, default, optional, derive} ],   // PUBLIC values only, never secrets
+   steps: [ { title, instructions,            // use {{key}} to insert a saved value
+              collect: ["key", ...],          // fields asked in this step; step cannot be marked done until valid
+              copy: [ {label, text} ],        // copy blocks; {{key}} is replaced
+              checkbox_label, verify_hint } ] }
+*/
+(function(){
+  var KEY='wizard:'+location.pathname, data, i=0, done={}, vals={}, mem=null;
+  var SECRET=/^(sk-|sk_|pk_live|sk_live|eyJ|ghp_|gho_|github_pat_|xox[abp]-|AKIA|AIza|SG\.|re_)/i;
+  function store(){try{return window.localStorage;}catch(e){return null;}}
+  function load(){
+    try{var st=store(),s=JSON.parse((st&&st.getItem(KEY))||'null')||mem||{};i=s.i||0;done=s.done||{};vals=s.vals||{};}catch(e){}
+  }
+  function save(){var s={i:i,done:done,vals:vals};mem=s;try{var st=store();if(st)st.setItem(KEY,JSON.stringify(s));}catch(e){}}
+  function esc(t){var d=document.createElement('div');d.textContent=t==null?'':String(t);return d.innerHTML;}
+  function def(k){for(var j=0;j<(data.variables||[]).length;j++)if(data.variables[j].key===k)return data.variables[j];return {key:k,label:k};}
+  function val(k,depth){
+    if(vals[k]!=null&&vals[k]!=='')return vals[k];
+    var d=def(k);
+    if(d.derive&&!(depth>3)){
+      var miss=false,out=String(d.derive).replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g,function(m,x){var v=val(x,(depth||0)+1);if(!v)miss=true;return v;});
+      return miss?'':out;
+    }
+    return d.default||'';
+  }
+  function sub(text,html){
+    return String(text==null?'':text).replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g,function(m,k){
+      var v=val(k);
+      if(html)return v?'<span class="v">'+esc(v)+'</span>':'<span class="v empty">'+esc('<'+(def(k).label||k)+'>')+'</span>';
+      return v||('<'+k+'>');
+    });
+  }
+  function check(k,v){
+    if(!v)return def(k).optional?'':'Required.';
+    if(SECRET.test(v)||v.length>200)return 'This looks like a secret key. Do not paste it here. Enter it only inside your own account.';
+    var d=def(k);
+    if(d.pattern){try{if(!new RegExp(d.pattern).test(v))return d.pattern_error||'This value does not look right.';}catch(e){}}
+    return '';
+  }
+  function stepReady(s){
+    var c=s.collect||[];
+    for(var j=0;j<c.length;j++)if(check(c[j],val(c[j])))return false;
+    return true;
+  }
+  function renderVals(){
+    var ks=(data.variables||[]).map(function(v){return v.key;});
+    var filled=ks.filter(function(k){return val(k);}).length;
+    document.getElementById('valsSum').textContent='Your values ('+filled+' of '+ks.length+' saved)';
+    document.getElementById('valsTable').innerHTML=ks.map(function(k){
+      return '<tr><td>'+esc(def(k).label||k)+'</td><td>'+(val(k)?esc(val(k)):'<em>not set</em>')+(def(k).derive&&!vals[k]&&val(k)?' <small>(worked out for you)</small>':'')+'</td></tr>';}).join('');
+  }
+  function render(){
+    var s=data.steps[i],n=data.steps.length,c=Object.keys(done).filter(function(k){return done[k];}).length;
+    document.getElementById('fill').style.width=Math.round(c/n*100)+'%';
+    document.getElementById('meta').textContent='Step '+(i+1)+' of '+n+' · '+c+' done';
+    var h='<h2>'+esc(s.title)+'</h2><div class="instr">'+sub(esc(s.instructions).replace(/\{\{/g,'{{'),true)+'</div>';
+    (s.collect||[]).forEach(function(k){
+      var d=def(k);
+      h+='<div class="field"><label for="f_'+k+'">'+esc(d.label||k)+'</label>'+(d.help?'<small>'+esc(d.help)+'</small>':'')+
+         '<input id="f_'+k+'" data-k="'+k+'" autocomplete="off" spellcheck="false" placeholder="'+esc(d.placeholder||'')+'" value="'+esc(vals[k]||'')+'"><div class="err" id="e_'+k+'"></div></div>';
+    });
+    (s.copy||[]).forEach(function(b,bi){
+      h+='<div class="copy"><span class="lbl">'+esc(b.label||'Copy')+'</span><span id="cp'+bi+'">'+sub(esc(b.text),true)+'</span><button data-cp="'+bi+'">Copy</button></div>';
+    });
+    if(s.verify_hint)h+='<div class="hint">How to check: '+sub(esc(s.verify_hint),true)+'</div>';
+    h+='<label class="chk"><input type="checkbox" id="ck"'+(done[i]?' checked':'')+(stepReady(s)?'':' disabled')+'> '+esc(s.checkbox_label||'I did this step')+'</label>';
+    document.getElementById('card').innerHTML=h;
+    document.getElementById('ck').onchange=function(e){done[i]=e.target.checked;save();render();};
+    var inputs=document.querySelectorAll('#card input[data-k]');
+    Array.prototype.forEach.call(inputs,function(el){
+      el.oninput=function(){
+        var k=el.getAttribute('data-k'),v=el.value.trim(),msg=v?check(k,v):'';
+        document.getElementById('e_'+k).textContent=msg;el.className=msg?'bad':'';
+        if(msg){delete vals[k];}else if(v){vals[k]=v;}else{delete vals[k];}
+        save();renderVals();
+        var ck=document.getElementById('ck');ck.disabled=!stepReady(s);if(ck.disabled){done[i]=false;ck.checked=false;}
+        (s.copy||[]).forEach(function(b,bi){document.getElementById('cp'+bi).innerHTML=sub(esc(b.text),true);});
+      };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('button[data-cp]'),function(b){
+      b.onclick=function(){var t=sub(s.copy[+b.getAttribute('data-cp')].text,false);
+        try{navigator.clipboard.writeText(t);b.textContent='Copied';setTimeout(function(){b.textContent='Copy';},1200);}catch(e){}};
+    });
+    document.getElementById('back').disabled=i===0;
+    document.getElementById('next').disabled=i===n-1;
+    renderVals();
+  }
+  document.getElementById('back').onclick=function(){if(i>0){i--;save();render();}};
+  document.getElementById('next').onclick=function(){if(i<data.steps.length-1){i++;save();render();}};
+  document.getElementById('copyVals').onclick=function(){
+    var t=(data.variables||[]).map(function(v){return v.key+'='+val(v.key);}).join('\n');
+    try{navigator.clipboard.writeText(t);}catch(e){}
+  };
+  document.getElementById('impBtn').onclick=function(){
+    var t=document.getElementById('impBox').value.trim(),o={},ok=0,skip=[];
+    try{if(t.charAt(0)==='{')o=JSON.parse(t);else t.split(/\r?\n/).forEach(function(l){var m=l.match(/^\s*([a-zA-Z0-9_]+)\s*[=:]\s*(.*)$/);if(m)o[m[1]]=m[2].replace(/^["']|["']$/g,'').trim();});}catch(e){document.getElementById('impMsg').textContent='Could not read that text.';return;}
+    Object.keys(o).forEach(function(k){
+      var known=(data.variables||[]).some(function(v){return v.key===k&&!v.derive;}),v=String(o[k]==null?'':o[k]).trim();
+      if(!known||!v){return;}
+      if(check(k,v)){skip.push(k);return;}
+      vals[k]=v;ok++;
+    });
+    save();renderVals();render();
+    document.getElementById('impMsg').textContent=ok+' saved'+(skip.length?'. Skipped (not valid here): '+skip.join(', '):'')+'.';
+    document.getElementById('impBox').value='';
+  };
+  document.getElementById('reset').onclick=function(){
+    if(confirm('Clear all saved values and progress?')){vals={};done={};i=0;save();render();}
+  };
+  fetch('steps.json').then(function(r){return r.json();}).then(function(j){
+    data=j;document.title=j.title;document.getElementById('title').textContent=j.title;
+    document.getElementById('intro').textContent=j.intro||'';load();
+    if(i>=j.steps.length)i=0;render();
+  }).catch(function(){document.getElementById('title').textContent='Could not load steps.json';});
+})();
+</script>
+</body>
+</html>

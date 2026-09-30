@@ -1,5 +1,9 @@
 # Content Creation Platform - Deployment Guide
 
+## Setup wizard (start here)
+
+**[Open the Insight Forge setup wizard](https://insight-forge-setup-wizard.netlify.app)**. It walks a new client through the whole setup and remembers each value you enter, so you type it once. The guide below is older and still mentions Render. The wizard is the current path (GitHub Pages). Its source is in the `setup-wizard/` folder.
+
 A full-stack content creation platform that helps you generate, manage, and schedule content using AI-powered insights from reference materials.
 
 ## 🚀 Features

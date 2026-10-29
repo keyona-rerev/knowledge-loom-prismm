@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { runInteractiveOrQueue } from "../_shared/interactive-run.ts";
+import { enqueueInteractiveJob, awaitInteractiveJob, findLatestGeneration } from "../_shared/claude-queue.ts";
+import { PENDING_STATUSES, bindingsEqual, isUuid, normalizeCardIds, parseJsonPayload } from "../_shared/interactive-bindings.ts";
 import { loadStrategyContext, buildContextBlock, buildSystemPrompt } from "../_shared/strategy-context.ts";
 
 const corsHeaders = {
@@ -8,14 +9,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-function parseJSON(text: string): any {
-  let content = text.trim();
-  const fence = content.match(/```(?:\w*)?\s*([\s\S]*?)\s*```/i);
-  if (fence) content = fence[1].trim();
-  const jsonMatch = content.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
-  if (jsonMatch) content = jsonMatch[1];
-  return JSON.parse(content);
-}
+const ROUTE = "generate-final-content";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -32,16 +26,70 @@ serve(async (req) => {
     if (authError || !user) return new Response(JSON.stringify({ error: "Invalid or expired authentication token" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
-    const { direction, seedInsight, seedCategory, insightCardIds, formatId, natureId, jobId, maxWaitMs } = await req.json();
+    // jobId on the wire is the STRATEGY selection id (legacy field feeding
+    // loadStrategyContext), distinct from any claude_jobs generation id.
+    const { direction, seedInsight, seedCategory, insightCardIds, formatId, natureId, jobId, requestKey, maxWaitMs } = await req.json();
+    const strategyJobId = jobId ?? null;
 
     if (!direction || !seedInsight) return new Response(JSON.stringify({ error: "Missing required fields" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-    // Rate limiting
+    // Admission validation (before any queue write): id fields must be
+    // UUID-shaped when present so snapshot metadata is coherent.
+    for (const [name, v] of [["formatId", formatId], ["natureId", natureId], ["jobId", jobId]] as const) {
+      if (v !== undefined && v !== null && !isUuid(v)) {
+        return new Response(JSON.stringify({ error: `${name} must be a UUID` }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+    }
+    if (insightCardIds !== undefined && insightCardIds !== null) {
+      if (!Array.isArray(insightCardIds) || insightCardIds.some((c) => !isUuid(c))) {
+        return new Response(JSON.stringify({ error: "insightCardIds must be UUIDs" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+    }
+
+    // v4.1 G3: normalized replay binding (final route set; insightCardIds as
+    // an order-insensitive set; direction full object, final-route only).
+    const binding = {
+      direction, seedInsight, seedCategory: seedCategory ?? null,
+      formatId: formatId ?? null, natureId: natureId ?? null,
+      insightCardIds: normalizeCardIds(insightCardIds),
+      strategyJobId,
+    };
+    const ccKey = requestKey ? `cc:${user.id}:${String(requestKey)}` : undefined;
+
+    // Reattach probe BEFORE rate side effects (v4.1 G2/G3 + keying section):
+    // live/completed reattach bypasses the rate charge entirely.
+    if (ccKey) {
+      const latest = await findLatestGeneration(supabase, user.id, `interactive:${ROUTE}:${ccKey}`);
+      if (latest) {
+        const { data: job } = await supabase.from("claude_jobs").select("id, status, result, input_snapshot").eq("id", latest.id).single();
+        const stored = job?.input_snapshot?.binding ?? null;
+        // null stored binding = legacy job: reattach by key only (contract gap, accepted).
+        if (stored && !bindingsEqual(stored, binding)) {
+          return new Response(JSON.stringify({ error: "INPUT_MISMATCH", jobId: latest.id }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        if (PENDING_STATUSES.includes(job?.status)) {
+          return new Response(JSON.stringify({ queued: true, jobId: latest.id, error: "still_running" }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        if (job?.status === "completed") {
+          const text = String(job.result?.text ?? "");
+          return new Response(JSON.stringify({ ...parseJsonPayload(text), jobId: latest.id }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        // failed latest on a cc-key replay: EXPLICIT TERMINAL, never a silent
+        // :rN rotation (v4.1 G2 - a fresh generation requires a deliberate
+        // click carrying a FRESH requestKey; the UI marks the handle terminal
+        // and preserves the inputs).
+        if (job?.status === "failed") {
+          return new Response(JSON.stringify({ error: "JOB_FAILED", reason: "failed", jobId: latest.id }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+    }
+
+    // Rate limiting - CREATE path only, and the log row lands only when the
+    // enqueue actually creates a generation (created flag, batch12 pattern).
     const windowStart = new Date();
     windowStart.setMinutes(windowStart.getMinutes() - 60);
     const { count: rateCount } = await supabase.from('rate_limit_logs').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('action', 'generate_final').gte('created_at', windowStart.toISOString());
     if ((rateCount || 0) >= 100) return new Response(JSON.stringify({ error: 'Rate limit exceeded.' }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    await supabase.from('rate_limit_logs').insert({ user_id: user.id, action: 'generate_final' });
 
     const { ctx, hardRules, voiceRules, inlineAttribution } = await loadStrategyContext(supabase, user.id, { formatId, natureId, jobId });
     const strategyBlock = buildContextBlock(ctx);
@@ -71,13 +119,29 @@ Respond ONLY with valid JSON: {"title": "...", "content": "full markdown content
       "You are a professional content writer. Always respond with valid JSON only.",
       hardRules, voiceRules, inlineAttribution
     );
-    const outcome = await runInteractiveOrQueue(supabase, {
-      userId: user.id, route: "generate-final-content", kind: "final_content", prompt, system: SYSTEM,
-    }, corsHeaders, maxWaitMs);
-    if (!outcome.done) return outcome.response;
-    const result = parseJSON(outcome.text);
 
-    return new Response(JSON.stringify(result), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const handle = await enqueueInteractiveJob(supabase, {
+      userId: user.id, route: ROUTE, kind: "final_content", prompt, system: SYSTEM,
+      context: { formatId: formatId ?? null, natureId: natureId ?? null, strategyJobId },
+      binding,
+      idempotencyKey: ccKey,
+      noRotateFailed: !!ccKey,
+    });
+    // Probe-miss race: a same-key generation appeared AND failed between the
+    // probe above and this insert. Same explicit terminal as the probe path.
+    if (handle.failedLatest) {
+      return new Response(JSON.stringify({ error: "JOB_FAILED", reason: "failed", jobId: handle.jobId }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (handle.created) {
+      await supabase.from('rate_limit_logs').insert({ user_id: user.id, action: 'generate_final' });
+    }
+    const waitMs = Math.max(1, Math.min(Number(maxWaitMs) || 100_000, 110_000));
+    const result = await awaitInteractiveJob(supabase, handle.jobId, waitMs);
+    if (result === null) {
+      return new Response(JSON.stringify({ queued: true, jobId: handle.jobId, error: "still_running" }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    const parsed = parseJsonPayload(String((result as { text?: string }).text ?? ""));
+    return new Response(JSON.stringify({ ...parsed, jobId: handle.jobId }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (error) {
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });

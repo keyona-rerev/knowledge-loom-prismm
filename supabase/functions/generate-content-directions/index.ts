@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { runInteractiveOrQueue } from "../_shared/interactive-run.ts";
+import { enqueueInteractiveJob, awaitInteractiveJob, findLatestGeneration } from "../_shared/claude-queue.ts";
+import { PENDING_STATUSES, bindingsEqual, isUuid, parseJsonPayload } from "../_shared/interactive-bindings.ts";
 import { loadStrategyContext, buildContextBlock, buildSystemPrompt } from "../_shared/strategy-context.ts";
 
 const corsHeaders = {
@@ -8,14 +9,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-function parseJSON(text: string): any {
-  let content = text.trim();
-  const fence = content.match(/```(?:\w*)?\s*([\s\S]*?)\s*```/i);
-  if (fence) content = fence[1].trim();
-  const jsonMatch = content.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
-  if (jsonMatch) content = jsonMatch[1];
-  return JSON.parse(content);
-}
+const ROUTE = "generate-content-directions";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -32,9 +26,55 @@ serve(async (req) => {
     if (authError || !user) return new Response(JSON.stringify({ error: "Invalid or expired authentication token" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
-    const { seedInsight, seedCategory, formatId, natureId, jobId, maxWaitMs } = await req.json();
+    // jobId on the wire is the STRATEGY selection id (legacy field feeding
+    // loadStrategyContext), distinct from any claude_jobs generation id.
+    const { seedInsight, seedCategory, formatId, natureId, jobId, requestKey, maxWaitMs } = await req.json();
+    const strategyJobId = jobId ?? null;
 
     if (!seedInsight) return new Response(JSON.stringify({ error: "seedInsight is required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+    // Admission validation (before any queue write): id fields must be
+    // UUID-shaped when present so snapshot metadata is coherent.
+    for (const [name, v] of [["formatId", formatId], ["natureId", natureId], ["jobId", jobId]] as const) {
+      if (v !== undefined && v !== null && !isUuid(v)) {
+        return new Response(JSON.stringify({ error: `${name} must be a UUID` }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+    }
+
+    // v4.1 G3: normalized replay binding (directions route set).
+    const binding = {
+      seedInsight, seedCategory: seedCategory ?? null,
+      formatId: formatId ?? null, natureId: natureId ?? null,
+      strategyJobId,
+    };
+    const ccKey = requestKey ? `cc:${user.id}:${String(requestKey)}` : undefined;
+
+    // Reattach probe BEFORE any generation work or side effects (v4.1 G2/G3).
+    if (ccKey) {
+      const latest = await findLatestGeneration(supabase, user.id, `interactive:${ROUTE}:${ccKey}`);
+      if (latest) {
+        const { data: job } = await supabase.from("claude_jobs").select("id, status, result, input_snapshot").eq("id", latest.id).single();
+        const stored = job?.input_snapshot?.binding ?? null;
+        // null stored binding = legacy job: reattach by key only (contract gap, accepted).
+        if (stored && !bindingsEqual(stored, binding)) {
+          return new Response(JSON.stringify({ error: "INPUT_MISMATCH", jobId: latest.id }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        if (PENDING_STATUSES.includes(job?.status)) {
+          return new Response(JSON.stringify({ queued: true, jobId: latest.id, error: "still_running" }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        if (job?.status === "completed") {
+          const text = String(job.result?.text ?? "");
+          return new Response(JSON.stringify({ ...parseJsonPayload(text), jobId: latest.id }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        // failed latest on a cc-key replay: EXPLICIT TERMINAL, never a silent
+        // :rN rotation (v4.1 G2 - a fresh generation requires a deliberate
+        // click carrying a FRESH requestKey; the UI marks the handle terminal
+        // and preserves the inputs).
+        if (job?.status === "failed") {
+          return new Response(JSON.stringify({ error: "JOB_FAILED", reason: "failed", jobId: latest.id }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+    }
 
     const { ctx, hardRules, voiceRules, inlineAttribution } = await loadStrategyContext(supabase, user.id, { formatId, natureId, jobId });
     const strategyBlock = buildContextBlock(ctx);
@@ -67,13 +107,26 @@ Respond ONLY with valid JSON:
       "You are a creative content strategist. Always respond with valid JSON only, no markdown.",
       hardRules, voiceRules, inlineAttribution
     );
-    const outcome = await runInteractiveOrQueue(supabase, {
-      userId: user.id, route: "generate-content-directions", kind: "directions", prompt, system: SYSTEM,
-    }, corsHeaders, maxWaitMs);
-    if (!outcome.done) return outcome.response;
-    const result = parseJSON(outcome.text);
 
-    return new Response(JSON.stringify(result), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const handle = await enqueueInteractiveJob(supabase, {
+      userId: user.id, route: ROUTE, kind: "directions", prompt, system: SYSTEM,
+      context: { formatId: formatId ?? null, natureId: natureId ?? null, strategyJobId },
+      binding,
+      idempotencyKey: ccKey,
+      noRotateFailed: !!ccKey,
+    });
+    // Probe-miss race: a same-key generation appeared AND failed between the
+    // probe above and this insert. Same explicit terminal as the probe path.
+    if (handle.failedLatest) {
+      return new Response(JSON.stringify({ error: "JOB_FAILED", reason: "failed", jobId: handle.jobId }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    const waitMs = Math.max(1, Math.min(Number(maxWaitMs) || 100_000, 110_000));
+    const result = await awaitInteractiveJob(supabase, handle.jobId, waitMs);
+    if (result === null) {
+      return new Response(JSON.stringify({ queued: true, jobId: handle.jobId, error: "still_running" }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    const parsed = parseJsonPayload(String((result as { text?: string }).text ?? ""));
+    return new Response(JSON.stringify({ ...parsed, jobId: handle.jobId }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (error) {
     console.error("Error:", error);

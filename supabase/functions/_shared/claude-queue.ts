@@ -33,17 +33,53 @@ export async function enqueueInteractiveJob(
     system: args.system ?? null,
     context: args.context ?? {},
   };
+  let effectiveRequestId = requestId;
   const { data: job, error } = await supabase.from("claude_jobs").insert({
-    user_id: args.userId, route: args.route, request_id: requestId,
+    user_id: args.userId, route: args.route, request_id: effectiveRequestId,
     status: "queued", path: "interactive", attempt: 0, novelty_retries: 0,
     claim_token: crypto.randomUUID(), input_snapshot: snapshot,
   }).select("id").single();
   if (error) {
-    // Unique conflict = same request already queued; return the existing row.
-    const { data: existing } = await supabase.from("claude_jobs")
-      .select("id, request_id").eq("request_id", requestId).maybeSingle();
-    if (existing) return { jobId: existing.id, requestId: existing.request_id };
-    throw new Error(`enqueue failed: ${error.message}`);
+    // Unique conflict: a generation of this request already exists. Reattach
+    // to the LATEST generation - UNLESS that generation is terminal-failed:
+    // replaying a FAILED idempotent job reattaches the caller to a dead
+    // result and makes the intent unretryable. The next generation key is
+    // deterministic (":r2", ":r3", ...), so concurrent retries of the same
+    // generation still collapse onto one job through the same unique key.
+    const { data: gens } = await supabase.from("claude_jobs")
+      .select("id, request_id, status")
+      .or(`request_id.eq.${requestId},request_id.like.${requestId}:r%`);
+    const latest = (gens ?? []).sort((a: any, b: any) =>
+      a.request_id.length - b.request_id.length || String(a.request_id).localeCompare(String(b.request_id))
+    ).pop();
+    if (!latest) throw new Error(`enqueue failed: ${error.message}`);
+    if (latest.status !== "failed") return { jobId: latest.id, requestId: latest.request_id };
+    const gen = Number((String(latest.request_id).match(/:r(\d+)$/) ?? [0, "1"])[1]) + 1;
+    const retryRequestId = `${requestId}:r${gen}`;
+    const { data: retryJob, error: retryErr } = await supabase.from("claude_jobs").insert({
+      user_id: args.userId, route: args.route, request_id: retryRequestId,
+      status: "queued", path: "interactive", attempt: 0, novelty_retries: 0,
+      claim_token: crypto.randomUUID(), input_snapshot: snapshot,
+    }).select("id").single();
+    if (retryErr) {
+      // A concurrent same-generation retry won the key: reattach to its job.
+      const { data: retryExisting } = await supabase.from("claude_jobs")
+        .select("id, request_id").eq("request_id", retryRequestId).maybeSingle();
+      if (retryExisting) return { jobId: retryExisting.id, requestId: retryExisting.request_id };
+      throw new Error(`enqueue retry failed: ${retryErr.message}`);
+    }
+    const retryKick = Deno.env.get("DISPATCHER_SECRET") ?? "";
+    if (retryKick) {
+      await Promise.race([
+        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/claude-job-redispatch`, {
+          method: "POST",
+          headers: { "x-dispatcher-secret": retryKick, "Content-Type": "application/json" },
+          body: JSON.stringify({ job_id: retryJob.id }),
+        }).catch(() => null),
+        new Promise((r) => setTimeout(r, 10000)),
+      ]);
+    }
+    return { jobId: retryJob.id, requestId: retryRequestId };
   }
   // Kick the dispatcher scoped to THIS job (10s cap, no-op if unconfigured):
   // the scoped path posts the signed repository_dispatch for this job only.

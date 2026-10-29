@@ -555,7 +555,7 @@ State the specific insight or hook you chose in "angle_used". For any figure you
 Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sentence describing the hook you chose", "stat_attributions": [{"figure": "...", "source": "..."}]}`;
       } else {
       const seedBlock = seed
-        ? `\n\nSEED (build the post on this premise)\n${seed.premise}${seed.category ? `\nCategory: ${seed.category}` : ""}`
+        ? `\n\nSEED (this premise is the post's SUBJECT)\n${seed.premise}${seed.category ? `\nCategory: ${seed.category}` : ""}\nThe seed premise decides what this post is ABOUT. Sources below may support its argument, but a source's own topic must never replace or redirect the subject. If the sources do not speak to this premise, write from the premise alone.`
         : "\n\nNo seed supplied; choose a premise that fits the job and nature above.";
 
       let sourceBlock = "";
@@ -583,6 +583,9 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
             5: "This post should be source-led, anchor it in these and their specifics.",
           };
           const instructionLines = [relianceInstruction[gen.source_reliance] ?? ""];
+          if (seed) {
+            instructionLines.push("Relevance binding: cite a source ONLY where it directly supports the seed premise above. If no offered source supports the premise, leave stat_attributions empty - no figure is better than a forced one. Never invent a number to fill the gap.");
+          }
           if (gen.first_party_weight >= 4 && chosen.some((c) => c.from_company)) {
             instructionLines.push("Prefer the framing and claims from sources marked FROM THE COMPANY, treat outside sources as secondary.");
           }
@@ -702,7 +705,7 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
     } else {
       // PATH B: fresh parent from strategy, audience, and the seed.
       const seedBlock = seed
-        ? `\n\nSEED (build the post on this premise)\n${seed.premise}${seed.category ? `\nCategory: ${seed.category}` : ""}`
+        ? `\n\nSEED (this premise is the post's SUBJECT)\n${seed.premise}${seed.category ? `\nCategory: ${seed.category}` : ""}\nThe seed premise decides what this post is ABOUT. Sources below may support its argument, but a source's own topic must never replace or redirect the subject. If the sources do not speak to this premise, write from the premise alone.`
         : "\n\nNo seed supplied; choose a premise that fits the job and nature above.";
 
       let sourceBlock = "";
@@ -730,6 +733,9 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
             5: "This post should be source-led, anchor it in these and their specifics.",
           };
           const instructionLines = [relianceInstruction[gen.source_reliance] ?? ""];
+          if (seed) {
+            instructionLines.push("Relevance binding: cite a source ONLY where it directly supports the seed premise above. If no offered source supports the premise, leave stat_attributions empty - no figure is better than a forced one. Never invent a number to fill the gap.");
+          }
           if (gen.first_party_weight >= 4 && chosen.some((c) => c.from_company)) {
             instructionLines.push("Prefer the framing and claims from sources marked FROM THE COMPANY, treat outside sources as secondary.");
           }

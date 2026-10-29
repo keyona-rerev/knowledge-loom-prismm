@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callAI } from "../_shared/ai-caller.ts";
+import { enqueueInteractiveJob, awaitInteractiveJob } from "../_shared/claude-queue.ts";
 import { loadStrategyContext, buildContextBlock, buildSystemPrompt } from "../_shared/strategy-context.ts";
 
 const corsHeaders = {
@@ -73,13 +73,6 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Draft not found or access denied" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const { data: profile } = await supabase.from("profiles").select("ai_provider, ai_model, ai_api_key, ai_endpoint").eq("user_id", user.id).single();
-    if (!profile) {
-      return new Response(JSON.stringify({ error: "Profile not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-    if (!profile.ai_api_key) {
-      return new Response(JSON.stringify({ error: "No AI API key configured in Settings" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
 
     // Store revision history before overwriting, same pattern as
     // regenerate-draft-with-feedback, so a bad revise pass is always
@@ -129,13 +122,25 @@ ${strategyBlock}
 
 Respond ONLY with valid JSON: {"title": "...", "content": "the fully rewritten post"}`;
 
-    const aiProfile = { ai_provider: profile.ai_provider, ai_model: profile.ai_model, ai_api_key: profile.ai_api_key, ai_endpoint: profile.ai_endpoint };
     const system = buildSystemPrompt(
       "You are a sharp, unsentimental line editor. Your only job on this pass is prose quality: cut the specific tropes you're given, and leave everything else -- the argument, the facts, the structure -- intact. Always respond with valid JSON only.",
       hardRules, voiceRules, inlineAttribution
     );
-    const response = await callAI(aiProfile, [{ role: "user", content: prompt }], system);
-    const result = parseJSON(response.text);
+    // Subscription path: enqueue the edit pass onto claude_jobs; the private
+    // worker (Claude Code on the owner's Max subscription) does the AI work.
+    // No paid-API route exists.
+    const { jobId } = await enqueueInteractiveJob(supabase, {
+      userId: user.id, route: "revise-draft", kind: "revise", prompt, system,
+      context: { draftId },
+    });
+    const jobResult = await awaitInteractiveJob(supabase, jobId);
+    if (!jobResult) {
+      return new Response(
+        JSON.stringify({ queued: true, jobId, error: "still_running" }),
+        { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const result = parseJSON((jobResult as { text: string }).text);
 
     await supabase.from("drafts").update({
       title: result.title || draft.title,

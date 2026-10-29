@@ -142,6 +142,25 @@ export async function completeJob(db: Db, args: {
       updated_at: now.toISOString() });
   if (!claimed) return { status: 409, body: { error: "not completable" } };
   const snap = claimed.input_snapshot as SnapshotCtx & { chosenCardIds?: string[] };
+
+  // Interactive path: subscription replacement for the removed paid-API callAI
+  // route. The worker returns a generic payload ({ text, ... }); no draft
+  // writes, no novelty window. Result is stored on the job row for the caller
+  // (edge function or client) to read via claude-job-status.
+  if (claimed.path === "interactive") {
+    const o = args.output as any;
+    if (!o || typeof o !== "object" || Array.isArray(o) || typeof o.text !== "string" || !o.text.trim()) {
+      await db.updateJobWhere(args.jobId, { status: "completing" },
+        { status: "failed", last_error: "output validation: interactive output needs non-empty text", completion_token_hash: null, updated_at: now.toISOString() });
+      return { status: 422, body: { error: "interactive output needs non-empty text" } };
+    }
+    const done = await db.updateJobWhere(args.jobId, { status: "completing" },
+      { status: "completed", result: o, run_url: args.runUrl ?? null,
+        completion_token_hash: null, updated_at: new Date().toISOString() });
+    if (!done) return { status: 409, body: { error: "job state changed during completion" } };
+    return { status: 200, body: { success: true } };
+  }
+
   const shapeErr = validateOutput(args.output, new Set(snap.chosenCardIds ?? []));
   if (shapeErr) {
     await db.updateJobWhere(args.jobId, { status: "completing" },

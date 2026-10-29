@@ -18,18 +18,21 @@ import { maxCharsFor, requiresMedia, platformLabel } from "../_shared/publisher/
 // ready image NEVER publish text-only and NEVER substitute a fallback/reused
 // image -- they land in needs_attention instead.
 //
-// The idempotency check above is read-then-act, not an atomic lock. Three
-// separate call sites (PendingTab approve, DraftDetail approve, ApprovedTab
-// retry) can all invoke this function for the same draft close enough
-// together that two both read external_post_id as null and both proceed to
-// call the provider. The provider's own duplicate-content detection then
-// rejects the second call, which used to get written straight to
-// publish_status='failed' -- clobbering the first call's success, since that
-// failure write never checked whether a sibling call had meanwhile set
-// external_post_id. The write below guards against exactly that: it only
-// marks the draft failed if external_post_id is still null at write time; if
-// a concurrent call already succeeded, this reports that success back
-// instead of lying about a failure.
+// Concurrency is closed by the atomic claim below: a single conditional
+// UPDATE moves one draft from a retryable state (null/needs_attention/failed)
+// to 'scheduling'. Exactly one concurrent caller wins; losers affect 0 rows
+// and back off before any provider call. (The pre-claim pattern was
+// read-then-act across PendingTab/DraftDetail/ApprovedTab call sites, which
+// let two calls both reach the provider.) The failure write below still
+// guards external_post_id: it only marks the draft failed if
+// external_post_id is still null at write time.
+//
+// A crash between provider accept and the external_post_id write leaves
+// 'scheduling' with a null external id -- a state that is NOT safe to
+// auto-retry (Zernio's post schema has no idempotency key, so a blind retry
+// could create a duplicate live post). The cron sweep parks stale claims
+// (>10 min) into needs_attention with an explanatory note instead of
+// re-publishing; reconcile there before retrying.
 //
 // OCCUPANCY-AWARE SLOT ASSIGNMENT: resolveForApproval() only knows this one
 // draft's own intended time (stamped at generation, or "next occurrence from
@@ -89,7 +92,8 @@ const scheduleDraft = async (
     // exactly one concurrent caller transitions a retryable state to
     // 'scheduling'; losers affect 0 rows and back off. Failure paths below
     // move the row to 'failed'/'needs_attention' (visible, retryable); a
-    // crashed claim is recovered by the sweep after a staleness window.
+    // crashed claim is parked to needs_attention by the sweep after a
+    // staleness window (never auto-retried; see the header note).
     const { data: claimed } = await supabase
       .from("drafts")
       .update({ publish_status: "scheduling" })
@@ -290,18 +294,39 @@ serve(async (req) => {
       if (body?.sweep !== true || !body?.user_id) {
         return json({ error: "cron sweep requires {sweep:true, user_id}" }, 400);
       }
+      // Park stale claims instead of auto-retrying them: a 'scheduling' row
+      // older than 10 minutes means the claiming invocation died between the
+      // claim and the final write. It may have crashed AFTER the provider
+      // accepted the post (external id never recorded), so re-publishing
+      // could duplicate a live post. Zernio's post schema has no idempotency
+      // key, so the safe move is needs_attention + reconcile.
       const staleIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      const { data: parked } = await svc
+        .from("drafts")
+        .update({
+          publish_status: "needs_attention",
+          publish_error:
+            "Recovered stale scheduling claim: the publish run was interrupted after claiming this draft. A provider post may or may not have been created - reconcile with Zernio before retrying.",
+        })
+        .eq("user_id", body.user_id)
+        .eq("publish_status", "scheduling")
+        .is("external_post_id", null)
+        .lt("updated_at", staleIso)
+        .select("id");
+      const results = [];
+      if (parked?.length) {
+        results.push(...parked.map((d) => ({ draftId: d.id, ok: false, parkedStaleClaim: true })));
+      }
+
       const { data: candidates, error: candErr } = await svc
         .from("drafts")
         .select("id")
         .eq("user_id", body.user_id)
         .eq("approval_status", "approved")
-        .is("external_post_id", null)
-        .or(`publish_status.is.null,and(publish_status.eq.scheduling,updated_at.lt.${staleIso})`)
+        .is("publish_status", null)
         .order("scheduled_for", { ascending: true })
         .limit(10);
       if (candErr) return json({ error: "sweep fetch failed: " + candErr.message }, 500);
-      const results = [];
       for (const c of candidates ?? []) {
         const res = await scheduleDraft(svc, c.id, body.user_id);
         results.push({ draftId: c.id, httpStatus: res.status, body: await res.json() });

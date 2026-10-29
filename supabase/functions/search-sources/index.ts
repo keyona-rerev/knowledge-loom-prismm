@@ -23,12 +23,17 @@ const json = (body: unknown, status = 200) =>
 const arr = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => String(x)) : []);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function kickDispatcher() {
+// Kick the dispatcher scoped to the job we just admitted: the scoped path
+// dispatches exactly that job. A bare global kick here would also dispatch
+// every other queued job (e.g. a synthetic cron-reserved job) on an organic
+// search. The 13:20 UTC cron remains the global backstop.
+async function kickDispatcher(jobId?: string) {
   const secret = Deno.env.get("DISPATCHER_SECRET") ?? "";
   if (!secret) return;
   await Promise.race([
     fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/claude-job-redispatch`, {
-      method: "POST", headers: { "x-dispatcher-secret": secret, "Content-Type": "application/json" }, body: "{}",
+      method: "POST", headers: { "x-dispatcher-secret": secret, "Content-Type": "application/json" },
+      body: JSON.stringify(jobId ? { job_id: jobId } : {}),
     }).catch(() => null),
     new Promise((r) => setTimeout(r, 10000)),
   ]);
@@ -69,7 +74,7 @@ serve(async (req) => {
     });
     const row = Array.isArray(adm) ? adm[0] : adm;
     if (admErr || !row?.job_id) return json({ error: "Could not queue the source search" }, 500);
-    await kickDispatcher();
+    await kickDispatcher(row.job_id);
 
     const waitMs = Math.max(1, Math.min(Number(body.maxWaitMs) || 100_000, 110_000));
     const result = await awaitInteractiveJob(supabase, row.job_id, waitMs) as { text?: string; verified_urls?: unknown } | null;

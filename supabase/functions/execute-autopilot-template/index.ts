@@ -606,15 +606,20 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "stat_attributions": [{"
         if (existing) return json({ success: true, queued: true, duplicate: true, jobId: existing.id, jobStatus: existing.status });
         return json({ error: ccErr.message }, 500);
       }
-      // Kick the dispatcher (10s cap, no-op if unconfigured): it sweeps and posts
-      // the signed repository_dispatch for every queued job, this one included.
+      // Kick the dispatcher (10s cap, no-op if unconfigured) SCOPED to the job
+      // just enqueued: the scoped redispatch path posts the signed
+      // repository_dispatch for this job only. A global {} kick here would also
+      // dispatch every other queued job (e.g. an unrelated queued search job);
+      // the 13:20 UTC cron sweep and the Settings resume action remain the
+      // intentional-global backstops. The kick is fire-and-forget: a scoped
+      // rejection (404/403/409/502) is never retried globally from here.
       const ccDispatcherSecret = Deno.env.get("DISPATCHER_SECRET") ?? "";
       if (ccDispatcherSecret) {
         await Promise.race([
           fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/claude-job-redispatch`, {
             method: "POST",
             headers: { "x-dispatcher-secret": ccDispatcherSecret, "Content-Type": "application/json" },
-            body: "{}",
+            body: JSON.stringify({ job_id: ccJob.id }),
           }).catch(() => null),
           new Promise((r) => setTimeout(r, 10000)),
         ]);

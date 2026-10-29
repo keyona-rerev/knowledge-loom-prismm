@@ -33,27 +33,66 @@ export async function enqueueInteractiveJob(
     system: args.system ?? null,
     context: args.context ?? {},
   };
+  let effectiveRequestId = requestId;
   const { data: job, error } = await supabase.from("claude_jobs").insert({
-    user_id: args.userId, route: args.route, request_id: requestId,
+    user_id: args.userId, route: args.route, request_id: effectiveRequestId,
     status: "queued", path: "interactive", attempt: 0, novelty_retries: 0,
     claim_token: crypto.randomUUID(), input_snapshot: snapshot,
   }).select("id").single();
   if (error) {
-    // Unique conflict = same request already queued; return the existing row.
+    // Unique conflict = same request already exists; return the existing row -
+    // UNLESS it is terminal-failed: replaying a FAILED idempotent job would
+    // reattach the caller to a dead result and make the intent unretryable.
+    // Derive a deterministic generation key (":r2", ":r3", ... from the count
+    // of existing generations) so a deliberate retry of the same intent runs
+    // fresh, while concurrent retries of the same generation still collapse
+    // onto one job through the same unique key.
     const { data: existing } = await supabase.from("claude_jobs")
-      .select("id, request_id").eq("request_id", requestId).maybeSingle();
-    if (existing) return { jobId: existing.id, requestId: existing.request_id };
+      .select("id, request_id, status").eq("request_id", requestId).maybeSingle();
+    if (existing && existing.status !== "failed") return { jobId: existing.id, requestId: existing.request_id };
+    if (existing) {
+      const { count } = await supabase.from("claude_jobs")
+        .select("id", { count: "exact", head: true })
+        .or(`request_id.eq.${requestId},request_id.like.${requestId}:r%`);
+      effectiveRequestId = `${requestId}:r${Math.max(count ?? 1, 1) + 1}`;
+      const { data: retryJob, error: retryErr } = await supabase.from("claude_jobs").insert({
+        user_id: args.userId, route: args.route, request_id: effectiveRequestId,
+        status: "queued", path: "interactive", attempt: 0, novelty_retries: 0,
+        claim_token: crypto.randomUUID(), input_snapshot: snapshot,
+      }).select("id").single();
+      if (retryErr) {
+        // Same-generation concurrent retry won the key: return its job.
+        const { data: retryExisting } = await supabase.from("claude_jobs")
+          .select("id, request_id").eq("request_id", effectiveRequestId).maybeSingle();
+        if (retryExisting) return { jobId: retryExisting.id, requestId: retryExisting.request_id };
+        throw new Error(`enqueue retry failed: ${retryErr.message}`);
+      }
+      const scopedKick2 = Deno.env.get("DISPATCHER_SECRET") ?? "";
+      if (scopedKick2) {
+        await Promise.race([
+          fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/claude-job-redispatch`, {
+            method: "POST",
+            headers: { "x-dispatcher-secret": scopedKick2, "Content-Type": "application/json" },
+            body: JSON.stringify({ job_id: retryJob.id }),
+          }).catch(() => null),
+          new Promise((r) => setTimeout(r, 10000)),
+        ]);
+      }
+      return { jobId: retryJob.id, requestId: effectiveRequestId };
+    }
     throw new Error(`enqueue failed: ${error.message}`);
   }
-  // Kick the dispatcher (10s cap, no-op if unconfigured): sweeps and posts the
-  // signed repository_dispatch for every queued job, this one included.
+  // Kick the dispatcher scoped to THIS job (10s cap, no-op if unconfigured):
+  // the scoped path posts the signed repository_dispatch for this job only.
+  // A global kick here would dispatch every other queued job along with it;
+  // the 13:20 UTC cron sweep remains the global backstop.
   const dispatcherSecret = Deno.env.get("DISPATCHER_SECRET") ?? "";
   if (dispatcherSecret) {
     await Promise.race([
       fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/claude-job-redispatch`, {
         method: "POST",
         headers: { "x-dispatcher-secret": dispatcherSecret, "Content-Type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ job_id: job.id }),
       }).catch(() => null),
       new Promise((r) => setTimeout(r, 10000)),
     ]);

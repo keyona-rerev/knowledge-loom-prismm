@@ -15,11 +15,18 @@ export interface InteractiveJobArgs {
   kind: string;            // prompt shape, e.g. "revise", "directions", "visual"
   prompt: string;          // user-turn content
   system?: string;         // system prompt
-  context?: Record<string, unknown>; // small structured extras for the worker
+  context?: Record<string, unknown>; // small structured extras for the worker (batch13: trusted strategy/format/nature identity for consume)
+  binding?: Record<string, unknown>; // batch13: normalized replay inputs, compared on reattach (409 INPUT_MISMATCH on divergence)
   idempotencyKey?: string; // deterministic retry key; omit for one-shot prompts
+  // batch13 cc-key callers (directions/final): NEVER rotate a failed latest
+  // generation into :rN - a fresh generation requires a deliberate click with
+  // a fresh key. Covers the probe-miss race: same-key job appears AND fails
+  // between the route's probe and this insert. Default false preserves the
+  // legacy revise/regen deliberate-retry rotation semantics.
+  noRotateFailed?: boolean;
 }
 
-export interface InteractiveJobHandle { jobId: string; requestId: string; created: boolean; }
+export interface InteractiveJobHandle { jobId: string; requestId: string; created: boolean; failedLatest?: boolean; }
 
 // Latest generation of a request family (base + :rN retry suffixes), bound to
 // the owning user. Callers use this BEFORE metered side effects (rate-limit
@@ -49,6 +56,7 @@ export async function enqueueInteractiveJob(
     prompt: args.prompt,
     system: args.system ?? null,
     context: args.context ?? {},
+    binding: args.binding ?? null, // null on legacy one-shot callers: reattach-by-key only
   };
   let effectiveRequestId = requestId;
   const { data: job, error } = await supabase.from("claude_jobs").insert({
@@ -66,6 +74,12 @@ export async function enqueueInteractiveJob(
     const latest = await findLatestGeneration(supabase, args.userId, requestId);
     if (!latest) throw new Error(`enqueue failed: ${error.message}`);
     if (latest.status !== "failed") return { jobId: latest.id, requestId: latest.request_id, created: false };
+    if (args.noRotateFailed) {
+      // cc-key replay racing a failed winner: hand the existing terminal
+      // identity back; the route answers 409 JOB_FAILED. No new generation,
+      // no kick, no side effects - even under the probe-miss race.
+      return { jobId: latest.id, requestId: latest.request_id, created: false, failedLatest: true };
+    }
     const gen = Number((String(latest.request_id).match(/:r(\d+)$/) ?? [0, "1"])[1]) + 1;
     const retryRequestId = `${requestId}:r${gen}`;
     const { data: retryJob, error: retryErr } = await supabase.from("claude_jobs").insert({

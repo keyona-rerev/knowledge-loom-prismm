@@ -403,48 +403,20 @@ const Settings = () => {
         {/* AI Provider */}
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle>AI Provider Configuration</CardTitle>
-            <CardDescription>Configure which AI model powers your content generation. Switch providers any time, no code changes needed.</CardDescription>
+            <CardTitle>AI Provider</CardTitle>
+            <CardDescription>All AI work runs on your Claude subscription. There is no paid API fallback and no API key option.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label className="text-base font-semibold">Provider</Label>
-              <Select value={profile.ai_provider} onValueChange={(value) => setProfile(prev => ({ ...prev, ai_provider: value }))}>
-                <SelectTrigger><SelectValue placeholder="Select AI provider" /></SelectTrigger>
-                <SelectContent>
-                  {AI_PROVIDERS.map(p => (
-                    <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="rounded-lg border p-3 space-y-1">
+              <p className="font-medium">Claude Code (your Claude subscription)</p>
+              <p className="text-sm">Drafts are written by a Claude Code worker running in GitHub Actions on your Claude subscription. Scheduled generation carries no per-call API cost, and no API-key provider is offered anywhere in the app.</p>
+              <p className="text-sm text-muted-foreground">Interactive AI tools (revision, card processing, visual generation, source search, newsletter scoring) are temporarily unavailable while they are moved onto the same subscription path. They are not running and not billing.</p>
             </div>
-            {profile.ai_provider === "claude_code" && (
-              <div className="rounded-lg border p-3 space-y-1">
-                <p className="text-sm">Drafts are written by a Claude Code worker running in GitHub Actions on your Claude subscription. No API key is needed and scheduled generation carries no per-call API cost.</p>
-                <p className="text-sm text-muted-foreground">The model field below is passed through to the worker. Switching to an API provider here makes generation bill per call again.</p>
-              </div>
-            )}
-            {profile.ai_provider !== "claude_code" && (
-            <div className="space-y-2">
-              <Label className="text-base font-semibold">{currentProvider.keyLabel}</Label>
-              <Input type="password" placeholder={currentProvider.keyPlaceholder} value={profile.ai_api_key} onChange={(e) => setProfile(prev => ({ ...prev, ai_api_key: e.target.value }))} />
-              {currentProvider.docsUrl && (
-                <p className="text-sm text-muted-foreground">Get your key at: <a href={currentProvider.docsUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{currentProvider.docsLabel}</a></p>
-              )}
-            </div>
-            )}
             <div className="space-y-2">
               <Label className="text-base font-semibold">Model</Label>
-              <Input placeholder={currentProvider.modelPlaceholder} value={profile.ai_model} onChange={(e) => setProfile(prev => ({ ...prev, ai_model: e.target.value }))} />
-              <p className="text-sm text-muted-foreground">Enter the exact model string. For Claude it must be <code>claude-sonnet-4-6</code>.</p>
+              <Input placeholder="claude-sonnet-4-6" value={profile.ai_model} onChange={(e) => setProfile(prev => ({ ...prev, ai_model: e.target.value }))} />
+              <p className="text-sm text-muted-foreground">Passed through to the subscription worker. For Claude it must be <code>claude-sonnet-4-6</code>.</p>
             </div>
-            {profile.ai_provider === "custom" && (
-              <div className="space-y-2">
-                <Label className="text-base font-semibold">Custom Endpoint URL</Label>
-                <Input placeholder="https://api.example.com/v1/chat/completions" value={profile.ai_endpoint || ""} onChange={(e) => setProfile(prev => ({ ...prev, ai_endpoint: e.target.value }))} />
-                <p className="text-sm text-muted-foreground">Must be an OpenAI-compatible chat completions endpoint.</p>
-              </div>
-            )}
             <Button onClick={handleSave} disabled={loading}>
               {loading ? "Saving..." : "Save Settings"}
             </Button>

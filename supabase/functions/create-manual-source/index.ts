@@ -243,6 +243,7 @@ serve(async (req) => {
       // real score. The column itself even has a default of 5, so leaving
       // this key out isn't enough; it must be set to null explicitly.
       global_relevance_score: null,
+      relevance_state: "unscored",
       user_id: user_id,
       content_quality: contentQuality,
       content_warning: contentWarning,

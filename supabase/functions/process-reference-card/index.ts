@@ -86,58 +86,6 @@ async function loadAIProfile(supabase: any, userId: string): Promise<AIProfile> 
   return data as AIProfile;
 }
 
-// ─── Inlined + updated from _shared/relevance-scorer.ts ────────────────────
-interface ScoreVerdict { score: number; relevant: boolean; reason: string; }
-
-function buildScoreSystemPrompt(business: { name?: string | null; description?: string | null } | null, ruleLines: string[]): string {
-  const identity = business?.description
-    ? `You are a relevance scorer for ${business.name || "a company"}, positioned as: ${business.description}`
-    : "You are a relevance scorer for a company that has not yet described its positioning in Strategy — score on general business/professional relevance only, since there's no specific positioning to measure against yet.";
-  const rules = ruleLines.length ? `\n\nThis company's framing rules: ${ruleLines.join("; ")}.` : "";
-  return `${identity}${rules}
-
-You grade source content 1-10 for how useful it would be as material for THIS company's content strategy. The distinction that matters most is between "on-topic for the industry" and "on-topic for THIS company's specific positioning" — those are not the same thing, and the gap between a 6 and a 10 should track that difference, not general subject-matter overlap.
-
-Score 1-2: pure noise. Ads, unsubscribe/footer boilerplate, paywall stubs, broken or empty scrapes, spam.
-Score 3-5: real content, but only loosely related to this company's industry or audience — true and on-topic in a general sense, not specifically about what this company argues or who it serves.
-Score 6-7: speaks to this company's actual market or audience, but doesn't engage its specific positioning above — solid industry-relevant material, not a direct hit.
-Score 8-10: speaks directly to this company's stated positioning — the more precisely it could be cited to support (or seriously challenge) that exact argument, the higher within this range.
-
-Respond with ONLY minified JSON, no other text: {"score":<1-10 integer>,"reason":"<max 15 words>"}. Err toward the middle (5) when genuinely unsure rather than guessing at an extreme.`;
-}
-
-async function scoreRelevance(supabase: any, userId: string, input: { title: string; content: string }): Promise<ScoreVerdict> {
-  let profile: AIProfile;
-  try {
-    profile = await loadAIProfile(supabase, userId);
-  } catch {
-    return { score: 5, relevant: true, reason: "No AI profile configured - scoring skipped" };
-  }
-  if (!profile.ai_api_key) return { score: 5, relevant: true, reason: "No AI key configured - scoring skipped" };
-
-  const [{ data: prof }, { data: rules }] = await Promise.all([
-    supabase.from("profiles").select("business_name, business_description").eq("user_id", userId).maybeSingle(),
-    supabase.from("hard_rules").select("body").eq("user_id", userId).eq("is_active", true),
-  ]);
-  const ruleLines = (rules || []).map((r: { body: string }) => r.body).filter(Boolean);
-  const systemPrompt = buildScoreSystemPrompt(prof, ruleLines);
-  const excerpt = (input.content || "").slice(0, 3000);
-
-  try {
-    const res = await callAI(profile, [{ role: "user", content: `Title: ${input.title || "(untitled)"}\n\nExcerpt:\n${excerpt || "(empty)"}` }], systemPrompt);
-    const match = res.text.match(/\{[\s\S]*\}/);
-    if (!match) return { score: 5, relevant: true, reason: "Score response unparseable - defaulted to 5" };
-    const parsed = JSON.parse(match[0]);
-    const rawScore = Number(parsed.score);
-    if (!Number.isFinite(rawScore)) return { score: 5, relevant: true, reason: "Score response malformed - defaulted to 5" };
-    const score = Math.min(10, Math.max(1, Math.round(rawScore)));
-    return { score, relevant: score >= 3, reason: String(parsed.reason || "").slice(0, 200) };
-  } catch (err) {
-    console.error("Relevance scorer call failed, defaulting to 5:", err);
-    return { score: 5, relevant: true, reason: "Scoring call failed - defaulted to 5" };
-  }
-}
-
 // ─── process-reference-card itself ──────────────────────────────────────────
 function parseJSON(text: string): any {
   let content = text.trim();
@@ -320,16 +268,8 @@ Respond ONLY with valid JSON:
     updatedAnswers = { ...existing, [`[Custom - ${new Date().toLocaleDateString()}] ${customQuestion}`]: result.answers?.[customQuestion] || Object.values(result.answers || {})[0] || "" };
   }
 
-  let relevanceScore = card.global_relevance_score;
-  try {
-    const verdict = await scoreRelevance(supabase, userId, {
-      title: card.title || "",
-      content: card.original_text || "",
-    });
-    relevanceScore = verdict.score;
-  } catch (err) {
-    console.error("Relevance scoring failed during processing, keeping existing score:", err);
-  }
+  // Scoring moved to the subscription queue (relevance-queue tick / Score now). This function keeps whatever score the card has.
+  const relevanceScore = card.global_relevance_score;
 
   const generatedTitle = generateTitle && typeof result.title === "string" && result.title.trim()
     ? result.title.trim().slice(0, 255)

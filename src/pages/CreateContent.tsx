@@ -1,3 +1,4 @@
+import { invokeQueued } from "@/lib/invokeQueued";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -127,15 +128,13 @@ const CreateContent = () => {
       data: { session },
     } = await supabase.auth.getSession();
 
-    const { data, error } = await supabase.functions.invoke("generate-content-directions", {
-      body: {
+    const { data, error } = await invokeQueued("generate-content-directions", {
         seedInsight,
         seedCategory,
         formatId: selectedFormat !== NONE ? selectedFormat : undefined,
         natureId: selectedNature !== NONE ? selectedNature : undefined,
         jobId: selectedJob !== NONE ? selectedJob : undefined,
         userId: session?.user?.id,
-      },
     });
 
     setLoading(false);
@@ -163,8 +162,7 @@ const CreateContent = () => {
 
     try {
       // Use the enhanced function with strategy library support
-      const { data, error } = await supabase.functions.invoke("generate-final-content", {
-        body: {
+      const { data, error } = await invokeQueued("generate-final-content", {
           direction,
           seedInsight,
           seedCategory,
@@ -173,7 +171,6 @@ const CreateContent = () => {
           natureId: selectedNature !== NONE ? selectedNature : undefined,
           jobId: selectedJob !== NONE ? selectedJob : undefined,
           userId: session?.user?.id,
-        },
       });
 
       if (error) {

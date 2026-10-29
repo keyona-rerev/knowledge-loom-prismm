@@ -16,6 +16,7 @@ export interface InteractiveJobArgs {
   prompt: string;          // user-turn content
   system?: string;         // system prompt
   context?: Record<string, unknown>; // small structured extras for the worker
+  idempotencyKey?: string; // deterministic retry key; omit for one-shot prompts
 }
 
 export interface InteractiveJobHandle { jobId: string; requestId: string; }
@@ -24,7 +25,7 @@ export interface InteractiveJobHandle { jobId: string; requestId: string; }
 export async function enqueueInteractiveJob(
   supabase: QueueDb, args: InteractiveJobArgs
 ): Promise<InteractiveJobHandle> {
-  const requestId = `interactive:${args.route}:${crypto.randomUUID()}`;
+  const requestId = `interactive:${args.route}:${args.idempotencyKey ?? crypto.randomUUID()}`;
   const snapshot = {
     kind: "interactive",
     interactiveKind: args.kind,

@@ -132,6 +132,10 @@ Respond ONLY with valid JSON: {"title": "...", "content": "the fully rewritten p
     const { jobId } = await enqueueInteractiveJob(supabase, {
       userId: user.id, route: "revise-draft", kind: "revise", prompt, system,
       context: { draftId },
+      // A retried request for the SAME revision returns the existing job
+      // instead of double-spending a worker run; a deliberate new pass has a
+      // new revision number and correctly gets a fresh job.
+      idempotencyKey: `revise:${draftId}:${currentVersion}`,
     });
     const jobResult = await awaitInteractiveJob(supabase, jobId);
     if (!jobResult) {

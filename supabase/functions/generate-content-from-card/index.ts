@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callAI } from "../_shared/ai-caller.ts";
+import { runInteractiveOrQueue } from "../_shared/interactive-run.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,7 +31,7 @@ serve(async (req) => {
     if (authError || !user) return new Response(JSON.stringify({ error: "Invalid or expired authentication token" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
-    const { cardId, templateId, outputFormat } = await req.json();
+    const { cardId, templateId, outputFormat, maxWaitMs } = await req.json();
 
     if (!cardId) return new Response(JSON.stringify({ error: "cardId is required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
@@ -45,7 +45,7 @@ serve(async (req) => {
     const { data: card } = await supabase.from("reference_cards").select("*").eq("id", cardId).eq("user_id", user.id).single();
     if (!card) return new Response(JSON.stringify({ error: "Reference card not found or access denied" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-    const { data: profile } = await supabase.from("profiles").select("ai_provider, ai_model, ai_api_key, ai_endpoint, brand_voice, writing_examples, business_name, business_description, target_audience, content_type_templates").eq("user_id", user.id).single();
+    const { data: profile } = await supabase.from("profiles").select("brand_voice, writing_examples, business_name, business_description, target_audience, content_type_templates").eq("user_id", user.id).single();
     if (!profile) return new Response(JSON.stringify({ error: "Profile not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     let templatePrompt = "";
@@ -100,9 +100,11 @@ ${profile.target_audience ? `Write specifically for: ${profile.target_audience}`
 
 Respond ONLY with valid JSON: {"title": "...", "content": "full markdown content"}`;
 
-    const aiProfile = { ai_provider: profile.ai_provider, ai_model: profile.ai_model, ai_api_key: profile.ai_api_key, ai_endpoint: profile.ai_endpoint };
-    const response = await callAI(aiProfile, [{ role: "user", content: prompt }], "You are a professional content writer. Always respond with valid JSON only.");
-    const result = parseJSON(response.text);
+    const outcome = await runInteractiveOrQueue(supabase, {
+      userId: user.id, route: "generate-content-from-card", kind: "from_card", prompt, system: "You are a professional content writer. Always respond with valid JSON only.",
+    }, corsHeaders, maxWaitMs);
+    if (!outcome.done) return outcome.response;
+    const result = parseJSON(outcome.text);
 
     return new Response(JSON.stringify(result), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 

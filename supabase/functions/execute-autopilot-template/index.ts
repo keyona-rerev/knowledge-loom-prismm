@@ -318,7 +318,7 @@ serve(async (req) => {
       .eq("user_id", userId)
       .single();
     if (!profile) return json({ error: "Profile not found" }, 404);
-    if (!profile.ai_api_key) return json({ error: "No AI API key configured in Settings" }, 400);
+    if (!profile.ai_api_key && profile.ai_provider !== "claude_code") return json({ error: "No AI API key configured in Settings" }, 400);
 
     const aiProfile = { ai_provider: profile.ai_provider, ai_model: profile.ai_model, ai_api_key: profile.ai_api_key, ai_endpoint: profile.ai_endpoint };
 
@@ -519,6 +519,131 @@ serve(async (req) => {
       return { cf, cn };
     };
 
+    // Subscription-worker route (design A1): assemble the SAME prompts the
+    // in-function paths below build, park the run as a claude_jobs row, and let
+    // the private Claude Code worker produce the draft on the subscription.
+    // No API key is used on this route; the API path below stays as rollback.
+    if (profile.ai_provider === "claude_code") {
+      let ccPath: "A" | "B" = "B";
+      let ccContentTypeKey = format.key;
+      let ccChosenCards: any[] = [];
+      let prompt: string;
+      if (reuseParent) {
+        ccPath = "A";
+        const { cf, cn } = await loadChildLibs();
+        if (!cf || !cn) return json({ error: "Slot child references a missing format or nature" }, 400);
+        ccContentTypeKey = cf.key;
+      const childCtx: SlotContext = { ...baseCtx, format: cf, nature: cn };
+      const anglesUsed = arr(reuseParent.reuse_angles_used);
+      prompt = `${buildContextBlock(childCtx)}
+
+TEASER POST FOR THIS PUBLISHED ARTICLE
+The parent article is a long-form piece. Your job is to write a ${teaserArtifactLabel(cf)} that:
+1. Opens a loop — surface ONE specific insight, provocation, or tension from the article that the reader wants resolved.
+2. Does NOT summarize or restate the article. The feed post is the door, not the room.
+3. Ends in a way that makes the full article the natural next step.
+4. Stands on its own as a piece of writing — someone who never reads the article should still get value from this post.
+
+Parent article title: ${reuseParent.title}
+Parent article body: ${(reuseParent.body || "").slice(0, 3000)}
+
+Angles already used as teasers (do not repeat the same hook):
+${anglesUsed.length ? anglesUsed.map((x) => `- ${x}`).join("\n") : "None yet; this is the first teaser."}
+
+State the specific insight or hook you chose in "angle_used". For any figure you use, record it in stat_attributions.
+
+Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sentence describing the hook you chose", "stat_attributions": [{"figure": "...", "source": "..."}]}`;
+      } else {
+      const seedBlock = seed
+        ? `\n\nSEED (this premise is the post's SUBJECT)\n${seed.premise}${seed.category ? `\nCategory: ${seed.category}` : ""}\nThe seed premise decides what this post is ABOUT. Sources below may support its argument, but a source's own topic must never replace or redirect the subject. If the sources do not speak to this premise, write from the premise alone.`
+        : "\n\nNo seed supplied; choose a premise that fits the job and nature above.";
+
+      let sourceBlock = "";
+      let chosenCards: any[] = [];
+      if (gen.source_reliance > 1) {
+        const topByReliance: Record<number, number> = { 2: 2, 3: 3, 4: 5, 5: 6 };
+        const takeN = topByReliance[gen.source_reliance] ?? 0;
+        // STAGE 2b — the reference material the post builds on: a weighted
+        // random draw from the citable set (so it is always a subset of what
+        // the post may cite), giving a different pairing each run.
+        const chosen = weightedSample(trustedCards, takeN, weightOf);
+        chosenCards = chosen;
+        if (chosen.length) {
+          const cardLines = chosen.map((c) => {
+            const summary = (c.ai_summary && String(c.ai_summary).trim())
+              ? String(c.ai_summary).trim()
+              : String(c.original_text || "").slice(0, 400);
+            const tag = c.from_company ? "[FROM THE COMPANY] " : "";
+            return `- ${tag}${c.title || "Untitled"}: ${summary}`;
+          });
+          const relianceInstruction: Record<number, string> = {
+            2: "Optional seasoning, use only if it sharpens the point.",
+            3: "Draw on these where they sharpen the point, do not force them.",
+            4: "Build the post around the strongest of these, using their real figures.",
+            5: "This post should be source-led, anchor it in these and their specifics.",
+          };
+          const instructionLines = [relianceInstruction[gen.source_reliance] ?? ""];
+          if (seed) {
+            instructionLines.push("Relevance binding: cite a source ONLY where it directly supports the seed premise above. If no offered source supports the premise, leave stat_attributions empty - no figure is better than a forced one. Never invent a number to fill the gap.");
+          }
+          if (gen.first_party_weight >= 4 && chosen.some((c) => c.from_company)) {
+            instructionLines.push("Prefer the framing and claims from sources marked FROM THE COMPANY, treat outside sources as secondary.");
+          }
+          sourceBlock = `\n\nSOURCES (reference material)\n${instructionLines.filter(Boolean).join("\n")}\n${cardLines.join("\n")}`;
+        }
+      }
+
+      prompt = `${contextBlock}${seedBlock}${sourceBlock}
+
+Write one post that does the job, argues in the nature, fits the format and its length, speaks to the lane and reader, and answers the reader's questions where natural. Use the audience's preferred language and avoid the language to avoid. Use only figures attributable to the trusted sources and record each one in stat_attributions.
+
+Respond ONLY with JSON: {"title": "...", "body": "...", "stat_attributions": [{"figure": "the number as you stated it", "source": "the exact trusted source title"}]}`;
+        ccChosenCards = chosenCards;
+      }
+      const ccRequestId = `${slot.id}:${intendedScheduledFor}`;
+      const ccSnapshot = {
+        system, prompt, path: ccPath, userId, slotId: slot.id, intendedScheduledFor,
+        formatId: ccPath === "A" ? childFormatId : slot.format_id,
+        natureId: ccPath === "A" ? childNatureId : slot.nature_id,
+        jobId: slot.job_id, laneId: slot.lane_id, readerId: reader?.id ?? null,
+        seedId: ccPath === "B" ? seed?.id ?? null : null,
+        requiresChild: ccPath === "B" && !!slot.requires_child,
+        reuseParentId: reuseParent?.id ?? null, childFormatId, childNatureId,
+        chosenCardIds: ccChosenCards.map((c) => c.id), isTestRun,
+        maxReuseCount: slot.max_reuse_count ?? 0, reuseWindowDays: slot.reuse_window_days ?? 90,
+        contentTypeKey: ccContentTypeKey,
+        seedRow: ccPath === "B" && seed ? { id: seed.id, times_used: seed.times_used } : null,
+        offeredCardIds: trustedCards.map((c) => c.id),
+        offeredCards: trustedCards.map((c) => ({ id: c.id, times_used: c.times_used })),
+        reuseParent: reuseParent ? { id: reuseParent.id, reuse_count: reuseParent.reuse_count, max_reuse_count: reuseParent.max_reuse_count, reuse_angles_used: reuseParent.reuse_angles_used } : null,
+      };
+      const { data: ccJob, error: ccErr } = await supabase.from("claude_jobs").insert({
+        user_id: userId, route: "execute-autopilot-template", request_id: ccRequestId,
+        schedule_id: slot.id, status: "queued", attempt: 0, novelty_retries: 0,
+        claim_token: crypto.randomUUID(), input_snapshot: ccSnapshot,
+      }).select("id").single();
+      if (ccErr) {
+        // Idempotent per occurrence: a duplicate trigger returns the existing job.
+        const { data: existing } = await supabase.from("claude_jobs").select("id, status").eq("request_id", ccRequestId).maybeSingle();
+        if (existing) return json({ success: true, queued: true, duplicate: true, jobId: existing.id, jobStatus: existing.status });
+        return json({ error: ccErr.message }, 500);
+      }
+      // Kick the dispatcher (10s cap, no-op if unconfigured): it sweeps and posts
+      // the signed repository_dispatch for every queued job, this one included.
+      const ccDispatcherSecret = Deno.env.get("DISPATCHER_SECRET") ?? "";
+      if (ccDispatcherSecret) {
+        await Promise.race([
+          fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/claude-job-redispatch`, {
+            method: "POST",
+            headers: { "x-dispatcher-secret": ccDispatcherSecret, "Content-Type": "application/json" },
+            body: "{}",
+          }).catch(() => null),
+          new Promise((r) => setTimeout(r, 10000)),
+        ]);
+      }
+      return json({ success: true, queued: true, jobId: ccJob.id });
+    }
+
     if (reuseParent) {
       // PATH A: child that resurfaces the parent from a new angle.
       const { cf, cn } = await loadChildLibs();
@@ -580,7 +705,7 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
     } else {
       // PATH B: fresh parent from strategy, audience, and the seed.
       const seedBlock = seed
-        ? `\n\nSEED (build the post on this premise)\n${seed.premise}${seed.category ? `\nCategory: ${seed.category}` : ""}`
+        ? `\n\nSEED (this premise is the post's SUBJECT)\n${seed.premise}${seed.category ? `\nCategory: ${seed.category}` : ""}\nThe seed premise decides what this post is ABOUT. Sources below may support its argument, but a source's own topic must never replace or redirect the subject. If the sources do not speak to this premise, write from the premise alone.`
         : "\n\nNo seed supplied; choose a premise that fits the job and nature above.";
 
       let sourceBlock = "";
@@ -608,6 +733,9 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sente
             5: "This post should be source-led, anchor it in these and their specifics.",
           };
           const instructionLines = [relianceInstruction[gen.source_reliance] ?? ""];
+          if (seed) {
+            instructionLines.push("Relevance binding: cite a source ONLY where it directly supports the seed premise above. If no offered source supports the premise, leave stat_attributions empty - no figure is better than a forced one. Never invent a number to fill the gap.");
+          }
           if (gen.first_party_weight >= 4 && chosen.some((c) => c.from_company)) {
             instructionLines.push("Prefer the framing and claims from sources marked FROM THE COMPANY, treat outside sources as secondary.");
           }

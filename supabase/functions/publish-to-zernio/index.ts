@@ -18,18 +18,21 @@ import { maxCharsFor, requiresMedia, platformLabel } from "../_shared/publisher/
 // ready image NEVER publish text-only and NEVER substitute a fallback/reused
 // image -- they land in needs_attention instead.
 //
-// The idempotency check above is read-then-act, not an atomic lock. Three
-// separate call sites (PendingTab approve, DraftDetail approve, ApprovedTab
-// retry) can all invoke this function for the same draft close enough
-// together that two both read external_post_id as null and both proceed to
-// call the provider. The provider's own duplicate-content detection then
-// rejects the second call, which used to get written straight to
-// publish_status='failed' -- clobbering the first call's success, since that
-// failure write never checked whether a sibling call had meanwhile set
-// external_post_id. The write below guards against exactly that: it only
-// marks the draft failed if external_post_id is still null at write time; if
-// a concurrent call already succeeded, this reports that success back
-// instead of lying about a failure.
+// Concurrency is closed by the atomic claim below: a single conditional
+// UPDATE moves one draft from a retryable state (null/needs_attention/failed)
+// to 'scheduling'. Exactly one concurrent caller wins; losers affect 0 rows
+// and back off before any provider call. (The pre-claim pattern was
+// read-then-act across PendingTab/DraftDetail/ApprovedTab call sites, which
+// let two calls both reach the provider.) The failure write below still
+// guards external_post_id: it only marks the draft failed if
+// external_post_id is still null at write time.
+//
+// A crash between provider accept and the external_post_id write leaves
+// 'scheduling' with a null external id -- a state that is NOT safe to
+// auto-retry (Zernio's post schema has no idempotency key, so a blind retry
+// could create a duplicate live post). The cron sweep parks stale claims
+// (>10 min) into needs_attention with an explanatory note instead of
+// re-publishing; reconcile there before retrying.
 //
 // OCCUPANCY-AWARE SLOT ASSIGNMENT: resolveForApproval() only knows this one
 // draft's own intended time (stamped at generation, or "next occurrence from
@@ -60,28 +63,11 @@ const json = (body: unknown, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-
-  try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) return json({ error: "Authentication required" }, 401);
-
-    const supabase = createClient(supabaseUrl, serviceRoleKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) return json({ error: "Invalid or expired token" }, 401);
-    const userId = user.id;
-
-    const { draftId } = await req.json().catch(() => ({}));
-    if (!draftId) return json({ error: "draftId is required" }, 400);
-
-    // Load the draft (scoped to the user).
+const scheduleDraft = async (
+  supabase: ReturnType<typeof createClient>,
+  draftId: string,
+  userId: string,
+): Promise<Response> => {
     const { data: draft } = await supabase
       .from("drafts")
       .select("id, user_id, body, approval_status, schedule_id, scheduled_for, external_post_id, platform")
@@ -97,6 +83,27 @@ serve(async (req) => {
 
     if (draft.approval_status !== "approved") {
       return json({ error: "Draft is not approved" }, 409);
+    }
+
+    // Atomic claim BEFORE any provider call. The pre-existing pattern was
+    // read-check -> provider API -> write, which lets concurrent invocations
+    // (UI double-click vs cron sweep) both reach the publisher and create
+    // duplicate external posts. The claim is a single conditional UPDATE:
+    // exactly one concurrent caller transitions a retryable state to
+    // 'scheduling'; losers affect 0 rows and back off. Failure paths below
+    // move the row to 'failed'/'needs_attention' (visible, retryable); a
+    // crashed claim is parked to needs_attention by the sweep after a
+    // staleness window (never auto-retried; see the header note).
+    const { data: claimed } = await supabase
+      .from("drafts")
+      .update({ publish_status: "scheduling" })
+      .eq("id", draft.id)
+      .is("external_post_id", null)
+      .or("publish_status.is.null,publish_status.eq.needs_attention,publish_status.eq.failed")
+      .select("id")
+      .maybeSingle();
+    if (!claimed) {
+      return json({ ok: true, inProgress: true, status: "scheduling" });
     }
 
     const platform: string = draft.platform ?? "linkedin";
@@ -207,13 +214,31 @@ serve(async (req) => {
         timezone: resolved.timezone,
         imageUrl,
       });
-      await supabase.from("drafts").update({
+      const { error: writeErr } = await supabase.from("drafts").update({
         external_post_id: result.externalPostId,
         publish_status: "scheduled",
         publish_basis: basis,
         publish_error: null,
         scheduled_for: scheduledForFinal,
       }).eq("id", draft.id);
+      if (writeErr) {
+        // The provider ACCEPTED the post but recording it failed. A blind
+        // retry would duplicate a live post, and there is no provider
+        // idempotency key - park with the external id for reconciliation.
+        // (If this write also fails, the stale-claim parking in the sweep
+        // catches the row later.)
+        await supabase.from("drafts").update({
+          publish_status: "needs_attention",
+          publish_error:
+            `Provider post ${result.externalPostId} was created but recording it failed (${writeErr.message}). Reconcile with Zernio before retrying.`,
+        }).eq("id", draft.id);
+        return json({
+          ok: false,
+          status: "needs_attention",
+          error: "provider accepted; record write failed",
+          externalPostId: result.externalPostId,
+        }, 200);
+      }
       return json({
         ok: true,
         status: "scheduled",
@@ -225,15 +250,23 @@ serve(async (req) => {
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Provider publish failed";
 
-      // Only mark failed if a concurrent call hasn't already succeeded for
-      // this same draft in the meantime (see the idempotency-race note
-      // above). The .is("external_post_id", null) guard makes this
-      // conditional on the DB, not on anything read earlier in this
-      // request, so it's safe even if that concurrent success landed
-      // between our read at the top of this function and this write.
+      // Classify the failure before choosing a landing state. A definitive
+      // provider REJECTION (HTTP 4xx from the provider's API) means no post
+      // was created - safe to mark failed and retry later. Anything else is
+      // ambiguous: a network/timeout/5xx/unknown error may have occurred
+      // after the provider accepted the post. With no provider idempotency
+      // key, ambiguous outcomes park as needs_attention for reconciliation
+      // instead of becoming retryable failures. The guarded write below
+      // (.is external_post_id null) stays as depth against a concurrent
+      // success landing between our read and this write.
+      const definitive = /^Zernio .* failed \(4\d\d\)/.test(msg);
+      const landing = definitive ? "failed" : "needs_attention";
+      const landingMsg = definitive
+        ? msg
+        : `Ambiguous publish outcome (possible unrecorded provider post; reconcile with Zernio before retrying): ${msg}`;
       const { data: updated } = await supabase
         .from("drafts")
-        .update({ publish_status: "failed", publish_error: msg })
+        .update({ publish_status: landing, publish_error: landingMsg })
         .eq("id", draft.id)
         .is("external_post_id", null)
         .select("id")
@@ -255,6 +288,87 @@ serve(async (req) => {
 
       return json({ ok: false, status: "failed", error: msg }, 502);
     }
+};
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) return json({ error: "Authentication required" }, 401);
+
+    const supabase = createClient(supabaseUrl, serviceRoleKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const body = await req.json().catch(() => ({}));
+
+    // Cron sweep mode: shared-secret auth (same pattern as check-approved-queue).
+    // Schedules approved-but-unscheduled drafts so in-system approvals reach the
+    // publisher without waiting for a UI session.
+    const cronSecret = req.headers.get("x-cron-secret") ?? "";
+    // Clean service-role client for cron mode: the default client forwards the
+    // caller's anon JWT, which downgrades reads to the anon role under RLS.
+    const svc = createClient(supabaseUrl, serviceRoleKey);
+    const { data: cronCfg } = await svc
+      .from("automation_config").select("value").eq("key", "cron_fire_secret").maybeSingle();
+    const expectedCron = cronCfg?.value ?? "";
+    if (expectedCron !== "" && cronSecret === expectedCron) {
+      if (body?.sweep !== true || !body?.user_id) {
+        return json({ error: "cron sweep requires {sweep:true, user_id}" }, 400);
+      }
+      // Park stale claims instead of auto-retrying them: a 'scheduling' row
+      // older than 10 minutes means the claiming invocation died between the
+      // claim and the final write. It may have crashed AFTER the provider
+      // accepted the post (external id never recorded), so re-publishing
+      // could duplicate a live post. Zernio's post schema has no idempotency
+      // key, so the safe move is needs_attention + reconcile.
+      const staleIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      const { data: parked } = await svc
+        .from("drafts")
+        .update({
+          publish_status: "needs_attention",
+          publish_error:
+            "Recovered stale scheduling claim: the publish run was interrupted after claiming this draft. A provider post may or may not have been created - reconcile with Zernio before retrying.",
+        })
+        .eq("user_id", body.user_id)
+        .eq("publish_status", "scheduling")
+        .is("external_post_id", null)
+        .lt("updated_at", staleIso)
+        .select("id");
+      const results = [];
+      if (parked?.length) {
+        results.push(...parked.map((d) => ({ draftId: d.id, ok: false, parkedStaleClaim: true })));
+      }
+
+      const { data: candidates, error: candErr } = await svc
+        .from("drafts")
+        .select("id")
+        .eq("user_id", body.user_id)
+        .eq("approval_status", "approved")
+        .is("publish_status", null)
+        .order("scheduled_for", { ascending: true })
+        .limit(10);
+      if (candErr) return json({ error: "sweep fetch failed: " + candErr.message }, 500);
+      for (const c of candidates ?? []) {
+        const res = await scheduleDraft(svc, c.id, body.user_id);
+        results.push({ draftId: c.id, httpStatus: res.status, body: await res.json() });
+      }
+      return json({ ok: true, processed: results.length, results });
+    }
+
+    const token = authHeader.replace("Bearer ", "");
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) return json({ error: "Invalid or expired token" }, 401);
+    const userId = user.id;
+
+    const { draftId } = body;
+    if (!draftId) return json({ error: "draftId is required" }, 400);
+
+    return await scheduleDraft(supabase, draftId, userId);
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "Unknown error" }, 500);
   }

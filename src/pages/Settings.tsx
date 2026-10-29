@@ -50,9 +50,9 @@ const AI_USAGE = [
   },
   {
     name: "Scheduled draft generation",
-    trigger: "Every slot that fires on the daily schedule cron, plus manual \"Run\" and test runs, plus Cadence's Fast-forward batch",
+    trigger: "Every slot that fires on the daily schedule cron, plus manual \"Run\" and test runs, plus Cadence's Fast-forward batch. With the Claude Code provider this runs in the GitHub Actions worker, not per-call API.",
     fn: "execute-autopilot-template",
-    est: "$0.02–$0.04 per draft",
+    est: "$0.02–$0.04 per draft on an API provider; $0 with Claude Code",
   },
   {
     name: "Manual content creation",
@@ -87,6 +87,7 @@ const AI_USAGE = [
 ];
 
 const AI_PROVIDERS = [
+  { value: "claude_code", label: "Claude Code (your Claude subscription)", keyLabel: "", keyPlaceholder: "", modelPlaceholder: "claude-sonnet-4-6", docsUrl: "", docsLabel: "" },
   { value: "anthropic", label: "Claude (Anthropic)", keyLabel: "Anthropic API Key", keyPlaceholder: "sk-ant-...", modelPlaceholder: "claude-sonnet-4-6", docsUrl: "https://console.anthropic.com/settings/keys", docsLabel: "console.anthropic.com" },
   { value: "google-ai", label: "Gemini (Google AI)", keyLabel: "Google AI API Key", keyPlaceholder: "AIza...", modelPlaceholder: "gemini-2.0-flash-exp", docsUrl: "https://aistudio.google.com/app/apikey", docsLabel: "aistudio.google.com" },
   { value: "openai", label: "OpenAI (GPT)", keyLabel: "OpenAI API Key", keyPlaceholder: "sk-...", modelPlaceholder: "gpt-4o", docsUrl: "https://platform.openai.com/api-keys", docsLabel: "platform.openai.com" },
@@ -408,6 +409,13 @@ const Settings = () => {
                 </SelectContent>
               </Select>
             </div>
+            {profile.ai_provider === "claude_code" && (
+              <div className="rounded-lg border p-3 space-y-1">
+                <p className="text-sm">Drafts are written by a Claude Code worker running in GitHub Actions on your Claude subscription. No API key is needed and scheduled generation carries no per-call API cost.</p>
+                <p className="text-sm text-muted-foreground">The model field below is passed through to the worker. Switching to an API provider here makes generation bill per call again.</p>
+              </div>
+            )}
+            {profile.ai_provider !== "claude_code" && (
             <div className="space-y-2">
               <Label className="text-base font-semibold">{currentProvider.keyLabel}</Label>
               <Input type="password" placeholder={currentProvider.keyPlaceholder} value={profile.ai_api_key} onChange={(e) => setProfile(prev => ({ ...prev, ai_api_key: e.target.value }))} />
@@ -415,6 +423,7 @@ const Settings = () => {
                 <p className="text-sm text-muted-foreground">Get your key at: <a href={currentProvider.docsUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{currentProvider.docsLabel}</a></p>
               )}
             </div>
+            )}
             <div className="space-y-2">
               <Label className="text-base font-semibold">Model</Label>
               <Input placeholder={currentProvider.modelPlaceholder} value={profile.ai_model} onChange={(e) => setProfile(prev => ({ ...prev, ai_model: e.target.value }))} />
@@ -430,6 +439,28 @@ const Settings = () => {
             <Button onClick={handleSave} disabled={loading}>
               {loading ? "Saving..." : "Save Settings"}
             </Button>
+          </CardContent>
+        </Card>
+
+        {/* How generation actually runs today */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>How content generation runs</CardTitle>
+            <CardDescription>The real path a scheduled post takes today, end to end.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="rounded-lg border p-3">
+              <p className="font-medium">Generation: Claude Code worker on your subscription</p>
+              <p className="text-sm text-muted-foreground mt-1">Each scheduled slot enqueues a job; a Claude Code worker in GitHub Actions claims it and writes the draft. Scheduled generation costs $0 in API spend. Drafts land in Review for approval.</p>
+            </div>
+            <div className="rounded-lg border p-3">
+              <p className="font-medium">Publishing: daily 8:20 AM Central sweep</p>
+              <p className="text-sm text-muted-foreground mt-1">A daily sweep schedules every approved post to your connected platform at its slot time. Scheduled posts can be repaired in place with read-back verification, without cancelling and republishing.</p>
+            </div>
+            <div className="rounded-lg border p-3">
+              <p className="font-medium">Current operating state (as of October 29, 2026)</p>
+              <p className="text-sm text-muted-foreground mt-1">Friday explainer slots and framework posts are generating. Monday and Wednesday statistic-led slots are paused while source quality is fixed, so no post ships with an unverified number. Approval currently runs through your assistant's in-system review against your quality bar.</p>
+            </div>
           </CardContent>
         </Card>
 

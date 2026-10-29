@@ -217,6 +217,45 @@ export const PendingTab = () => {
 
     const { data, error } = await supabase.functions.invoke("revise-draft", { body: { draftId } });
 
+    // 202 flow: the revision runs as a claude_jobs worker job (Claude
+    // subscription path). The edge function returns { queued, jobId } when
+    // the worker hasn't finished inside the edge wall clock; poll the
+    // tenant-pinned status endpoint for the stored result instead of
+    // dropping the request.
+    if (!error && data?.queued && data?.jobId) {
+      toast.info("Revision queued - waiting for the worker (up to ~5 minutes)...");
+      const parseQueued = (text: string) => {
+        let content = text.trim();
+        const fence = content.match(/```(?:\w*)?\s*([\s\S]*?)\s*```/i);
+        if (fence) content = fence[1].trim();
+        const m = content.match(/(\{[\s\S]*\})/);
+        return JSON.parse(m ? m[1] : content);
+      };
+      let result: { title?: string; content?: string } | null = null;
+      for (let i = 0; i < 60; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+        const { data: st } = await supabase.functions.invoke(`claude-job-status?job_id=${data.jobId}`, { method: "GET" });
+        if (st?.status === "completed") {
+          try { result = parseQueued(st?.result?.text ?? ""); } catch { result = null; }
+          break;
+        }
+        if (st?.status === "failed") {
+          clearTransition(draftId);
+          toast.error("Revision failed: " + (st?.last_error || "worker job failed"));
+          return;
+        }
+      }
+      if (!result?.content) {
+        clearTransition(draftId);
+        toast.error("Revision is still running - check back in a few minutes.");
+        return;
+      }
+      setDrafts(prev => prev.map(d => d.id === draftId ? { ...d, title: result.title || d.title, body: result.content! } : d));
+      clearTransition(draftId);
+      toast.success("Revised — trope cleanup pass applied.");
+      return;
+    }
+
     if (error || data?.error) {
       clearTransition(draftId);
       toast.error("Revision failed: " + (error?.message || data?.error || "unknown error"));

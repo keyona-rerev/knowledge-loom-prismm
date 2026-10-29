@@ -124,6 +124,16 @@ export async function callAI(
   messages: AIMessage[],
   system?: string
 ): Promise<AIResponse> {
+  // FAIL-CLOSED (2026-10-29): under the claude_code subscription configuration,
+  // scheduled generation runs through the private GitHub Actions worker and never
+  // reaches this function. Interactive/background call sites below have no
+  // subscription route yet, so they are explicitly unavailable - never fall
+  // through to the stored API key (no silent paid fallback).
+  if (profile.ai_provider === "claude_code") {
+    throw new Error(
+      "This AI tool is temporarily unavailable: content generation now runs on the Claude subscription, and this tool has not been migrated to it yet. No paid API call was made."
+    );
+  }
   if (!profile.ai_api_key) {
     throw new Error("No AI API key configured. Add your key in Settings.");
   }

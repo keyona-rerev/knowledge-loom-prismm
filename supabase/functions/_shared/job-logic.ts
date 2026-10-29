@@ -149,6 +149,18 @@ export async function completeJob(db: Db, args: {
   // (edge function or client) to read via claude-job-status.
   if (claimed.path === "interactive") {
     const o = args.output as any;
+    // C2 size bound: results ride on the job row (jsonb) and are read back by
+    // edge functions and clients; cap payload so a runaway worker output can
+    // never write an unbounded value.
+    const MAX_INTERACTIVE_TEXT = 100_000;
+    const MAX_INTERACTIVE_BYTES = 256 * 1024;
+    if (o && typeof o === "object" && !Array.isArray(o) &&
+        (typeof o.text !== "string" || o.text.length > MAX_INTERACTIVE_TEXT ||
+         JSON.stringify(o).length > MAX_INTERACTIVE_BYTES)) {
+      await db.updateJobWhere(args.jobId, { status: "completing" },
+        { status: "failed", last_error: "output validation: interactive result exceeds size bound", completion_token_hash: null, updated_at: now.toISOString() });
+      return { status: 422, body: { error: "interactive result exceeds size bound" } };
+    }
     if (!o || typeof o !== "object" || Array.isArray(o) || typeof o.text !== "string" || !o.text.trim()) {
       await db.updateJobWhere(args.jobId, { status: "completing" },
         { status: "failed", last_error: "output validation: interactive output needs non-empty text", completion_token_hash: null, updated_at: now.toISOString() });

@@ -64,7 +64,10 @@ export async function enqueueInteractiveJob(
 // Poll for completion. Returns the worker's result payload, or null on
 // timeout (caller may then hand the jobId to the client for status polling).
 export async function awaitInteractiveJob(
-  supabase: QueueDb, jobId: string, timeoutMs = 240_000, intervalMs = 4_000
+  supabase: QueueDb, jobId: string, timeoutMs = 100_000, intervalMs = 4_000
+  // NOTE: timeout must stay well under the ~150s edge-function wall clock;
+  // on timeout the caller returns 202 + jobId and the client polls
+  // claude-job-status?job_id=, so the job is never dropped without a handle.
 ): Promise<unknown | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

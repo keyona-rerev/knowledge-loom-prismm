@@ -82,6 +82,26 @@ const scheduleDraft = async (
       return json({ error: "Draft is not approved" }, 409);
     }
 
+    // Atomic claim BEFORE any provider call. The pre-existing pattern was
+    // read-check -> provider API -> write, which lets concurrent invocations
+    // (UI double-click vs cron sweep) both reach the publisher and create
+    // duplicate external posts. The claim is a single conditional UPDATE:
+    // exactly one concurrent caller transitions a retryable state to
+    // 'scheduling'; losers affect 0 rows and back off. Failure paths below
+    // move the row to 'failed'/'needs_attention' (visible, retryable); a
+    // crashed claim is recovered by the sweep after a staleness window.
+    const { data: claimed } = await supabase
+      .from("drafts")
+      .update({ publish_status: "scheduling" })
+      .eq("id", draft.id)
+      .is("external_post_id", null)
+      .or("publish_status.is.null,publish_status.eq.needs_attention,publish_status.eq.failed")
+      .select("id")
+      .maybeSingle();
+    if (!claimed) {
+      return json({ ok: true, inProgress: true, status: "scheduling" });
+    }
+
     const platform: string = draft.platform ?? "linkedin";
     const label = platformLabel(platform);
 
@@ -270,12 +290,14 @@ serve(async (req) => {
       if (body?.sweep !== true || !body?.user_id) {
         return json({ error: "cron sweep requires {sweep:true, user_id}" }, 400);
       }
+      const staleIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
       const { data: candidates, error: candErr } = await svc
         .from("drafts")
         .select("id")
         .eq("user_id", body.user_id)
         .eq("approval_status", "approved")
-        .is("publish_status", null)
+        .is("external_post_id", null)
+        .or(`publish_status.is.null,and(publish_status.eq.scheduling,updated_at.lt.${staleIso})`)
         .order("scheduled_for", { ascending: true })
         .limit(10);
       if (candErr) return json({ error: "sweep fetch failed: " + candErr.message }, 500);

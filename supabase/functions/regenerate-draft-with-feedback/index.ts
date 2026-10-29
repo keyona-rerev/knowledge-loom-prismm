@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { enqueueInteractiveJob, awaitInteractiveJob } from "../_shared/claude-queue.ts";
+import { enqueueInteractiveJob, awaitInteractiveJob, findLatestGeneration } from "../_shared/claude-queue.ts";
 import { loadStrategyContext, buildContextBlock, buildSystemPrompt } from "../_shared/strategy-context.ts";
 
 const corsHeaders = {
@@ -36,24 +36,28 @@ serve(async (req) => {
 
     if (!draftId || !feedback) return new Response(JSON.stringify({ error: "draftId and feedback are required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-    // Rate limiting
-    const windowStart = new Date();
-    windowStart.setMinutes(windowStart.getMinutes() - 60);
-    const { count: rateCount } = await supabase.from('rate_limit_logs').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('action', 'regenerate_draft').gte('created_at', windowStart.toISOString());
-    if ((rateCount || 0) >= 50) return new Response(JSON.stringify({ error: 'Rate limit exceeded. Maximum 50 regenerations per hour.' }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    await supabase.from('rate_limit_logs').insert({ user_id: user.id, action: 'regenerate_draft' });
-
     const { data: draft } = await supabase.from("drafts").select("*").eq("id", draftId).eq("user_id", user.id).single();
     if (!draft) return new Response(JSON.stringify({ error: "Draft not found or access denied" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     // Store revision history
     const currentVersion = (draft.revision_count || 0) + 1;
-    await supabase.from("draft_revisions").insert({
-      draft_id: draftId,
-      version: currentVersion,
-      body: draft.body,
-      changes_summary: `Before revision: ${feedback.substring(0, 100)}...`
-    });
+    const fbKey = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(feedback ?? "")))
+      .then((b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("").slice(0, 16));
+    const idemKey = `regen:${draftId}:${draft.updated_at}:${fbKey}`;
+
+    let jobId: string;
+    const existingJob = await findLatestGeneration(supabase, user.id, `interactive:regenerate-draft-with-feedback:${idemKey}`);
+    if (existingJob && existingJob.status !== "failed") {
+      // Idempotent reattach BEFORE any metered side effect: an exact retry of
+      // the SAME regeneration attaches to the existing job - no second
+      // rate-limit slot, no duplicate draft_revisions history row.
+      jobId = existingJob.id;
+    } else {
+      // Rate limiting
+      const windowStart = new Date();
+      windowStart.setMinutes(windowStart.getMinutes() - 60);
+      const { count: rateCount } = await supabase.from('rate_limit_logs').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('action', 'regenerate_draft').gte('created_at', windowStart.toISOString());
+      if ((rateCount || 0) >= 50) return new Response(JSON.stringify({ error: 'Rate limit exceeded. Maximum 50 regenerations per hour.' }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     // Same strategy tables execute-autopilot-template and the modernized
     // Create Content flow read, instead of the old flat profiles columns.
@@ -89,13 +93,25 @@ Respond ONLY with valid JSON: {"title": "...", "content": "full revised content"
     // version, same feedback) returns the existing job instead of
     // double-spending a worker run; new feedback or a newer draft version is
     // a deliberate new pass and correctly gets a fresh job.
-    const fbKey = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(feedback ?? "")))
-      .then((b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("").slice(0, 16));
-    const { jobId } = await enqueueInteractiveJob(supabase, {
+    const handle = await enqueueInteractiveJob(supabase, {
       userId: user.id, route: "regenerate-draft-with-feedback", kind: "regenerate", prompt, system,
       context: { draftId },
-      idempotencyKey: `regen:${draftId}:${draft.updated_at}:${fbKey}`,
+      idempotencyKey: idemKey,
     });
+    jobId = handle.jobId;
+    if (handle.created) {
+      // Metered + history side effects only when THIS call admitted a new
+      // job; a lost-race reattach charges nothing and writes no history.
+      await supabase.from('rate_limit_logs').insert({ user_id: user.id, action: 'regenerate_draft' });
+      await supabase.from("draft_revisions").insert({
+        draft_id: draftId,
+        version: currentVersion,
+        body: draft.body,
+        changes_summary: `Before revision: ${feedback.substring(0, 100)}...`
+      });
+    }
+    }
+
     // maxWaitMs: bounded proof hook (forces the 202 path); clamped under the
     // edge wall clock.
     const waitMs = Math.max(1, Math.min(Number(maxWaitMs) || 100_000, 110_000));

@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { scoreRelevance } from "../_shared/relevance-scorer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -74,31 +73,9 @@ serve(async (req) => {
 
     console.log(`📝 Processing email: "${subject}" from ${sender} (${content.length} chars)`);
 
-    // Graded relevance scoring against this company's actual strategy,
-    // replacing both the old binary gate (relevance-gate.ts) and the
-    // hardcoded global_relevance_score: 5. relevant === score >= 3, so this
-    // still skips true noise (ads, footers, broken scrapes) before it
-    // becomes a card, while everything that is kept gets a real score
-    // instead of a placeholder. The weekly newsletter health scan
-    // (scan-newsletter-health) rolls these scores up per sender.
-    const verdict = await scoreRelevance(supabase, user_id, { title: subject, content });
-    console.log(`📊 Relevance score: ${verdict.score}/10 — ${verdict.reason}`);
-
-    if (!verdict.relevant) {
-      console.log("⏭️ Skipping low-relevance Gmail newsletter:", subject?.substring(0, 50), "-", verdict.reason);
-      await supabase.from("newsletter_emails").insert({
-        user_id,
-        from_address: sender,
-        subject: subject || "Newsletter",
-        gmail_message_id: message_id || null,
-        processing_status: "skipped_irrelevant",
-      });
-      return new Response(
-        JSON.stringify({ success: true, skipped: true, reason: verdict.reason, relevanceScore: verdict.score }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
+    // Scoring moved to the subscription queue (_shared/relevance-queue.ts). The card is stored UNSCORED
+    // (NULL score, relevance_state 'unscored'); the DB trigger never judges unscored cards, and the daily tick /
+    // Score now scores it later. Noise is scored low then archived by the DB, not skipped inline.
     const { data: card, error: cardError } = await supabase
       .from("reference_cards")
       .insert({
@@ -108,7 +85,8 @@ serve(async (req) => {
         source_type: "newsletter",
         source_url: `mailto:${sender}`,
         status: "processing",
-        global_relevance_score: verdict.score,
+        global_relevance_score: null,
+        relevance_state: "unscored",
       })
       .select()
       .single();
@@ -146,7 +124,7 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ success: true, cardId: card.id, relevanceScore: verdict.score }),
+      JSON.stringify({ success: true, cardId: card.id, relevanceScore: null, relevanceState: "unscored" }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 

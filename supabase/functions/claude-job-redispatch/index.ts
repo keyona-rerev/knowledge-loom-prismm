@@ -36,6 +36,67 @@ serve(async (req) => {
     return json({ error: "dispatch not configured" }, 500);
 
   const db = makeDb(supabase);
+
+  // Scoped single-job dispatch: POST { "job_id": "<uuid>" }. Honored on both
+  // auth paths - the server-side enqueue kicks (search-sources,
+  // _shared/claude-queue.ts) authenticate with the shared secret and must not
+  // global-sweep every other queued job (an organic search enqueue used to
+  // dispatch the unrelated synthetic cron job early); the tenant JWT path is
+  // pinned to TENANT above. The pre-read below exists only for precise error
+  // classification. The authoritative guard is the single atomic UPDATE:
+  // Postgres row-lock serializes concurrent rotations, so exactly one caller
+  // can match the predicates and POST - status='queued' alone would NOT be a
+  // one-winner guard, because every rotation keeps status 'queued'.
+  let scopedJobId: string | null = null;
+  try {
+    const b = await req.json();
+    if (b && typeof b.job_id === "string") scopedJobId = b.job_id;
+  } catch { scopedJobId = null; }
+
+  if (scopedJobId) {
+    const { data: job } = await supabase.from("claude_jobs")
+      .select("id, user_id, status, request_id, claim_token, last_dispatched_at")
+      .eq("id", scopedJobId).maybeSingle();
+    if (!job) return json({ error: "not found" }, 404);
+    if (job.user_id !== TENANT) return json({ error: "forbidden" }, 403);
+    if (job.status !== "queued") return json({ error: "not dispatchable", status: job.status }, 409);
+    const backoffMs = 15 * 60 * 1000;
+    if (job.last_dispatched_at && Date.now() - new Date(job.last_dispatched_at).getTime() < backoffMs) {
+      return json({ error: "dispatch backoff", last_dispatched_at: job.last_dispatched_at }, 409);
+    }
+    // Atomic rotation + marker arming in one statement. The loser of a
+    // concurrent pair re-evaluates these predicates against the winner's
+    // committed marker and matches 0 rows, so no second dispatch is posted.
+    const fresh = crypto.randomUUID();
+    const nowIso = new Date().toISOString();
+    const cutoffIso = new Date(Date.now() - backoffMs).toISOString();
+    const { data: won } = await supabase.from("claude_jobs")
+      .update({ claim_token: fresh, last_dispatched_at: nowIso })
+      .eq("id", job.id)
+      .eq("user_id", TENANT)
+      .eq("status", "queued")
+      .or(`last_dispatched_at.is.null,last_dispatched_at.lt.${cutoffIso}`)
+      .select("id");
+    if (!won?.length) return json({ error: "concurrent dispatch in progress", dispatched: 0 }, 409);
+    const ts = Math.floor(Date.now() / 1000);
+    const sig = await hmacSha256Hex(dispatchSecret, `${job.id}|${job.request_id}|${fresh}|${ts}`);
+    const r = await fetch(`https://api.github.com/repos/${workerRepo}/dispatches`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${dispatchToken}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
+      body: JSON.stringify({ event_type: "claude-job", client_payload: { job_id: job.id, request_id: job.request_id, claim_token: fresh, ts, sig } }),
+    }).catch(() => null);
+    if (!r?.ok) {
+      // S4 preserved: a lost POST must not strand the job behind the backoff.
+      // Reset only OUR marker (keyed on the token we just rotated in and still
+      // queued), so a concurrent winner or an in-flight claim is never
+      // clobbered; the next scoped call or the cron sweep retries immediately.
+      await supabase.from("claude_jobs").update({ last_dispatched_at: null })
+        .eq("id", job.id).eq("claim_token", fresh).eq("status", "queued");
+      return json({ error: "dispatch post failed; job stays queued for retry", dispatched: 0 }, 502);
+    }
+    return json({ success: true, dispatched: 1, job_id: job.id });
+  }
+
   const result = await sweepJobs(db, {});
   let dispatched = 0;
   for (const job of result.dispatch) {

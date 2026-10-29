@@ -43,6 +43,7 @@ jobs:
       - name: Deploy allowlisted edge functions
         env:
           DEPLOY_FUNCTIONS: ""
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           if [[ -z "$DEPLOY_FUNCTIONS" ]]; then
             echo "No functions allowlisted for auto-deploy; skipping."
@@ -52,5 +53,3 @@ jobs:
             echo "Deploying $func_name..."
             supabase functions deploy "$func_name"
           done
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

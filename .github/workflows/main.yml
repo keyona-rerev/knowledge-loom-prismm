@@ -25,21 +25,30 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       
-      - name: Push database migrations
-        run: supabase db push --yes --include-all
+      # GATED: schema drift exists between this repo and the live project
+      # (20 local migration versions are not recorded remotely). An
+      # include-all push would replay unreviewed history and fail. Push is
+      # therefore a dry-run gate here; real pushes are a manual, reviewed
+      # operation (supabase migration repair + db push of the reviewed set).
+      - name: Check database migrations (dry-run only)
+        run: supabase db push --dry-run --include-all
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
       
-      - name: Deploy all edge functions
+      # GATED: explicit allowlist instead of deploying every function at HEAD.
+      # Deploying HEAD wholesale would replace reviewed production functions
+      # (e.g. the visual 503 stubs) with unreviewed implementations. Add a
+      # function here only via reviewed PR.
+      - name: Deploy allowlisted edge functions
+        env:
+          DEPLOY_FUNCTIONS: ""
         run: |
-          for func in supabase/functions/*/; do
-            func_name=$(basename "$func")
-            # Skip _shared and any folder starting with underscore
-            if [[ "$func_name" == _* ]]; then
-              echo "Skipping $func_name (shared utility)"
-              continue
-            fi
+          if [[ -z "$DEPLOY_FUNCTIONS" ]]; then
+            echo "No functions allowlisted for auto-deploy; skipping."
+            exit 0
+          fi
+          for func_name in $DEPLOY_FUNCTIONS; do
             echo "Deploying $func_name..."
             supabase functions deploy "$func_name"
           done

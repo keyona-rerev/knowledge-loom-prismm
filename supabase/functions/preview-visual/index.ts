@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAI } from "../_shared/ai-caller.ts";
 import { buildSystemPromptFromConfig, canvasDimsForPlatform, SAMPLE_DRAFT, type VisualConfig } from "../_shared/visual-prompt.ts";
 import { DEFAULT_PLATFORM } from "../_shared/publisher/platform-config.ts";
+import { VISUALS_UNAVAILABLE_BODY } from "../_shared/visual-availability.ts";
 
 // Visual Studio's live preview. Takes the CURRENT, possibly-unsaved config
 // straight from the browser (not read from profiles — someone tuning
@@ -45,6 +46,13 @@ async function renderToPng(html: string, width: number, height: number): Promise
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  // 503-honesty gate (2026-10-29): visual generation is OFF during the
+  // subscription migration - renderer unconfigured, ai-caller fail-closed.
+  // Answer honestly BEFORE any renderer call or AI attempt. Everything below
+  // is preserved intact for the authorized re-enable; remove only this early
+  // return then.
+  return json(VISUALS_UNAVAILABLE_BODY, 503);
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";

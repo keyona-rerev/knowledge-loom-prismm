@@ -85,9 +85,16 @@ Respond ONLY with valid JSON: {"title": "...", "content": "full revised content"
     );
     // Subscription path: enqueue onto claude_jobs; the private worker (Claude
     // Code on the owner's Max subscription) does the AI work. No paid route.
+    // Idempotency: an exact retry of the SAME regeneration (same draft
+    // version, same feedback) returns the existing job instead of
+    // double-spending a worker run; new feedback or a newer draft version is
+    // a deliberate new pass and correctly gets a fresh job.
+    const fbKey = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(feedback ?? "")))
+      .then((b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("").slice(0, 16));
     const { jobId } = await enqueueInteractiveJob(supabase, {
       userId: user.id, route: "regenerate-draft-with-feedback", kind: "regenerate", prompt, system,
       context: { draftId },
+      idempotencyKey: `regen:${draftId}:${draft.updated_at}:${fbKey}`,
     });
     // maxWaitMs: bounded proof hook (forces the 202 path); clamped under the
     // edge wall clock.

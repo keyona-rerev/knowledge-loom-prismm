@@ -1,3 +1,4 @@
+import { regenerateWithFeedback } from "@/lib/regenerateDraft";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import DOMPurify from "dompurify";
@@ -335,16 +336,16 @@ export const PendingTab = () => {
         })
         .eq("id", draftId);
       if (error) { toast.error("Failed to request revision"); return; }
-      const { error: functionError } = await supabase.functions.invoke("regenerate-draft-with-feedback", {
-        body: { draftId, feedback: rejectionFeedback }
-      });
-      if (functionError) {
-        toast.success("Revision requested! The draft will be updated shortly.");
-      } else {
-        toast.success("Revision requested! AI is regenerating with your feedback.");
-      }
+      const feedbackText = rejectionFeedback;
       setRejectModalOpen(false);
       setRejectionFeedback("");
+      toast.info("Revision requested - AI is regenerating with your feedback (can take a few minutes)...");
+      const res = await regenerateWithFeedback(draftId, feedbackText);
+      if (res.ok) {
+        toast.success("Revision applied.");
+      } else {
+        toast.error("Revision not applied: " + res.message);
+      }
       loadDrafts();
     } catch (error) {
       toast.error("Something went wrong");

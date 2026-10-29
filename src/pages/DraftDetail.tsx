@@ -1,3 +1,4 @@
+import { regenerateWithFeedback } from "@/lib/regenerateDraft";
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -176,17 +177,14 @@ const DraftDetail = () => {
     if (!draft || !feedback.trim()) { toast.error("Please describe what should change"); return; }
     setRegenerating(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const { data, error } = await supabase.functions.invoke("regenerate-draft-with-feedback", {
-        body: { draftId: draft.id, feedback: feedback.trim(), userId: session?.user?.id },
-      });
-      if (error) throw error;
-      if (data.success) {
+      const res = await regenerateWithFeedback(draft.id, feedback.trim());
+      if (res.ok) {
         toast.success("Draft regenerated!");
         setFeedback("");
         await Promise.all([loadDraft(), loadRevisions()]);
       } else {
-        toast.error("Failed to regenerate draft");
+        toast.error("Failed to regenerate: " + res.message);
+        if (res.reason === "changed") await Promise.all([loadDraft(), loadRevisions()]);
       }
     } catch (error) {
       toast.error("Failed to regenerate: " + (error as any)?.message);

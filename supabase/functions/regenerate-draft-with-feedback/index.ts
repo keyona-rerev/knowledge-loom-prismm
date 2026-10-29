@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callAI } from "../_shared/ai-caller.ts";
+import { enqueueInteractiveJob, awaitInteractiveJob } from "../_shared/claude-queue.ts";
 import { loadStrategyContext, buildContextBlock, buildSystemPrompt } from "../_shared/strategy-context.ts";
 
 const corsHeaders = {
@@ -32,7 +32,7 @@ serve(async (req) => {
     if (authError || !user) return new Response(JSON.stringify({ error: "Invalid or expired authentication token" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
-    const { draftId, feedback } = await req.json();
+    const { draftId, feedback, maxWaitMs } = await req.json();
 
     if (!draftId || !feedback) return new Response(JSON.stringify({ error: "draftId and feedback are required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
@@ -45,9 +45,6 @@ serve(async (req) => {
 
     const { data: draft } = await supabase.from("drafts").select("*").eq("id", draftId).eq("user_id", user.id).single();
     if (!draft) return new Response(JSON.stringify({ error: "Draft not found or access denied" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-
-    const { data: profile } = await supabase.from("profiles").select("ai_provider, ai_model, ai_api_key, ai_endpoint").eq("user_id", user.id).single();
-    if (!profile) return new Response(JSON.stringify({ error: "Profile not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     // Store revision history
     const currentVersion = (draft.revision_count || 0) + 1;
@@ -82,21 +79,46 @@ ${strategyBlock}
 
 Respond ONLY with valid JSON: {"title": "...", "content": "full revised content"}`;
 
-    const aiProfile = { ai_provider: profile.ai_provider, ai_model: profile.ai_model, ai_api_key: profile.ai_api_key, ai_endpoint: profile.ai_endpoint };
     const system = buildSystemPrompt(
       "You are a professional editor. Always respond with valid JSON only.",
       hardRules, voiceRules, inlineAttribution
     );
-    const response = await callAI(aiProfile, [{ role: "user", content: prompt }], system);
-    const result = parseJSON(response.text);
+    // Subscription path: enqueue onto claude_jobs; the private worker (Claude
+    // Code on the owner's Max subscription) does the AI work. No paid route.
+    const { jobId } = await enqueueInteractiveJob(supabase, {
+      userId: user.id, route: "regenerate-draft-with-feedback", kind: "regenerate", prompt, system,
+      context: { draftId },
+    });
+    // maxWaitMs: bounded proof hook (forces the 202 path); clamped under the
+    // edge wall clock.
+    const waitMs = Math.max(1, Math.min(Number(maxWaitMs) || 100_000, 110_000));
+    const jobResult = await awaitInteractiveJob(supabase, jobId, waitMs);
+    if (!jobResult) {
+      // baseUpdatedAt + revisionCount let the client apply the finished result
+      // with the same compare-and-set this function uses.
+      return new Response(
+        JSON.stringify({ queued: true, jobId, error: "still_running", baseUpdatedAt: draft.updated_at, revisionCount: currentVersion }),
+        { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const result = parseJSON((jobResult as { text: string }).text);
 
-    await supabase.from("drafts").update({
+    // CAS on the trigger-maintained updated_at read before the worker ran: a
+    // concurrent edit flips it and we refuse instead of overwriting. The
+    // finished result stays readable on the job row.
+    const { data: casRows } = await supabase.from("drafts").update({
       title: result.title || draft.title,
       body: result.content,
       revision_feedback: feedback,
       revision_count: currentVersion,
-      updated_at: new Date().toISOString()
-    }).eq("id", draftId);
+    }).eq("id", draftId).eq("updated_at", draft.updated_at).select("id");
+
+    if (!casRows?.length) {
+      return new Response(
+        JSON.stringify({ error: "draft_changed", message: "Draft changed while the revision ran; the completed revision is retained on the job and was not applied.", jobId }),
+        { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     return new Response(JSON.stringify({ success: true, title: result.title || draft.title, content: result.content, revisionCount: currentVersion }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 

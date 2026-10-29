@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { tick as relevanceTick, makeSupabaseStore } from "../_shared/relevance-queue.ts";
 
 // The auto-fire cron entrypoint. pg_cron calls this once a day with a shared secret.
 // It finds every active slot that is due today and hands each to execute-autopilot-template
@@ -61,6 +62,12 @@ serve(async (req) => {
       .from("automation_config").select("value").eq("key", "cron_fire_secret").maybeSingle();
     if (!cfg?.value || presented !== cfg.value) return json({ error: "Forbidden" }, 403);
 
+    // Relevance tick (subscription queue): settle finished scoring jobs, then enqueue at most one bounded batch per
+    // tenant that has unscored cards (no unscored cards = no job). Never blocks slot firing. Ordering truth: a batch
+    // enqueued here is applied by the NEXT tick or Score now, so scores are not fresh for this same pass.
+    let relevance: unknown = null;
+    try { relevance = await relevanceTick(makeSupabaseStore(supabase)); } catch (e) { relevance = { error: e instanceof Error ? e.message : String(e) }; }
+
     // Head-of-pass dispatch sweep (design A1): requeue expired claims and
     // re-dispatch queued claude_jobs before firing today's slots. No-op when
     // the dispatcher secret is not configured.
@@ -102,7 +109,7 @@ serve(async (req) => {
       }
     }
 
-    return json({ success: true, dow, considered: slots?.length ?? 0, fired: due.length, results });
+    return json({ success: true, relevance, dow, considered: slots?.length ?? 0, fired: due.length, results });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
   }

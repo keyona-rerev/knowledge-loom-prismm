@@ -19,7 +19,24 @@ export interface InteractiveJobArgs {
   idempotencyKey?: string; // deterministic retry key; omit for one-shot prompts
 }
 
-export interface InteractiveJobHandle { jobId: string; requestId: string; }
+export interface InteractiveJobHandle { jobId: string; requestId: string; created: boolean; }
+
+// Latest generation of a request family (base + :rN retry suffixes), bound to
+// the owning user. Callers use this BEFORE metered side effects (rate-limit
+// log rows, revision history) so an idempotent reattach never double-charges;
+// the enqueue conflict path uses the same owner-bound lookup. Two-digit
+// generations order correctly: length first, then lexicographic.
+export async function findLatestGeneration(
+  supabase: QueueDb, userId: string, requestId: string
+): Promise<{ id: string; request_id: string; status: string } | null> {
+  const { data: gens } = await supabase.from("claude_jobs")
+    .select("id, request_id, status")
+    .eq("user_id", userId)
+    .or(`request_id.eq.${requestId},request_id.like.${requestId}:r%`);
+  return (gens ?? []).sort((a: any, b: any) =>
+    a.request_id.length - b.request_id.length || String(a.request_id).localeCompare(String(b.request_id))
+  ).pop() ?? null;
+}
 
 // Enqueue + dispatch. Idempotent per requestId: a retry returns the same job.
 export async function enqueueInteractiveJob(
@@ -46,14 +63,9 @@ export async function enqueueInteractiveJob(
     // result and makes the intent unretryable. The next generation key is
     // deterministic (":r2", ":r3", ...), so concurrent retries of the same
     // generation still collapse onto one job through the same unique key.
-    const { data: gens } = await supabase.from("claude_jobs")
-      .select("id, request_id, status")
-      .or(`request_id.eq.${requestId},request_id.like.${requestId}:r%`);
-    const latest = (gens ?? []).sort((a: any, b: any) =>
-      a.request_id.length - b.request_id.length || String(a.request_id).localeCompare(String(b.request_id))
-    ).pop();
+    const latest = await findLatestGeneration(supabase, args.userId, requestId);
     if (!latest) throw new Error(`enqueue failed: ${error.message}`);
-    if (latest.status !== "failed") return { jobId: latest.id, requestId: latest.request_id };
+    if (latest.status !== "failed") return { jobId: latest.id, requestId: latest.request_id, created: false };
     const gen = Number((String(latest.request_id).match(/:r(\d+)$/) ?? [0, "1"])[1]) + 1;
     const retryRequestId = `${requestId}:r${gen}`;
     const { data: retryJob, error: retryErr } = await supabase.from("claude_jobs").insert({
@@ -65,7 +77,7 @@ export async function enqueueInteractiveJob(
       // A concurrent same-generation retry won the key: reattach to its job.
       const { data: retryExisting } = await supabase.from("claude_jobs")
         .select("id, request_id").eq("request_id", retryRequestId).maybeSingle();
-      if (retryExisting) return { jobId: retryExisting.id, requestId: retryExisting.request_id };
+      if (retryExisting) return { jobId: retryExisting.id, requestId: retryExisting.request_id, created: false };
       throw new Error(`enqueue retry failed: ${retryErr.message}`);
     }
     const retryKick = Deno.env.get("DISPATCHER_SECRET") ?? "";
@@ -79,7 +91,7 @@ export async function enqueueInteractiveJob(
         new Promise((r) => setTimeout(r, 10000)),
       ]);
     }
-    return { jobId: retryJob.id, requestId: retryRequestId };
+    return { jobId: retryJob.id, requestId: retryRequestId, created: true };
   }
   // Kick the dispatcher scoped to THIS job (10s cap, no-op if unconfigured):
   // the scoped path posts the signed repository_dispatch for this job only.
@@ -96,7 +108,7 @@ export async function enqueueInteractiveJob(
       new Promise((r) => setTimeout(r, 10000)),
     ]);
   }
-  return { jobId: job.id, requestId };
+  return { jobId: job.id, requestId, created: true };
 }
 
 // Poll for completion. Returns the worker's result payload, or null on

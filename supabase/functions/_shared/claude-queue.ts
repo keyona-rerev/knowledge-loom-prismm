@@ -45,15 +45,17 @@ export async function enqueueInteractiveJob(
     if (existing) return { jobId: existing.id, requestId: existing.request_id };
     throw new Error(`enqueue failed: ${error.message}`);
   }
-  // Kick the dispatcher (10s cap, no-op if unconfigured): sweeps and posts the
-  // signed repository_dispatch for every queued job, this one included.
+  // Kick the dispatcher scoped to THIS job (10s cap, no-op if unconfigured):
+  // the scoped path posts the signed repository_dispatch for this job only.
+  // A global kick here would dispatch every other queued job along with it;
+  // the 13:20 UTC cron sweep remains the global backstop.
   const dispatcherSecret = Deno.env.get("DISPATCHER_SECRET") ?? "";
   if (dispatcherSecret) {
     await Promise.race([
       fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/claude-job-redispatch`, {
         method: "POST",
         headers: { "x-dispatcher-secret": dispatcherSecret, "Content-Type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ job_id: job.id }),
       }).catch(() => null),
       new Promise((r) => setTimeout(r, 10000)),
     ]);

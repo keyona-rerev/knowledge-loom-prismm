@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { capturePngDataUrl, dataUrlToBlob } from "./visualCapture";
+import { VISUAL_GENERATION_AVAILABLE } from "./visualAvailability";
 
 interface DraftVisualRow {
   id: string;
@@ -36,16 +37,26 @@ export async function ensureVisualImageUploaded(
   const timeoutMs = opts.timeoutMs ?? 30000;
   const start = Date.now();
 
-  // Treat "no row yet" the same as "generating": generate-draft-visual
-  // inserts its placeholder row before this is typically called, but if a
-  // caller ever fires generation without awaiting it first, the very first
-  // fetch here could beat that insert to the database. Without this, a null
-  // row would fall straight through to "not ready" below and return
-  // immediately, skipping the wait entirely.
+  // Availability-aware (503-honesty, 2026-10-29): while generation is OFF,
+  // no new visual can ever appear, so this does exactly ONE fetch - a
+  // missing or still-generating row returns null immediately instead of
+  // polling pointlessly (callers like ApprovedTab would stall 10-30s per
+  // draft otherwise). An existing READY visual is still captured/uploaded
+  // below exactly as before, so drafts that already have assets keep them
+  // attached to publishes. Generation ATTEMPTS stay gated at the callers.
+  //
+  // When generation is ON, treat "no row yet" the same as "generating":
+  // generate-draft-visual inserts its placeholder row before this is
+  // typically called, but if a caller ever fires generation without
+  // awaiting it first, the very first fetch here could beat that insert to
+  // the database. Without this, a null row would fall straight through to
+  // "not ready" below and return immediately, skipping the wait entirely.
   let visual = await fetchLatestVisual(draftId);
-  while ((!visual || visual.status === "generating") && Date.now() - start < timeoutMs) {
-    await sleep(2000);
-    visual = await fetchLatestVisual(draftId);
+  if (VISUAL_GENERATION_AVAILABLE) {
+    while ((!visual || visual.status === "generating") && Date.now() - start < timeoutMs) {
+      await sleep(2000);
+      visual = await fetchLatestVisual(draftId);
+    }
   }
 
   if (!visual || visual.status !== "ready") return null;

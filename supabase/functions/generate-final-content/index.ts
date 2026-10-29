@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callAI } from "../_shared/ai-caller.ts";
+import { runInteractiveOrQueue } from "../_shared/interactive-run.ts";
 import { loadStrategyContext, buildContextBlock, buildSystemPrompt } from "../_shared/strategy-context.ts";
 
 const corsHeaders = {
@@ -32,7 +32,7 @@ serve(async (req) => {
     if (authError || !user) return new Response(JSON.stringify({ error: "Invalid or expired authentication token" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
-    const { direction, seedInsight, seedCategory, insightCardIds, formatId, natureId, jobId } = await req.json();
+    const { direction, seedInsight, seedCategory, insightCardIds, formatId, natureId, jobId, maxWaitMs } = await req.json();
 
     if (!direction || !seedInsight) return new Response(JSON.stringify({ error: "Missing required fields" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
@@ -42,9 +42,6 @@ serve(async (req) => {
     const { count: rateCount } = await supabase.from('rate_limit_logs').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('action', 'generate_final').gte('created_at', windowStart.toISOString());
     if ((rateCount || 0) >= 100) return new Response(JSON.stringify({ error: 'Rate limit exceeded.' }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     await supabase.from('rate_limit_logs').insert({ user_id: user.id, action: 'generate_final' });
-
-    const { data: profile } = await supabase.from("profiles").select("ai_provider, ai_model, ai_api_key, ai_endpoint").eq("user_id", user.id).single();
-    if (!profile) return new Response(JSON.stringify({ error: "Profile not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     const { ctx, hardRules, voiceRules, inlineAttribution } = await loadStrategyContext(supabase, user.id, { formatId, natureId, jobId });
     const strategyBlock = buildContextBlock(ctx);
@@ -70,13 +67,15 @@ Create comprehensive, publication-ready content. Engaging title, clear structure
 
 Respond ONLY with valid JSON: {"title": "...", "content": "full markdown content"}`;
 
-    const aiProfile = { ai_provider: profile.ai_provider, ai_model: profile.ai_model, ai_api_key: profile.ai_api_key, ai_endpoint: profile.ai_endpoint };
-    const system = buildSystemPrompt(
+    const SYSTEM = buildSystemPrompt(
       "You are a professional content writer. Always respond with valid JSON only.",
       hardRules, voiceRules, inlineAttribution
     );
-    const response = await callAI(aiProfile, [{ role: "user", content: prompt }], system);
-    const result = parseJSON(response.text);
+    const outcome = await runInteractiveOrQueue(supabase, {
+      userId: user.id, route: "generate-final-content", kind: "final_content", prompt, system: SYSTEM,
+    }, corsHeaders, maxWaitMs);
+    if (!outcome.done) return outcome.response;
+    const result = parseJSON(outcome.text);
 
     return new Response(JSON.stringify(result), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 

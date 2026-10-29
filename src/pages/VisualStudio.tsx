@@ -352,7 +352,9 @@ const VisualStudio = () => {
       <main className="container mx-auto px-4 py-8 max-w-3xl">
         <h1 className="text-3xl font-bold mb-1">Visual Studio</h1>
         <p className="text-sm text-muted-foreground mb-8">
-          Controls how VisualForge generates graphics. Every setting is injected into the generation prompt and applied on the next Regenerate. No deploy needed. Nothing here becomes permanent until you hit Save — the preview below always reflects what's currently on screen, saved or not.
+          {VISUAL_GENERATION_AVAILABLE
+            ? "Controls how VisualForge generates graphics. Every setting is injected into the generation prompt and applied on the next Regenerate. No deploy needed. Nothing here becomes permanent until you hit Save — the preview below always reflects what's currently on screen, saved or not."
+            : "Controls how VisualForge generates graphics. Generation is temporarily unavailable during the subscription migration; settings you save now apply when it resumes, and your existing visuals are unchanged."}
         </p>
 
         {/* LIVE PREVIEW */}
@@ -360,13 +362,15 @@ const VisualStudio = () => {
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><ImageIcon className="h-5 w-5" />Preview</CardTitle>
             <CardDescription>
-              See a real graphic generated from your current settings below — including anything you haven't saved yet — against a real post or the built-in sample.
+              {VISUAL_GENERATION_AVAILABLE
+                ? "See a real graphic generated from your current settings below — including anything you haven't saved yet — against a real post or the built-in sample."
+                : "Preview generation is temporarily unavailable during the subscription migration. Your existing visuals and saved settings are unchanged."}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 sm:items-center">
               <select
-                className="flex-1 rounded-md border bg-muted px-3 py-2 text-sm text-foreground outline-none"
+                className="flex-1 min-w-0 rounded-md border bg-muted px-3 py-2 text-sm text-foreground outline-none"
                 value={selectedDraftId}
                 onChange={e => setSelectedDraftId(e.target.value)}
               >

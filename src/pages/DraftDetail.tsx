@@ -565,7 +565,7 @@ const DraftDetail = () => {
                   <div className="flex items-center gap-2 mb-4">
                     <ImageIcon className="h-5 w-5 text-muted-foreground" />
                     <h3 className="font-semibold">Visual</h3>
-                    <span className="text-xs text-muted-foreground">Auto-generated on approval</span>
+                    <span className="text-xs text-muted-foreground">{VISUAL_GENERATION_AVAILABLE ? "Auto-generated on approval" : "Generation paused during the subscription migration"}</span>
                   </div>
                   <VisualForge draftId={draft.id} userId={userId} platformLabel={platformLabel(platform)} />
                 </div>

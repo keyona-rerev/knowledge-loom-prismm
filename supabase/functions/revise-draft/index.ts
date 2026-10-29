@@ -135,7 +135,7 @@ Respond ONLY with valid JSON: {"title": "...", "content": "the fully rewritten p
       // A retried request for the SAME revision returns the existing job
       // instead of double-spending a worker run; a deliberate new pass has a
       // new revision number and correctly gets a fresh job.
-      idempotencyKey: `revise:${draftId}:${draft.updated_at}`,
+      idempotencyKey: `revise:${draftId}:${draft.updated_at}:${await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(notes ?? ""))).then((b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("").slice(0, 16))}`,
     });
     // maxWaitMs is a bounded test/proof hook: lets a synthetic run force the
     // 202 + client-poll path deterministically. Clamped under the edge wall

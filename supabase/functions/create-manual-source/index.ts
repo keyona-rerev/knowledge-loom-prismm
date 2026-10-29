@@ -82,7 +82,7 @@ serve(async (req) => {
     const requestBody = await req.json();
     console.log("📦 Request body keys:", Object.keys(requestBody));
 
-    const { type, url, pdf_text, pdf_title, paste_text, paste_title, question_set_id, from_company, force_keep } = requestBody;
+    const { type, url, pdf_text, pdf_title, paste_text, paste_title, question_set_id, from_company, force_keep, discovery } = requestBody;
 
     // Validate required fields per type
     if (!type) {
@@ -204,7 +204,7 @@ serve(async (req) => {
 
     // Create source feed entry
     console.log("💾 Creating source feed entry...");
-    const { data: feedData, error: feedError } = await supabase
+    const { data: feedData, error: feedError } = discovery === true ? { data: null, error: null } : await supabase
       .from("source_feeds")
       .insert({
         name: title.substring(0, 255),
@@ -260,23 +260,29 @@ serve(async (req) => {
       console.log("✅ Adding question_set_id:", question_set_id);
     }
 
-    const { data: cardData, error: insertError } = await supabase
-      .from("reference_cards")
-      .insert(insertData)
-      .select()
-      .single();
+    let cardData: any; let insertError: any; let reused = false;
+    if (discovery === true) {
+      if (type !== "url") throw new Error("Discovery requires URL source");
+      const { data, error } = await supabase.rpc("create_discovered_card", { p_user: user_id, p_card: insertData });
+      insertError = error;
+      cardData = data?.[0] ? { id: data[0].card_id } : null;
+      reused = data?.[0]?.reused === true;
+    } else {
+      const r = await supabase.from("reference_cards").insert(insertData).select().single();
+      cardData = r.data; insertError = r.error;
+    }
 
-    if (insertError) {
+    if (insertError || !cardData?.id) {
       console.error("❌ Failed to create reference card:", insertError);
       return new Response(
-        JSON.stringify({ error: "Failed to create reference card", details: insertError.message }),
+        JSON.stringify({ error: "Failed to create reference card", details: insertError?.message }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     console.log("✅ Reference card created:", cardData.id);
 
-    if (!contentBlocked && textContent.length >= 100) {
+    if (!reused && !contentBlocked && textContent.length >= 100) {
       console.log("🚀 Triggering auto-processing for card:", cardData.id);
       try {
         // userId is passed explicitly here (not just cardId) so
@@ -304,6 +310,7 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         cardId: cardData.id,
+        reused,
         message: contentBlocked
           ? "Reference card created (site blocked full access - manual review needed)"
           : "Reference card created successfully",

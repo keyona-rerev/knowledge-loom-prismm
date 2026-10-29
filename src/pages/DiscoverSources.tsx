@@ -1,6 +1,19 @@
+import { classifyCard, type CardClass } from "@/lib/discoverClassify";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { invokeQueued } from "@/lib/invokeQueued";
+import { cleanTopics, sanitizeCandidates, parseCandidates, verifyCandidates } from "@/lib/discoverCandidates";
+
+// Durable handle for an in-flight source search, so a reload or poll timeout reattaches
+// to the same job instead of starting a duplicate query.
+const HANDLE_KEY = "loom.discover.search";
+const readHandle = (): { jobId?: string; requestKey: string } | null => {
+  try { const h = JSON.parse(localStorage.getItem(HANDLE_KEY) ?? "null"); return h?.requestKey ? h : null; } catch { return null; }
+};
+const writeHandle = (h: { jobId?: string; requestKey: string } | null) => {
+  try { h ? localStorage.setItem(HANDLE_KEY, JSON.stringify(h)) : localStorage.removeItem(HANDLE_KEY); } catch { /* storage unavailable */ }
+};
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,7 +31,7 @@ import { InstructionsToggle } from "@/components/InstructionsToggle";
 // (auto-deleted for scoring too low, same as any other low-scoring source).
 // "removed" is a kept row whose card was deleted right here on this page
 // after an inline review.
-type CandidateStatus = "checking" | "kept" | "filtered" | "failed" | "removed";
+type CandidateStatus = "checking" | "kept" | "filtered" | "failed" | "removed" | "awaiting" | "exists" | "review";
 
 interface CandidateRow {
   title: string;
@@ -26,6 +39,7 @@ interface CandidateRow {
   reason: string;
   status: CandidateStatus;
   cardId?: string;
+  reused?: boolean;
   error?: string;
 }
 
@@ -71,6 +85,10 @@ const DiscoverSources = () => {
   // main `running` search loop so a single-row retry doesn't disable the
   // whole page.
   const [busyUrl, setBusyUrl] = useState<string | null>(null);
+  // Public search terms. Unconfigured by default; nothing is searched until saved on purpose.
+  const [topicsText, setTopicsText] = useState("");
+  const [savedTopics, setSavedTopics] = useState<string[]>([]);
+  const [savingTopics, setSavingTopics] = useState(false);
 
   // Inline card review, so a "kept" row's Approve/Reject can happen right
   // here instead of navigating to Reference Cards and back. expandedUrl is
@@ -85,6 +103,7 @@ const DiscoverSources = () => {
   // hitting Clear results doesn't also erase the answer to "did this run
   // recently and find anything." Same idea as Cadence's Fast-forward line.
   const [lastRun, setLastRun] = useState<LastRun | null>(null);
+  const [attemptState, setAttemptState] = useState<"pending" | "failed" | null>(null);
 
   // Source of truth for "what's on screen right now," kept outside React
   // state so the search loop (a single long-running async function) always
@@ -114,11 +133,28 @@ const DiscoverSources = () => {
     persistSession(newRows, runningFlag, targetCount);
   };
 
+  const saveTopics = async () => {
+    const t = cleanTopics(topicsText.split(/[\n,;]+/));
+    setSavingTopics(true);
+    const uid = userIdRef.current;
+    const { data: existing } = await supabase.from("audience_profile").select("id").eq("user_id", uid).maybeSingle();
+    const { error } = existing?.id
+      ? await supabase.from("audience_profile").update({ discovery_topics: t } as any).eq("id", existing.id)
+      : await supabase.from("audience_profile").insert([{ user_id: uid, discovery_topics: t }] as any);
+    setSavingTopics(false);
+    if (error) { toast.error("Could not save topics: " + error.message); return; }
+    setSavedTopics(t); setTopicsText(t.join("\n"));
+    toast.success(t.length ? "Search topics saved." : "Search topics cleared. Search is off.");
+  };
+
   useEffect(() => {
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { navigate("/auth"); return; }
       userIdRef.current = session.user.id;
+      const { data: ap } = await supabase.from("audience_profile").select("discovery_topics").eq("user_id", session.user.id).maybeSingle();
+      const t = cleanTopics((ap as any)?.discovery_topics);
+      setSavedTopics(t); setTopicsText(t.join("\n"));
 
       // Default question set: same "is_global first, then oldest active"
       // rule process-reference-card falls back to, so discovered cards get
@@ -151,7 +187,11 @@ const DiscoverSources = () => {
 
       if (saved) {
         const s = saved as any;
-        const savedRows = (s.rows as CandidateRow[]) || [];
+        const savedRows = await Promise.all(((s.rows as CandidateRow[]) || []).map(async (row) => {
+          if (!row.cardId) return row;
+          try { return { ...row, ...fromClass(await readCard(row.cardId), row.cardId) }; }
+          catch { return { ...row, status: "failed" as const, error: "Could not read current scoring state. Open Reference Cards to inspect it." }; }
+        }));
         liveRowsRef.current = savedRows;
         setRows(savedRows);
         if (s.target_count) setTargetCount(s.target_count);
@@ -220,86 +260,125 @@ const DiscoverSources = () => {
     }
   };
 
-  const checkOneCandidate = async (c: { title: string; url: string; reason: string }, forceKeep: boolean) => {
+  // Reads ONE card by exact id AND owner (never by URL alone) and classifies it honestly.
+  const readCard = async (cardId: string): Promise<CardClass> => {
+    const { data, error } = await supabase
+      .from("reference_cards")
+      .select("id, global_relevance_score, relevance_state, status")
+      .eq("id", cardId)
+      .eq("user_id", userIdRef.current)
+      .maybeSingle();
+    if (error) throw new Error("Could not read the card: " + error.message);
+    return classifyCard(data as any);
+  };
+
+  const fromClass = (cls: CardClass, cardId: string) => {
+    switch (cls) {
+      case "awaiting": return { status: "awaiting" as const, cardId };
+      case "active": return { status: "kept" as const, cardId };
+      case "archived": return { status: "filtered" as const, cardId };
+      case "gone": return { status: "filtered" as const };
+      case "review": return { status: "review" as const, cardId };
+      default: return {
+        status: "failed" as const,
+        cardId,
+        error: "Scoring did not complete for this card. The queue exhausted its scoring attempts; use View to inspect the card.",
+      };
+    }
+  };
+
+  const checkOneCandidate = async (c: { title: string; url: string; reason: string }) => {
+    // Never create a second card for a URL this user already has: reuse it.
+    const { data: existing, error: lookupError } = await supabase
+      .from("reference_cards")
+      .select("id")
+      .eq("user_id", userIdRef.current)
+      .eq("source_url", c.url)
+      .limit(1)
+      .maybeSingle();
+    if (lookupError) throw new Error("Could not check existing cards: " + lookupError.message);
+    if (existing?.id) {
+      return { ...fromClass(await readCard(existing.id), existing.id), reused: true };
+    }
+
     const { data: createData, error: createError } = await supabase.functions.invoke("create-manual-source", {
       body: {
         type: "url",
         url: c.url,
         question_set_id: defaultQuestionSetId || undefined,
         from_company: false,
-        force_keep: forceKeep,
+        discovery: true,
       },
     });
-
     if (createError || createData?.error) {
       return { status: "failed" as const, error: createError?.message || createData?.error };
     }
-
-    const cardId = createData?.cardId;
-    if (forceKeep) {
-      // We told the pipeline to bypass the threshold, so if the insert
-      // succeeded the card is definitely still there.
-      return { status: "kept" as const, cardId };
-    }
-
-    // create-manual-source already awaits process-reference-card
-    // internally, so by the time it returns the card has either a
-    // real score (survived or was auto-deleted by the threshold
-    // trigger) or, if that internal call itself failed (e.g. the AI
-    // provider's own rate limit under back-to-back calls), the row
-    // still exists but with global_relevance_score left null — never
-    // actually judged. Checking existence alone can't tell those
-    // apart, so the score itself is the real signal: null means
-    // "failed to process," not "passed."
-    const { data: stillThere } = await supabase
-      .from("reference_cards")
-      .select("id, global_relevance_score")
-      .eq("id", cardId)
-      .maybeSingle();
-
-    if (stillThere && stillThere.global_relevance_score !== null) {
-      return { status: "kept" as const, cardId };
-    } else if (stillThere) {
-      return {
-        status: "failed" as const,
-        cardId,
-        error: "Created but never scored — likely hit an AI rate limit. Use \"Process with AI\" on the card to retry.",
-      };
-    }
-    return { status: "filtered" as const };
+    const cardId = createData?.cardId as string;
+    return { ...fromClass(await readCard(cardId), cardId), reused: createData?.reused === true };
   };
 
+  // Retry never inserts. With a card it re-reads it, and for awaiting/failed rows runs the same
+  // per-user "Score now" as Reference Cards. Without a card (fetch failed) it re-runs the
+  // duplicate-safe create path.
   const retryRow = async (row: CandidateRow) => {
     setBusyUrl(row.url);
     upsertRow(row.url, { status: "checking", error: undefined }, running);
     try {
-      const result = await checkOneCandidate(row, false);
+      let result: any;
+      if (row.cardId) {
+        const before = await readCard(row.cardId);
+        if (before === "awaiting") {
+          const { error, data } = await supabase.functions.invoke("score-relevance", { body: {} });
+          if (error || data?.error) throw new Error(error?.message || data.error);
+        }
+        result = fromClass(await readCard(row.cardId), row.cardId);
+      } else {
+        // Fetch/transport errors can happen after insertion; the DB admission reattaches by owner+URL.
+        result = await checkOneCandidate(row);
+      }
       upsertRow(row.url, { ...result }, running);
-      if (result.status === "kept") toast.success("Kept after retry.");
-      else if (result.status === "failed") toast.error("Retry failed again: " + (result.error || "unknown error"));
-      else toast.info("Retried — scored too low again.");
+      if (result.status === "kept") toast.success("Kept.");
+      else if (result.status === "awaiting") toast.info("Still awaiting scoring. Results appear once the queue scores it; nothing failed.");
+      else if (result.status === "exists") toast.info("This URL is already in your library.");
+      else if (result.status === "failed") toast.error("Not scored yet: " + (result.error || "unknown error"));
+      else toast.info("This card is below your cutoff, unavailable, or needs review. Nothing was inserted.");
+    } catch (e) {
+      upsertRow(row.url, { status: row.status, error: String((e as Error).message) }, running);
+      toast.error(String((e as Error).message));
     } finally {
       setBusyUrl(null);
     }
   };
 
+  // Keep anyway: only an ARCHIVED card, by exact id and owner. Sets force_keep and restores
+  // status archived -> active in one conditional update, then verifies. Never inserts.
   const keepAnyway = async (row: CandidateRow) => {
+    if (!row.cardId) return;
     setBusyUrl(row.url);
-    upsertRow(row.url, { status: "checking", error: undefined }, running);
     try {
-      // The original card was already deleted by the auto-delete trigger
-      // the moment it scored too low, so this recreates it — this time
-      // with force_keep set, which tells that same trigger to leave it
-      // alone regardless of score.
-      const result = await checkOneCandidate(row, true);
-      upsertRow(row.url, { ...result }, running);
-      if (result.status === "kept") {
-        toast.success("Kept — this source now bypasses the score threshold.", {
-          description: "Head to Reference Cards to review and approve it.",
-        });
-      } else {
-        toast.error("Couldn't recreate this source: " + (result.error || "unknown error"));
+      const cls = await readCard(row.cardId);
+      if (cls !== "archived") {
+        upsertRow(row.url, fromClass(cls, row.cardId) as any, running);
+        toast.info("This card is no longer archived, so nothing was changed.");
+        return;
       }
+      const { error } = await supabase
+        .from("reference_cards")
+        .update({ force_keep: true, status: "active" })
+        .eq("id", row.cardId)
+        .eq("user_id", userIdRef.current)
+        .eq("status", "archived");
+      const after = await readCard(row.cardId);
+      if (error || after !== "active") {
+        toast.error("Couldn't restore this card: " + (error?.message || "it is still archived"));
+        return;
+      }
+      upsertRow(row.url, { status: "kept", cardId: row.cardId }, running);
+      toast.success("Restored. This card now bypasses the relevance cutoff.", {
+        description: "Head to Reference Cards to review and approve it.",
+      });
+    } catch (e) {
+      toast.error(String((e as Error).message));
     } finally {
       setBusyUrl(null);
     }
@@ -363,23 +442,41 @@ const DiscoverSources = () => {
     const seenUrls = new Set<string>(existingUrls);
     let kept = 0;
     let round = 0;
+    let searchStopped = false;
+    setAttemptState(null);
     let totalTried = 0;
+    let awaiting = 0; // candidates created but not yet scored by the queue
     const maxCandidates = candidateCap(targetCount);
 
     try {
-      // Phase model: search for exactly the number still needed, pause,
-      // then score that whole batch one at a time before ever searching
-      // again. No overlap between "finding candidates" and "vetting
-      // candidates" — each batch fully finishes one phase before the next
-      // starts, and a new search round only happens if the batch just
-      // scored didn't produce enough keepers.
-      while (kept < targetCount && round < MAX_ROUNDS && totalTried < maxCandidates) {
+      // Search for the number still needed, ingest the batch, then inspect its
+      // current states. Pending queue work is not a rejected candidate.
+      // Stop searching once anything is awaiting scoring: yield is unknown until the queue scores it,
+      // and each further round is another subscription search.
+      while (kept < targetCount && awaiting === 0 && round < MAX_ROUNDS && totalTried < maxCandidates) {
         round++;
         const stillNeeded = targetCount - kept;
 
-        const { data, error } = await supabase.functions.invoke("search-sources", {
-          body: { targetCount: stillNeeded, excludeUrls: Array.from(seenUrls) },
-        });
+        // Runs on the Claude subscription queue: 200 when the worker answers in
+        // time, otherwise 202 and we poll claude-job-status (up to ~12 min, the
+        // worker's own timeout). Results are re-validated below either way.
+        // Reuse the stored handle if a search is still in flight (same requestKey and,
+        // once known, the same jobId); otherwise start a new one with a fresh key.
+        const handle = readHandle() ?? { requestKey: crypto.randomUUID() };
+        writeHandle(handle);
+        const { data, error } = await invokeQueued(
+          "search-sources",
+          { targetCount: stillNeeded, requestKey: handle.requestKey },
+          { pollMs: 5000, maxPolls: 150, resumeJobId: handle.jobId, raw: true,
+            onJobId: (jobId) => writeHandle({ ...handle, jobId }) },
+        );
+        if (!error || !(error as any).stillRunning) writeHandle(null); // terminal: result or error consumed
+        if (error && (error as any).stillRunning) {
+          toast.message(error.message, { description: "The search handle is kept. Click Search now after signing in or when status is available to resume without a second search." });
+          searchStopped = true;
+          setAttemptState("pending");
+          break;
+        }
 
         if (error) {
           // supabase-js's default error.message for a failed function call
@@ -390,21 +487,36 @@ const DiscoverSources = () => {
           // are actually diagnosable instead of a dead end.
           let detail = error.message;
           try {
-            const body = await error.context?.json?.();
+            const body = await (error as any).context?.json?.();
             if (body?.error) detail = body.error;
           } catch {
             // context wasn't readable JSON — fall back to the generic message
           }
           toast.error("Search failed: " + detail);
+          searchStopped = true;
+          setAttemptState("failed");
           break;
         }
         if (data?.error) {
           toast.error(data.error);
+          searchStopped = true;
+          setAttemptState("failed");
           break;
         }
 
-        const candidates: { title: string; url: string; reason: string }[] = (data?.candidates || [])
-          .filter((c: any) => !seenUrls.has(c.url));
+        let candidates;
+        try {
+          // 200 path: server already verified. 202 path: raw worker result, verified here
+          // against the workflow-extracted search URLs; fails closed without them.
+          candidates = Array.isArray(data?.candidates)
+            ? sanitizeCandidates(data.candidates, Array.from(seenUrls))
+            : verifyCandidates(parseCandidates(String(data?.text ?? ""), Array.from(seenUrls)), data?.verified_urls);
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : "Could not read the search results");
+          searchStopped = true;
+          setAttemptState("failed");
+          break;
+        }
         if (!candidates.length) break; // nothing new found this round
 
         // Brief pause between the search phase finishing and scoring
@@ -421,15 +533,13 @@ const DiscoverSources = () => {
 
           commitRows([...liveRowsRef.current, { ...c, status: "checking" }], true);
 
-          const result = await checkOneCandidate(c, false);
-          if (result.status === "kept") kept++;
+          const result = await checkOneCandidate(c);
+          if (result.status === "kept" && !result.reused) kept++;
+          if (result.status === "awaiting") awaiting++;
           upsertRow(c.url, { ...result }, true);
 
-          // Paced, not rushed: each candidate fires two AI calls back-to-back
-          // (summary+answers, then relevance scoring). This pause between
-          // candidates is what keeps the scoring phase from looking like
-          // everything happening on top of itself, and gives the provider's
-          // own rate limit real breathing room.
+          // Pace ingestion calls. Summary and relevance are asynchronous queue work;
+          // this pause does not make either result ready.
           await new Promise((r) => setTimeout(r, 1200));
         }
       }
@@ -444,21 +554,23 @@ const DiscoverSources = () => {
             target_count: targetCount,
             running: false,
             rows: liveRowsRef.current as any,
-            completed_at: completedAt,
-            last_target: targetCount,
-            last_kept: kept,
-            last_checked: totalTried,
+            ...(searchStopped ? {} : { completed_at: completedAt, last_target: targetCount, last_kept: kept, last_checked: totalTried }),
           },
           { onConflict: "user_id" }
         );
       }
-      setLastRun({ completedAt, target: targetCount, kept, checked: totalTried });
+      if (!searchStopped) setLastRun({ completedAt, target: targetCount, kept, checked: totalTried });
     }
 
-    if (kept === 0 && totalTried === 0) {
-      toast.error("No candidates found — try again in a moment, or check that your Strategy/Audience pages have enough context to search against.");
+    if (searchStopped) return;
+    if (awaiting > 0) {
+      toast.info(`Added ${awaiting} source${awaiting === 1 ? "" : "s"} awaiting scoring.`, {
+        description: "They are queued for relevance scoring and will show their result in Reference Cards once scoring completes. The search stopped after this round.",
+      });
+    } else if (kept === 0 && totalTried === 0) {
+      toast.error("No candidates found — try again in a moment, or check that your saved public search topics are specific enough.");
     } else if (kept === 0) {
-      toast.error(`Checked ${totalTried} candidate${totalTried === 1 ? "" : "s"} but kept none — see the results below for why (scored too low, or never got scored). Try again, or check Reference Cards Settings for how strict your threshold is.`);
+      toast.error(`Checked ${totalTried} candidate${totalTried === 1 ? "" : "s"} but kept none — see the results below for why (below your relevance cutoff, or scoring did not complete). Try again, or check Reference Cards Settings for the cutoff.`);
     } else if (kept < targetCount) {
       toast.warning(`Kept ${kept} of ${targetCount} requested — ran out of qualifying candidates after ${round} search round${round === 1 ? "" : "s"}.`);
     } else {
@@ -475,17 +587,24 @@ const DiscoverSources = () => {
       case "kept":
         return <Badge className="gap-1 bg-green-600 hover:bg-green-600"><CheckCircle2 className="h-3 w-3" />Kept</Badge>;
       case "filtered":
-        return <Badge variant="secondary" className="gap-1"><XCircle className="h-3 w-3" />Scored too low</Badge>;
+        return <Badge variant="secondary" className="gap-1"><XCircle className="h-3 w-3" />{row.cardId ? "Archived (below cutoff)" : "Removed (below cutoff)"}</Badge>;
+      case "awaiting":
+        return <Badge variant="outline" className="gap-1"><Loader2 className="h-3 w-3" />Awaiting scoring</Badge>;
+      case "review":
+        return <Badge variant="outline">Needs review</Badge>;
+      case "exists":
+        return <Badge variant="secondary" className="gap-1">Already in library</Badge>;
       case "removed":
         return <Badge variant="outline" className="gap-1 text-muted-foreground"><Trash2 className="h-3 w-3" />Removed</Badge>;
       case "failed":
         return row.cardId
-          ? <Badge variant="destructive" className="gap-1"><XCircle className="h-3 w-3" />Never scored</Badge>
+          ? <Badge variant="destructive" className="gap-1"><XCircle className="h-3 w-3" />Scoring failed</Badge>
           : <Badge variant="destructive" className="gap-1"><XCircle className="h-3 w-3" />Couldn't fetch</Badge>;
     }
   };
 
   const keptCount = rows.filter((r) => r.status === "kept").length;
+  const awaitingCount = rows.filter((r) => r.status === "awaiting").length;
 
   return (
     <div className="min-h-screen bg-background">
@@ -505,12 +624,13 @@ const DiscoverSources = () => {
           instructions={`Discover Sources finds new reference cards for you, instead of you finding them:
 
 - Enter how many high-quality sources you want, then Search
-- It searches the live web (via your existing Anthropic key's built-in web search — no separate account needed) using your Strategy and Audience pages as the brief
-- Every candidate gets fetched and scored through the exact same pipeline as any other source — the same relevance scorer, the same auto-delete threshold you set in Reference Cards' Settings
-- Anything that doesn't score well enough is dropped automatically, but the row stays in this list — use "Keep anyway" on a "Scored too low" row to override that and keep it regardless
-- If a candidate couldn't be fetched or never got scored, use "Retry" on that row to try it again without re-running the whole search
+- It searches the live web (through your Claude subscription worker; no separate account or API key) using only the public topics you save on this page
+- Every candidate becomes a reference card and is scored by the same queue as any other source. Scoring is not instant: new rows show "Awaiting scoring" until the queue runs (or you press "Score now" in Reference Cards or on the row). Awaiting is not a rejection
+- Cards that score below your cutoff are archived, not deleted. Use "Keep anyway" on an "Archived" row to restore that same card (no duplicate is created)
+- A URL already in your library is shown as "Already in library" and is never added twice
+- If a fetch failed use "Retry"; if scoring is pending use "Score now"; a failed card has exhausted its scoring attempts, so use "View" to inspect it
 - Click a "Kept" row to expand it — read the summary and Approve or Remove it right here, no need to leave this page
-- If not enough candidates clear the bar, it searches again for more, up to a few rounds, so you get close to what you asked for without needing to babysit it
+- A search stops after a round if anything is awaiting scoring, because yield is unknown until it is scored; it may search again only when a whole round was scored or rejected
 - Results stay here across navigation until you hit "Clear results" — come back anytime to review or override what was found
 - Kept cards land in Reference Cards exactly like any other source — approve them from there, or right here, before they can be cited`}
         />
@@ -521,10 +641,28 @@ const DiscoverSources = () => {
               <Search className="h-4 w-4" />Find new sources
             </CardTitle>
             <CardDescription>
-              Searches for real, live sources matching your Strategy and Audience pages, and only keeps the ones that score well.
+              Searches public sources on the topics you save below, adds candidates for queued scoring, and archives cards below your relevance cutoff.
             </CardDescription>
           </CardHeader>
           <CardContent>
+            <div className="mb-4 space-y-2" data-testid="discovery-topics">
+              <Label htmlFor="discovery-topics" className="text-sm font-medium">Public search topics</Label>
+              <textarea
+                id="discovery-topics"
+                className="w-full rounded-md border bg-background p-2 text-sm"
+                rows={3}
+                placeholder="One topic per line, e.g. community bank liquidity"
+                value={topicsText}
+                onChange={(e) => setTopicsText(e.target.value)}
+                disabled={running || savingTopics}
+              />
+              <p className="text-xs text-muted-foreground">
+                These topics guide public web searches. An AI turns them into search queries, and the search engines see those queries, which may use related wording beyond your exact terms. Do not enter client names, private plans or anything confidential. Nothing from your Strategy or Audience pages is sent. Up to 8 topics.
+              </p>
+              <Button size="sm" variant="outline" onClick={saveTopics} disabled={running || savingTopics}>
+                {savingTopics ? "Saving..." : "Save topics"}
+              </Button>
+            </div>
             <div className="flex items-center gap-3 flex-wrap">
               <Label htmlFor="target-count" className="text-sm font-medium whitespace-nowrap">Find</Label>
               <Input
@@ -538,7 +676,7 @@ const DiscoverSources = () => {
                 disabled={running}
               />
               <span className="text-sm text-muted-foreground">high-quality sources</span>
-              <Button onClick={runDiscovery} disabled={running} className="ml-auto">
+              <Button onClick={runDiscovery} disabled={running || savedTopics.length === 0} className="ml-auto" title={savedTopics.length === 0 ? "Save at least one public search topic first" : undefined}>
                 {running ? (
                   <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Searching...</>
                 ) : (
@@ -567,7 +705,7 @@ const DiscoverSources = () => {
           <Card>
             <CardHeader className="pb-3 flex flex-row items-center justify-between gap-3 space-y-0">
               <CardTitle className="text-base">
-                Results {running ? "(in progress...)" : `— ${keptCount} kept of ${rows.length} checked`}
+                Results {running ? "(in progress...)" : `- ${keptCount} kept${awaitingCount ? `, ${awaitingCount} awaiting scoring` : ""} of ${rows.length} checked`}
               </CardTitle>
               <Button
                 size="sm"
@@ -606,17 +744,17 @@ const DiscoverSources = () => {
                             <ExternalLink className="h-3 w-3 shrink-0" />
                           </a>
                         </div>
-                        {row.reason && <p className="text-xs text-muted-foreground mt-0.5 truncate">{row.reason}</p>}
+                        {row.reason && <p className="text-xs text-muted-foreground mt-0.5 truncate">{row.reason}{row.reused ? " (existing card reused)" : ""}</p>}
                         {row.error && <p className="text-xs text-destructive mt-0.5">{row.error}</p>}
                       </div>
                       <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
                         {statusBadge(row)}
-                        {row.status === "failed" && row.cardId && (
+                        {(row.status === "failed" || row.status === "awaiting" || row.status === "review" || row.status === "exists") && row.cardId && (
                           <Button size="sm" variant="outline" onClick={() => navigate(`/cards/${row.cardId}`)}>
                             View
                           </Button>
                         )}
-                        {row.status === "failed" && (
+                        {((row.status === "failed" && !row.cardId) || row.status === "awaiting") && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -625,10 +763,10 @@ const DiscoverSources = () => {
                             onClick={() => retryRow(row)}
                           >
                             {busyUrl === row.url ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
-                            Retry
+                            {row.cardId ? "Score now" : "Retry"}
                           </Button>
                         )}
-                        {row.status === "filtered" && (
+                        {row.status === "filtered" && row.cardId && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -702,8 +840,8 @@ const DiscoverSources = () => {
         {!running && rows.length === 0 && (
           <div className="text-center py-16 text-muted-foreground">
             <Search className="h-10 w-10 mx-auto mb-4 opacity-30" />
-            <p className="text-sm">No searches run yet.</p>
-            <p className="text-xs mt-1">Set a number above and hit Search now.</p>
+            <p className="text-sm">{attemptState === "pending" ? "Search queued or running. No results yet." : attemptState === "failed" ? "Search could not return verified results." : "No search results yet."}</p>
+            <p className="text-xs mt-1">{attemptState === "pending" ? "Click Search now to resume the same search, without starting a second job." : attemptState === "failed" ? "No candidates were added." : "Set a number above and hit Search now."}</p>
           </div>
         )}
       </main>

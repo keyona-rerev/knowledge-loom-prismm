@@ -1,3 +1,4 @@
+import { generationOutcome } from "@/lib/generationOutcome";
 import { useEffect, useState, useRef, type Dispatch, type SetStateAction } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -421,7 +422,16 @@ export const CadenceTab = () => {
         body: { scheduleId: slot.id, isTestRun: false },
       });
       if (error) { toast.error("Run failed: " + error.message); }
-      else { toast.success(`Generated ${data?.draftsCreated ?? 0} draft(s)`); await loadAll(); }
+      else {
+        const outcome = generationOutcome(data);
+        if (outcome.kind === "queued") toast.info("Generation queued. A draft has not been created yet.");
+        else if (outcome.kind === "pending") toast.info("This slot already has a queued or running job. No second job was started.");
+        else if (outcome.kind === "failed") toast.error("The generation job failed. No new draft is confirmed.");
+        else if (outcome.kind === "completed" && outcome.drafts > 0) toast.success(`Generated ${outcome.drafts} draft(s)`);
+        else if (outcome.kind === "completed") toast.info("This slot's job already completed. Check Review for its result.");
+        else toast.warning("The request returned without a confirmed generation result.");
+        await loadAll();
+      }
     } catch {
       toast.error("Run failed");
     }
@@ -476,6 +486,9 @@ export const CadenceTab = () => {
     let created = 0;
     let attempted = 0;
     let failed = 0;
+    let queued = 0;
+    let pending = 0;
+    let completed = 0;
     await persistFF(userId, {
       running: true, target_count: batchTarget, done: 0, total: batchTarget,
       current_label: "", started_at: new Date().toISOString(),
@@ -498,7 +511,11 @@ export const CadenceTab = () => {
           failed++;
           continue;
         }
-        created += data?.draftsCreated ?? 0;
+        const outcome = generationOutcome(data);
+        if (outcome.kind === "queued") queued++;
+        else if (outcome.kind === "pending") pending++;
+        else if (outcome.kind === "completed") { completed++; created += outcome.drafts; }
+        else failed++;
       }
     } finally {
       setBatchRunning(false);
@@ -512,11 +529,15 @@ export const CadenceTab = () => {
       setLastRun({ completedAt, created, attempted, failed });
     }
 
-    if (created === 0) {
-      toast.error("No drafts were generated — check the AI provider key in Settings and try again.");
+    if (queued || pending) {
+      toast.info(`${queued} new generation job(s) queued; ${pending} already queued or running.`, {
+        description: `${created} drafts confirmed in the responses, ${completed} completed requests, ${failed} failed or unconfirmed. Queued jobs are not yet drafts; check Review after they complete.`,
+      });
+    } else if (failed === attempted) {
+      toast.error("No generation was confirmed. The requests failed or returned an unknown result.");
     } else {
-      toast.success(`Generated ${created} draft${created === 1 ? "" : "s"} across ${attempted} run${attempted === 1 ? "" : "s"}${failed ? `, ${failed} run${failed === 1 ? "" : "s"} failed` : ""}`, {
-        description: "Review them in Review > Pending, then approve — each one keeps the future date it was generated for.",
+      toast.info(`${created} drafts confirmed in responses; ${completed} completed requests; ${failed} failed or unconfirmed.`, {
+        description: "An already-completed duplicate request does not create a second draft. Check Review for results.",
       });
     }
     await loadAll();
@@ -634,7 +655,7 @@ export const CadenceTab = () => {
             <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground">
               <span>
                 Last fast-forward: {lastRun.completedAt ? new Date(lastRun.completedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "unknown time"}
-                {" — "}generated {lastRun.created} draft{lastRun.created === 1 ? "" : "s"} across {lastRun.attempted} run{lastRun.attempted === 1 ? "" : "s"}
+                {" - "}{lastRun.created} draft{lastRun.created === 1 ? "" : "s"} confirmed synchronously across {lastRun.attempted} request{lastRun.attempted === 1 ? "" : "s"}. Queued results may arrive later.
                 {lastRun.failed ? `, ${lastRun.failed} failed` : ""}
               </span>
               <button

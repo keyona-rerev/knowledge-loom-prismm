@@ -17,9 +17,10 @@ serve(async (req) => {
   // Browser polls this from the app origin (202 revise flow); without a
   // preflight answer the poll never reaches the function.
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  try {
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-  const { data: { user } } = await supabase.auth.getUser((req.headers.get("Authorization") ?? "").replace("Bearer ", ""));
-  if (!user || user.id !== TENANT) return json({ error: "unauthorized" }, 401);
+  const { data: { user }, error: authError } = await supabase.auth.getUser((req.headers.get("Authorization") ?? "").replace("Bearer ", ""));
+  if (authError || !user || user.id !== TENANT) return json({ error: "unauthorized" }, 401);
 
   // Per-job read for the interactive 202 flow: tenant can poll one job's
   // status and, for interactive jobs only, the worker's result payload.
@@ -27,17 +28,20 @@ serve(async (req) => {
   const url = new URL(req.url);
   const jobId = url.searchParams.get("job_id");
   if (jobId) {
-    const { data: job } = await supabase.from("claude_jobs")
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(jobId)) return json({ error: "invalid job_id" }, 400);
+    const { data: job, error } = await supabase.from("claude_jobs")
       .select("id, path, status, result, last_error, updated_at")
       .eq("id", jobId).eq("user_id", user.id).maybeSingle();
+    if (error) return json({ error: "job status unavailable" }, 503);
     if (!job) return json({ error: "not found" }, 404);
     const body: Record<string, unknown> = { id: job.id, status: job.status, last_error: job.last_error, updated_at: job.updated_at };
     if (job.path === "interactive" && job.status === "completed") body.result = job.result;
     return json(body);
   }
 
-  const { data: jobs } = await supabase.from("claude_jobs")
-    .select("id, status, run_url, last_error, updated_at").order("updated_at", { ascending: false }).limit(200);
+  const { data: jobs, error: jobsError } = await supabase.from("claude_jobs")
+    .select("id, status, run_url, last_error, updated_at").eq("user_id", user.id).order("updated_at", { ascending: false }).limit(200);
+  if (jobsError) return json({ error: "queue status unavailable" }, 503);
   const all = jobs ?? [];
   const counts: Record<string, number> = {};
   for (const j of all) counts[j.status] = (counts[j.status] ?? 0) + 1;
@@ -55,4 +59,7 @@ serve(async (req) => {
       token_expires_at: Deno.env.get("WORKER_TOKEN_EXPIRES_AT") ?? null, // set when the token is minted (1-year OAuth token lifetime)
     },
   });
+  } catch {
+    return json({ error: "job status unavailable" }, 503);
+  }
 });

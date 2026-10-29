@@ -23,7 +23,9 @@ export interface Db {
   notify(draftId: string): Promise<void>;
 }
 
-export const TENANT = "b9c224b5-45f8-4045-8aa7-6184f52dfdbf";
+// Tenant pinning reads from env, fail-closed: an unset/empty TENANT_USER_ID
+// makes every tenant check fail (no real UUID ever equals ""), never permissive.
+export const TENANT = Deno.env.get("TENANT_USER_ID") ?? "";
 
 // F5: constant-time compare via sha256, and a hard assert that the configured
 // secret is present and non-empty (empty header + empty secret must NOT pass).

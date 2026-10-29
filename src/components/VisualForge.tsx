@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Download, Loader2, ImageIcon, RefreshCw } from "lucide-react";
 import { capturePngDataUrl } from "@/lib/visualCapture";
+import { VISUAL_GENERATION_AVAILABLE, VISUAL_UNAVAILABLE_NOTE } from "@/lib/visualAvailability";
 
 interface VisualForgeProps {
   draftId: string;
@@ -172,14 +173,18 @@ export const VisualForge = ({ draftId, userId, platformLabel }: VisualForgeProps
       <div className="rounded-lg border border-dashed border-muted p-6 text-center">
         <ImageIcon className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
         <p className="text-sm text-muted-foreground mb-3">No visual generated yet</p>
-        <Button size="sm" variant="outline" onClick={handleRegenerate} disabled={regenerating}>
-          {regenerating ? (
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-          ) : (
-            <RefreshCw className="h-4 w-4 mr-2" />
-          )}
-          Generate Visual
-        </Button>
+        {VISUAL_GENERATION_AVAILABLE ? (
+          <Button size="sm" variant="outline" onClick={handleRegenerate} disabled={regenerating}>
+            {regenerating ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            Generate Visual
+          </Button>
+        ) : (
+          <p className="text-xs text-muted-foreground">{VISUAL_UNAVAILABLE_NOTE}</p>
+        )}
       </div>
     );
   }
@@ -206,14 +211,18 @@ export const VisualForge = ({ draftId, userId, platformLabel }: VisualForgeProps
         <p className="text-sm text-red-700 mb-3">
           Visual generation failed: {visual.error_message || "Unknown error"}
         </p>
-        <Button size="sm" variant="outline" onClick={handleRegenerate} disabled={regenerating}>
-          {regenerating ? (
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-          ) : (
-            <RefreshCw className="h-4 w-4 mr-2" />
-          )}
-          Try Again
-        </Button>
+        {VISUAL_GENERATION_AVAILABLE ? (
+          <Button size="sm" variant="outline" onClick={handleRegenerate} disabled={regenerating}>
+            {regenerating ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            Try Again
+          </Button>
+        ) : (
+          <p className="text-xs text-muted-foreground">{VISUAL_UNAVAILABLE_NOTE}</p>
+        )}
       </div>
     );
   }
@@ -236,14 +245,16 @@ export const VisualForge = ({ draftId, userId, platformLabel }: VisualForgeProps
           </span>
         </div>
         <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={handleRegenerate} disabled={regenerating}>
-            {regenerating ? (
-              <Loader2 className="h-3 w-3 animate-spin mr-1" />
-            ) : (
-              <RefreshCw className="h-3 w-3 mr-1" />
-            )}
-            Regenerate
-          </Button>
+          {VISUAL_GENERATION_AVAILABLE && (
+            <Button size="sm" variant="outline" onClick={handleRegenerate} disabled={regenerating}>
+              {regenerating ? (
+                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+              ) : (
+                <RefreshCw className="h-3 w-3 mr-1" />
+              )}
+              Regenerate
+            </Button>
+          )}
           <Button
             size="sm"
             onClick={handleDownloadPng}

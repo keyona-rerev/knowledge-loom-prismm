@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import { VISUAL_GENERATION_AVAILABLE, VISUAL_UNAVAILABLE_NOTE } from "@/lib/visualAvailability";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -381,11 +382,14 @@ const VisualStudio = () => {
               >
                 {PREVIEW_PLATFORMS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
               </select>
-              <Button onClick={handleGeneratePreview} disabled={previewLoading} className="shrink-0">
+              <Button onClick={handleGeneratePreview} disabled={previewLoading || !VISUAL_GENERATION_AVAILABLE} className="shrink-0">
                 <Sparkles className="h-4 w-4 mr-2" />
                 {previewLoading ? "Generating..." : "Generate preview"}
               </Button>
             </div>
+            {!VISUAL_GENERATION_AVAILABLE && (
+              <p className="text-xs text-muted-foreground mt-2">{VISUAL_UNAVAILABLE_NOTE}</p>
+            )}
 
             <div
               className="rounded-md border overflow-hidden bg-white flex items-center justify-center"
@@ -404,7 +408,9 @@ const VisualStudio = () => {
                 />
               ) : (
                 <p className="text-sm text-muted-foreground px-4 text-center">
-                  {previewError ? previewError : "Click Generate preview to see a real graphic with your current settings."}
+                  {previewError ? previewError : VISUAL_GENERATION_AVAILABLE
+                    ? "Click Generate preview to see a real graphic with your current settings."
+                    : VISUAL_UNAVAILABLE_NOTE}
                 </p>
               )}
             </div>

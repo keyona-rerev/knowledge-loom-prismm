@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAI } from "../_shared/ai-caller.ts";
 import { buildSystemPromptFromConfig, canvasDimsForPlatform, type VisualConfig } from "../_shared/visual-prompt.ts";
 import { platformSpec, resolveDraftPlatform } from "../_shared/publisher/platform-config.ts";
+import { VISUALS_UNAVAILABLE_BODY } from "../_shared/visual-availability.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -144,6 +145,16 @@ async function renderToPng(html: string, width: number, height: number): Promise
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // 503-honesty gate (2026-10-29): visual generation is OFF during the
+  // subscription migration - renderer unconfigured, ai-caller fail-closed.
+  // Answer honestly BEFORE any draft_visuals write, renderer call, or AI
+  // attempt. Everything below is preserved intact for the authorized
+  // re-enable; remove only this early return then.
+  return new Response(JSON.stringify(VISUALS_UNAVAILABLE_BODY), {
+    status: 503,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL") ?? "",

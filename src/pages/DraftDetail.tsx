@@ -1,4 +1,5 @@
 import { regenerateWithFeedback } from "@/lib/regenerateDraft";
+import { VISUAL_GENERATION_AVAILABLE } from "@/lib/visualAvailability";
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -225,14 +226,16 @@ const DraftDetail = () => {
     if (error) {
       toast.error("Failed to approve draft");
     } else {
-      toast.success("Draft approved! Generating visual...");
+      toast.success(VISUAL_GENERATION_AVAILABLE ? "Draft approved! Generating visual..." : "Draft approved!");
       await loadDraft();
       (async () => {
         if (session?.user?.id) {
           try {
-            await supabase.functions.invoke("generate-draft-visual", {
-              body: { draftId: draft.id, userId: session.user.id }
-            });
+            if (VISUAL_GENERATION_AVAILABLE) {
+              await supabase.functions.invoke("generate-draft-visual", {
+                body: { draftId: draft.id, userId: session.user.id }
+              });
+            }
             await ensureVisualImageUploaded(draft.id, session.user.id);
           } catch (err) {
             console.error("Visual generation error:", err);
@@ -316,9 +319,11 @@ const DraftDetail = () => {
         // otherwise see no row at all and return immediately without
         // waiting, publishing with no image.
         try {
-          await supabase.functions.invoke("generate-draft-visual", {
-            body: { draftId: draft.id, userId: session.user.id }
-          });
+          if (VISUAL_GENERATION_AVAILABLE) {
+            await supabase.functions.invoke("generate-draft-visual", {
+              body: { draftId: draft.id, userId: session.user.id }
+            });
+          }
         } catch (err) {
           console.error("Visual generation error:", err);
         }

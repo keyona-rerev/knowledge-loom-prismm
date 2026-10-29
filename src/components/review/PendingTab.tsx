@@ -1,4 +1,5 @@
 import { regenerateWithFeedback } from "@/lib/regenerateDraft";
+import { VISUAL_GENERATION_AVAILABLE } from "@/lib/visualAvailability";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import DOMPurify from "dompurify";
@@ -173,15 +174,17 @@ export const PendingTab = () => {
     }
 
     setTransition(draftId, "approved");
-    toast.success("Draft approved! Generating visual...");
+    toast.success(VISUAL_GENERATION_AVAILABLE ? "Draft approved! Generating visual..." : "Draft approved!");
     settleAndRemove(draftId);
 
     (async () => {
       if (session?.user?.id) {
         try {
-          await supabase.functions.invoke("generate-draft-visual", {
-            body: { draftId, userId: session.user.id }
-          });
+          if (VISUAL_GENERATION_AVAILABLE) {
+            await supabase.functions.invoke("generate-draft-visual", {
+              body: { draftId, userId: session.user.id }
+            });
+          }
           await ensureVisualImageUploaded(draftId, session.user.id);
         } catch (err) {
           console.error("Visual generation error:", err);
@@ -395,9 +398,11 @@ export const PendingTab = () => {
       if (bulkAction === "approve" && session?.user?.id) {
         (async () => {
           try {
-            await supabase.functions.invoke("generate-draft-visual", {
-              body: { draftId, userId: session.user.id }
-            });
+            if (VISUAL_GENERATION_AVAILABLE) {
+              await supabase.functions.invoke("generate-draft-visual", {
+                body: { draftId, userId: session.user.id }
+              });
+            }
             await ensureVisualImageUploaded(draftId, session.user.id);
           } catch (err) {
             console.error("Visual generation error:", err);

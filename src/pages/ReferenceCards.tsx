@@ -99,7 +99,7 @@ const ReferenceCards = () => {
 
     if (error) {
       setSavingThreshold(false);
-      toast.error("Failed to save auto-delete threshold");
+      toast.error("Failed to save relevance cutoff");
       return;
     }
 
@@ -130,11 +130,11 @@ const ReferenceCards = () => {
     await loadCards();
 
     if (value === null) {
-      toast.success("Auto-delete disabled");
+      toast.success("Relevance cutoff disabled");
     } else {
       // Spell out both halves of the rule explicitly every time, so this
       // is never misread as "only applies to cards scored from now on."
-      toast.success(`Auto-delete threshold set to ${value}`, {
+      toast.success(`Relevance cutoff set to ${value}`, {
         description: deletedCount > 0
           ? `${deletedCount} existing card${deletedCount === 1 ? "" : "s"} already scoring below ${value} ${deletedCount === 1 ? "was" : "were"} removed just now (older cards are deleted; cards scored by the queue are archived, not deleted). Cards that have not been scored yet are never removed.`
           : `No existing cards scored below ${value}. Older cards scoring below ${value} are deleted; cards scored by the queue are archived instead. Cards that have not been scored yet are never removed.`,
@@ -202,6 +202,9 @@ const ReferenceCards = () => {
     } else if (data?.error) {
       console.error("Process card data error:", data.error);
       toast.error("AI processing failed: " + data.error);
+    } else if (data?.queued) {
+      toast.dismiss();
+      toast.info("Summary queued, awaiting processing. Refresh the card to check its status.");
     } else if (data?.deleted) {
       toast.warning(data.reason || "Card auto-deleted for low relevance score");
       loadCards();
@@ -387,7 +390,7 @@ const ReferenceCards = () => {
                     <span className="text-sm font-medium">Settings</span>
                     {autoDeleteThreshold && (
                       <span className="text-xs text-muted-foreground ml-2">
-                        (auto-delete below {autoDeleteThreshold})
+                        (relevance cutoff {autoDeleteThreshold}, details inside)
                       </span>
                     )}
                   </div>
@@ -402,7 +405,7 @@ const ReferenceCards = () => {
                     <div className="flex items-center gap-2 shrink-0">
                       <ShieldAlert className="h-4 w-4 text-amber-700" />
                       <Label htmlFor="auto-delete-threshold" className="text-sm font-medium whitespace-nowrap">
-                        Auto-delete cards scoring below
+                        Relevance cutoff: act on cards scoring below
                       </Label>
                     </div>
                     <Input
@@ -424,7 +427,7 @@ const ReferenceCards = () => {
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground mt-2">
-                    Applies immediately: saving removes every existing card already scoring below this number. Cards scored by the subscription queue (incoming newsletters, RSS, Gmail, manual sources, Score now) are archived, not deleted. Older cards scored before the queue are deleted outright. Cards that have not been scored yet are never removed.
+                    Applies immediately on save. Cards scored by the subscription queue (incoming newsletters, RSS, Gmail, manual sources, Score now) below this number are archived, not deleted. Older cards scored before the queue (legacy, no queue state) below it are deleted outright. Cards that have not been scored yet are never touched.
                   </p>
                 </div>
                 {/* Future settings go here, as additional bordered sections
@@ -611,10 +614,15 @@ const ReferenceCards = () => {
                         variant="outline"
                         size="sm"
                         onClick={() => processCard(card.id)}
-                        disabled={processingCards.has(card.id)}
+                        disabled={processingCards.has(card.id) || ["pending", "queued"].includes((card as any).summary_state)}
+                        title={(card as any).summary_state === "failed" ? `Last attempt failed: ${(card as any).summary_note ?? "unknown"}` : undefined}
                       >
                         <Sparkles className="h-4 w-4 mr-1" />
-                        {processingCards.has(card.id) ? "Processing..." : "Process with AI"}
+                        {processingCards.has(card.id) ? "Processing..."
+                          : (card as any).summary_state === "pending" ? "Summary pending"
+                          : (card as any).summary_state === "queued" ? "Summary queued"
+                          : (card as any).summary_state === "failed" ? "Retry summary"
+                          : "Process with AI"}
                       </Button>
                     )}
                     <Button variant="outline" size="sm" onClick={() => navigate(`/cards/${card.id}`)}>

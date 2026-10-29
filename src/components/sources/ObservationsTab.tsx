@@ -120,13 +120,15 @@ export const ObservationsTab = () => {
       }
 
       toast.info("Processing with AI...");
-      const { error: processError } = await supabase.functions.invoke("process-reference-card", {
+      const { data: processData, error: processError } = await supabase.functions.invoke("process-reference-card", {
         body: { cardId }
       });
 
       if (processError) {
         console.error("AI processing error:", processError);
         toast.warning("AI processing failed");
+      } else if (processData?.queued) {
+        toast.info("Summary queued, awaiting processing. Refresh the card to check its status.");
       } else {
         toast.success("Processed with AI");
       }

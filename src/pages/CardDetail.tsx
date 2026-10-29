@@ -175,6 +175,9 @@ const CardDetail = () => {
     } else if (data?.error) {
       console.error("Process card data error:", data.error);
       toast.error("AI processing failed: " + data.error);
+    } else if (data?.queued) {
+      toast.dismiss();
+      toast.info("Summary queued, awaiting processing. Refresh the card to check its status.");
     } else if (data?.deleted) {
       // The card scored below the user's configured auto-delete threshold
       // (see process-reference-card) and no longer exists — nothing left
@@ -232,6 +235,9 @@ const CardDetail = () => {
     } else if (data?.error) {
       console.error("Custom question data error:", data.error);
       toast.error("AI processing failed: " + data.error);
+    } else if (data?.queued) {
+      toast.dismiss();
+      toast.info("Summary queued, awaiting processing. Refresh the card to check its status.");
     } else if (data?.deleted) {
       // Answering a custom question still rescoring the card through the
       // same relevance check — a card below the auto-delete threshold gets
@@ -297,10 +303,15 @@ const CardDetail = () => {
               <Button
                 variant="outline"
                 onClick={processCard}
-                disabled={processing}
+                disabled={processing || ["pending", "queued"].includes((card as any).summary_state)}
+                title={(card as any).summary_state === "failed" ? `Last attempt failed: ${(card as any).summary_note ?? "unknown"}` : undefined}
               >
                 <Sparkles className="h-4 w-4 mr-1" />
-                {processing ? "Processing..." : "Process with AI"}
+                {processing ? "Processing..."
+                  : (card as any).summary_state === "pending" ? "Summary pending"
+                  : (card as any).summary_state === "queued" ? "Summary queued"
+                  : (card as any).summary_state === "failed" ? "Retry summary"
+                  : "Process with AI"}
               </Button>
             )}
             {editing ? (

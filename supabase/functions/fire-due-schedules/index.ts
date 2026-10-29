@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { tick as relevanceTick, makeSupabaseStore } from "../_shared/relevance-queue.ts";
+import { tick as summaryTick, makeSupabaseStore as makeSummaryStore } from "../_shared/summary-queue.ts";
 
 // The auto-fire cron entrypoint. pg_cron calls this once a day with a shared secret.
 // It finds every active slot that is due today and hands each to execute-autopilot-template
@@ -67,6 +68,9 @@ serve(async (req) => {
     // enqueued here is applied by the NEXT tick or Score now, so scores are not fresh for this same pass.
     let relevance: unknown = null;
     try { relevance = await relevanceTick(makeSupabaseStore(supabase)); } catch (e) { relevance = { error: e instanceof Error ? e.message : String(e) }; }
+    // Card summary tick (same ordering truth: applied by the NEXT tick or Settle now).
+    let summaries: unknown = null;
+    try { summaries = await summaryTick(makeSummaryStore(supabase)); } catch (e) { summaries = { error: e instanceof Error ? e.message : String(e) }; }
 
     // Head-of-pass dispatch sweep (design A1): requeue expired claims and
     // re-dispatch queued claude_jobs before firing today's slots. No-op when
@@ -109,7 +113,7 @@ serve(async (req) => {
       }
     }
 
-    return json({ success: true, relevance, dow, considered: slots?.length ?? 0, fired: due.length, results });
+    return json({ success: true, relevance, summaries, dow, considered: slots?.length ?? 0, fired: due.length, results });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
   }

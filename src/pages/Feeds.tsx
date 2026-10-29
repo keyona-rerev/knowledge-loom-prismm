@@ -407,8 +407,9 @@ Reference cards are created from your sources and used for content generation.`}
                               size="sm"
                               onClick={async () => {
                                 const toastId = toast.loading("Processing with AI...");
-                                const { error } = await supabase.functions.invoke("process-reference-card", { body: { cardId: rc.id } });
+                                const { data: pr, error } = await supabase.functions.invoke("process-reference-card", { body: { cardId: rc.id } });
                                 if (error) { toast.error("Failed to process: " + error.message, { id: toastId }); }
+                                else if (pr?.queued) { toast.info("Summary queued, awaiting processing. Refresh the card to check its status.", { id: toastId }); }
                                 else { toast.success("Card processed successfully!", { id: toastId }); loadAutomatedCards(); }
                               }}
                             >
@@ -609,8 +610,9 @@ Reference cards are created from your sources and used for content generation.`}
                                     size="sm"
                                     onClick={async () => {
                                       const toastId = toast.loading("Processing with AI...");
-                                      const { error } = await supabase.functions.invoke("process-reference-card", { body: { cardId: rc.id } });
+                                      const { data: pr, error } = await supabase.functions.invoke("process-reference-card", { body: { cardId: rc.id } });
                                       if (error) { toast.error("Failed to process: " + error.message, { id: toastId }); }
+                                else if (pr?.queued) { toast.info("Summary queued, awaiting processing. Refresh the card to check its status.", { id: toastId }); }
                                       else { toast.success("Card processed successfully!", { id: toastId }); loadFeeds(); }
                                     }}
                                   >

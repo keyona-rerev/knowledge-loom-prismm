@@ -61,6 +61,21 @@ serve(async (req) => {
       .from("automation_config").select("value").eq("key", "cron_fire_secret").maybeSingle();
     if (!cfg?.value || presented !== cfg.value) return json({ error: "Forbidden" }, 403);
 
+    // Head-of-pass dispatch sweep (design A1): requeue expired claims and
+    // re-dispatch queued claude_jobs before firing today's slots. No-op when
+    // the dispatcher secret is not configured.
+    const dispatcherSecret = Deno.env.get("DISPATCHER_SECRET") ?? "";
+    if (dispatcherSecret) {
+      await Promise.race([
+        fetch(`${supabaseUrl}/functions/v1/claude-job-redispatch`, {
+          method: "POST",
+          headers: { "x-dispatcher-secret": dispatcherSecret, "Content-Type": "application/json" },
+          body: "{}",
+        }).catch(() => null),
+        new Promise((r) => setTimeout(r, 10000)),
+      ]);
+    }
+
     const now = new Date();
     const dow = now.getUTCDay();
 

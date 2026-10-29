@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callAI } from "../_shared/ai-caller.ts";
 import { resolveNext, type Frequency } from "../_shared/schedule-resolver.ts";
 import { instagramConventionsBlock } from "../_shared/strategy-context.ts";
 
@@ -314,13 +313,10 @@ serve(async (req) => {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("ai_provider, ai_model, ai_api_key, ai_endpoint, business_name, business_description, brand_voice, voice_profile, gen_source_reliance, gen_first_party_weight, gen_nature_intensity, gen_voice_adherence")
+      .select("business_name, business_description, brand_voice, voice_profile, gen_source_reliance, gen_first_party_weight, gen_nature_intensity, gen_voice_adherence")
       .eq("user_id", userId)
       .single();
     if (!profile) return json({ error: "Profile not found" }, 404);
-    if (!profile.ai_api_key && profile.ai_provider !== "claude_code") return json({ error: "No AI API key configured in Settings" }, 400);
-
-    const aiProfile = { ai_provider: profile.ai_provider, ai_model: profile.ai_model, ai_api_key: profile.ai_api_key, ai_endpoint: profile.ai_endpoint };
 
     const gen: GenSettings = {
       source_reliance: profile.gen_source_reliance ?? 3,
@@ -430,22 +426,6 @@ serve(async (req) => {
     // same fixed window every time.
     const trustedCards = weightedSample(candidatePool, TRUSTED_SOURCE_WINDOW, weightOf);
 
-    // Records a rotation turn against every card that was offered as citable
-    // this run, so the pool keeps advancing and no card dominates. Runs on
-    // both the fresh and reuse paths (both send the trusted list to the
-    // model) and only when a draft was produced. Test runs never record.
-    const recordSourceUsage = async () => {
-      if (isTestRun || !trustedCards.length) return;
-      const now = new Date().toISOString();
-      for (const c of trustedCards) {
-        await supabase.from("reference_cards").update({
-          times_used: (c.times_used ?? 0) + 1,
-          last_used_at: now,
-          is_used: true,
-        }).eq("id", c.id);
-      }
-    };
-
     const sourceLine = (c: any) => {
       const summary = (c.ai_summary && String(c.ai_summary).trim()) ? String(c.ai_summary).trim() : String(c.original_text || "").slice(0, 400);
       const tag = c.from_company ? "[FROM THE COMPANY] " : "";
@@ -482,8 +462,6 @@ serve(async (req) => {
     systemLines.push("");
     systemLines.push('Respond with valid JSON only. Always include a "stat_attributions" array; use [] when the post states no figures.');
     const system = systemLines.join("\n");
-
-    const createdDrafts: any[] = [];
 
     let reuseParent: any = null;
     if (slot.requires_child && (slot.max_reuse_count ?? 0) > 0) {
@@ -522,8 +500,8 @@ serve(async (req) => {
     // Subscription-worker route (design A1): assemble the SAME prompts the
     // in-function paths below build, park the run as a claude_jobs row, and let
     // the private Claude Code worker produce the draft on the subscription.
-    // No API key is used on this route; the API path below stays as rollback.
-    if (profile.ai_provider === "claude_code") {
+    // This is the only route: there is no API key and no in-function paid path.
+    {
       let ccPath: "A" | "B" = "B";
       let ccContentTypeKey = format.key;
       let ccChosenCards: any[] = [];
@@ -643,214 +621,6 @@ Respond ONLY with JSON: {"title": "...", "body": "...", "stat_attributions": [{"
       }
       return json({ success: true, queued: true, jobId: ccJob.id });
     }
-
-    if (reuseParent) {
-      // PATH A: child that resurfaces the parent from a new angle.
-      const { cf, cn } = await loadChildLibs();
-      if (!cf || !cn) return json({ error: "Slot child references a missing format or nature" }, 400);
-      const childCtx: SlotContext = { ...baseCtx, format: cf, nature: cn };
-      const anglesUsed = arr(reuseParent.reuse_angles_used);
-      const prompt = `${buildContextBlock(childCtx)}
-
-TEASER POST FOR THIS PUBLISHED ARTICLE
-The parent article is a long-form piece. Your job is to write a ${teaserArtifactLabel(cf)} that:
-1. Opens a loop — surface ONE specific insight, provocation, or tension from the article that the reader wants resolved.
-2. Does NOT summarize or restate the article. The feed post is the door, not the room.
-3. Ends in a way that makes the full article the natural next step.
-4. Stands on its own as a piece of writing — someone who never reads the article should still get value from this post.
-
-Parent article title: ${reuseParent.title}
-Parent article body: ${(reuseParent.body || "").slice(0, 3000)}
-
-Angles already used as teasers (do not repeat the same hook):
-${anglesUsed.length ? anglesUsed.map((x) => `- ${x}`).join("\n") : "None yet; this is the first teaser."}
-
-State the specific insight or hook you chose in "angle_used". For any figure you use, record it in stat_attributions.
-
-Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sentence describing the hook you chose", "stat_attributions": [{"figure": "...", "source": "..."}]}`;
-
-      const res = await callAI(aiProfile, [{ role: "user", content: prompt }], system);
-      const result = parseJSON(res.text);
-
-      const { data: child } = await supabase.from("drafts").insert({
-        title: result.title,
-        body: result.body,
-        status: "draft",
-        approval_status: "pending",
-        user_id: userId,
-        parent_draft_id: reuseParent.id,
-        schedule_id: slot.id,
-        scheduled_for: intendedScheduledFor,
-        format_id: childFormatId,
-        nature_id: childNatureId,
-        job_id: slot.job_id,
-        lane_id: slot.lane_id,
-        reader_id: reader?.id ?? null,
-        content_type: cf.key,
-        revision_count: 0,
-        seed_insight: `Teaser ${(reuseParent.reuse_count ?? 0) + 1} of ${reuseParent.max_reuse_count}. Hook: ${result.angle_used || "unspecified"}`,
-        stat_attributions: statAttributions(result.stat_attributions),
-        stat_flag: retiredStatFlag(result.body),
-      }).select().single();
-
-      if (child) {
-        if (!isTestRun) {
-          await supabase.from("drafts").update({
-            reuse_count: (reuseParent.reuse_count ?? 0) + 1,
-            reuse_angles_used: [...anglesUsed, result.angle_used || `Teaser ${(reuseParent.reuse_count ?? 0) + 1}`],
-          }).eq("id", reuseParent.id);
-        }
-        createdDrafts.push(child);
-      }
-    } else {
-      // PATH B: fresh parent from strategy, audience, and the seed.
-      const seedBlock = seed
-        ? `\n\nSEED (this premise is the post's SUBJECT)\n${seed.premise}${seed.category ? `\nCategory: ${seed.category}` : ""}\nThe seed premise decides what this post is ABOUT. Sources below may support its argument, but a source's own topic must never replace or redirect the subject. If the sources do not speak to this premise, write from the premise alone.`
-        : "\n\nNo seed supplied; choose a premise that fits the job and nature above.";
-
-      let sourceBlock = "";
-      let chosenCards: any[] = [];
-      if (gen.source_reliance > 1) {
-        const topByReliance: Record<number, number> = { 2: 2, 3: 3, 4: 5, 5: 6 };
-        const takeN = topByReliance[gen.source_reliance] ?? 0;
-        // STAGE 2b — the reference material the post builds on: a weighted
-        // random draw from the citable set (so it is always a subset of what
-        // the post may cite), giving a different pairing each run.
-        const chosen = weightedSample(trustedCards, takeN, weightOf);
-        chosenCards = chosen;
-        if (chosen.length) {
-          const cardLines = chosen.map((c) => {
-            const summary = (c.ai_summary && String(c.ai_summary).trim())
-              ? String(c.ai_summary).trim()
-              : String(c.original_text || "").slice(0, 400);
-            const tag = c.from_company ? "[FROM THE COMPANY] " : "";
-            return `- ${tag}${c.title || "Untitled"}: ${summary}`;
-          });
-          const relianceInstruction: Record<number, string> = {
-            2: "Optional seasoning, use only if it sharpens the point.",
-            3: "Draw on these where they sharpen the point, do not force them.",
-            4: "Build the post around the strongest of these, using their real figures.",
-            5: "This post should be source-led, anchor it in these and their specifics.",
-          };
-          const instructionLines = [relianceInstruction[gen.source_reliance] ?? ""];
-          if (seed) {
-            instructionLines.push("Relevance binding: cite a source ONLY where it directly supports the seed premise above. If no offered source supports the premise, leave stat_attributions empty - no figure is better than a forced one. Never invent a number to fill the gap.");
-          }
-          if (gen.first_party_weight >= 4 && chosen.some((c) => c.from_company)) {
-            instructionLines.push("Prefer the framing and claims from sources marked FROM THE COMPANY, treat outside sources as secondary.");
-          }
-          sourceBlock = `\n\nSOURCES (reference material)\n${instructionLines.filter(Boolean).join("\n")}\n${cardLines.join("\n")}`;
-        }
-      }
-
-      const prompt = `${contextBlock}${seedBlock}${sourceBlock}
-
-Write one post that does the job, argues in the nature, fits the format and its length, speaks to the lane and reader, and answers the reader's questions where natural. Use the audience's preferred language and avoid the language to avoid. Use only figures attributable to the trusted sources and record each one in stat_attributions.
-
-Respond ONLY with JSON: {"title": "...", "body": "...", "stat_attributions": [{"figure": "the number as you stated it", "source": "the exact trusted source title"}]}`;
-
-      const res = await callAI(aiProfile, [{ role: "user", content: prompt }], system);
-      const result = parseJSON(res.text);
-
-      const { data: parent } = await supabase.from("drafts").insert({
-        title: result.title,
-        body: result.body,
-        status: "draft",
-        approval_status: "pending",
-        user_id: userId,
-        schedule_id: slot.id,
-        scheduled_for: intendedScheduledFor,
-        format_id: slot.format_id,
-        nature_id: slot.nature_id,
-        job_id: slot.job_id,
-        lane_id: slot.lane_id,
-        reader_id: reader?.id ?? null,
-        seed_id: seed?.id ?? null,
-        content_type: format.key,
-        revision_count: 0,
-        max_reuse_count: slot.max_reuse_count ?? 0,
-        reuse_window_days: slot.reuse_window_days ?? 90,
-        reuse_count: 0,
-        reuse_angles_used: [],
-        stat_attributions: statAttributions(result.stat_attributions),
-        stat_flag: retiredStatFlag(result.body),
-      }).select().single();
-
-      if (parent) {
-        createdDrafts.push(parent);
-
-        if (seed && !isTestRun) {
-          await supabase.from("seeds").update({
-            times_used: (seed.times_used ?? 0) + 1,
-            last_used_at: new Date().toISOString(),
-          }).eq("id", seed.id);
-        }
-
-        // Companion child: a short feed post/caption that teases the parent
-        // article. It opens a loop from one specific insight in the article
-        // and drives the reader to the full piece. It is NOT a summary and
-        // NOT a copy of the parent.
-        if (slot.requires_child) {
-          const { cf, cn } = await loadChildLibs();
-          if (cf && cn) {
-            const childCtx: SlotContext = { ...baseCtx, format: cf, nature: cn };
-            const childPrompt = `${buildContextBlock(childCtx)}
-
-TEASER POST FOR THIS NEW ARTICLE
-The parent post above is a long-form article. Your job is to write a ${teaserArtifactLabel(cf)} that:
-1. Opens a loop — surface ONE specific insight, provocation, statistic, or tension from the article that the reader wants resolved.
-2. Does NOT summarize the article or restate its structure. The feed post is the door, not the room.
-3. Stands on its own as a piece of writing. Someone who never reads the article should still get value from this post.
-4. ${teaserCtaRule(cf)}
-5. Keep it short. This is a feed post, not a mini-article. Under 200 words.
-
-Parent article title: ${parent.title}
-Parent article body: ${(parent.body || "").slice(0, 3000)}
-
-State the specific insight or hook you chose in "angle_used". For any figure you use from the article, record it in stat_attributions.
-
-Respond ONLY with JSON: {"title": "...", "body": "...", "angle_used": "one sentence describing the hook you chose", "stat_attributions": [{"figure": "...", "source": "..."}]}`;
-
-            const childRes = await callAI(aiProfile, [{ role: "user", content: childPrompt }], system);
-            const childResult = parseJSON(childRes.text);
-            const { data: child } = await supabase.from("drafts").insert({
-              title: childResult.title,
-              body: childResult.body,
-              status: "draft",
-              approval_status: "pending",
-              user_id: userId,
-              parent_draft_id: parent.id,
-              schedule_id: slot.id,
-              scheduled_for: intendedScheduledFor,
-              format_id: childFormatId,
-              nature_id: childNatureId,
-              job_id: slot.job_id,
-              lane_id: slot.lane_id,
-              reader_id: reader?.id ?? null,
-              content_type: cf.key,
-              revision_count: 0,
-              seed_insight: `Teaser for "${parent.title}". Hook: ${childResult.angle_used || "unspecified"}`,
-              stat_attributions: statAttributions(childResult.stat_attributions),
-              stat_flag: retiredStatFlag(childResult.body),
-            }).select().single();
-            if (child) createdDrafts.push(child);
-          }
-        }
-      }
-    }
-
-    // Advance the source rotation once per run that actually produced a draft.
-    // Covers both paths; no-op on test runs.
-    if (createdDrafts.length) await recordSourceUsage();
-
-    for (const d of createdDrafts) {
-      await supabase.functions.invoke("send-draft-notification", {
-        body: { draftId: d.id },
-        headers: { Authorization: authHeader },
-      }).catch(() => {});
-    }
-
-    return json({ success: true, draftsCreated: createdDrafts.length, draftIds: createdDrafts.map((d) => d.id), isTestRun });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
   }

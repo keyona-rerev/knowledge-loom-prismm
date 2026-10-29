@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callAI } from "../_shared/ai-caller.ts";
+import { enqueueInteractiveJob, awaitInteractiveJob } from "../_shared/claude-queue.ts";
 import { loadStrategyContext, buildContextBlock, buildSystemPrompt } from "../_shared/strategy-context.ts";
 
 const corsHeaders = {
@@ -49,7 +49,7 @@ serve(async (req) => {
     }
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
-    const { draftId, notes } = await req.json();
+    const { draftId, notes, maxWaitMs } = await req.json();
     if (!draftId) {
       return new Response(JSON.stringify({ error: "draftId is required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -73,13 +73,6 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Draft not found or access denied" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const { data: profile } = await supabase.from("profiles").select("ai_provider, ai_model, ai_api_key, ai_endpoint").eq("user_id", user.id).single();
-    if (!profile) {
-      return new Response(JSON.stringify({ error: "Profile not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-    if (!profile.ai_api_key) {
-      return new Response(JSON.stringify({ error: "No AI API key configured in Settings" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
 
     // Store revision history before overwriting, same pattern as
     // regenerate-draft-with-feedback, so a bad revise pass is always
@@ -129,20 +122,51 @@ ${strategyBlock}
 
 Respond ONLY with valid JSON: {"title": "...", "content": "the fully rewritten post"}`;
 
-    const aiProfile = { ai_provider: profile.ai_provider, ai_model: profile.ai_model, ai_api_key: profile.ai_api_key, ai_endpoint: profile.ai_endpoint };
     const system = buildSystemPrompt(
       "You are a sharp, unsentimental line editor. Your only job on this pass is prose quality: cut the specific tropes you're given, and leave everything else -- the argument, the facts, the structure -- intact. Always respond with valid JSON only.",
       hardRules, voiceRules, inlineAttribution
     );
-    const response = await callAI(aiProfile, [{ role: "user", content: prompt }], system);
-    const result = parseJSON(response.text);
+    // Subscription path: enqueue the edit pass onto claude_jobs; the private
+    // worker (Claude Code on the owner's Max subscription) does the AI work.
+    // No paid-API route exists.
+    const { jobId } = await enqueueInteractiveJob(supabase, {
+      userId: user.id, route: "revise-draft", kind: "revise", prompt, system,
+      context: { draftId },
+      // A retried request for the SAME revision returns the existing job
+      // instead of double-spending a worker run; a deliberate new pass has a
+      // new revision number and correctly gets a fresh job.
+      idempotencyKey: `revise:${draftId}:${draft.updated_at}`,
+    });
+    // maxWaitMs is a bounded test/proof hook: lets a synthetic run force the
+    // 202 + client-poll path deterministically. Clamped under the edge wall
+    // clock; omit for normal operation.
+    const waitMs = Math.max(1, Math.min(Number(maxWaitMs) || 100_000, 110_000));
+    const jobResult = await awaitInteractiveJob(supabase, jobId, waitMs);
+    if (!jobResult) {
+      return new Response(
+        JSON.stringify({ queued: true, jobId, error: "still_running" }),
+        { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const result = parseJSON((jobResult as { text: string }).text);
 
-    await supabase.from("drafts").update({
+    // CAS on the trigger-maintained updated_at captured before the worker
+    // ran: any concurrent edit (UI, repair tool, another pass) changes it,
+    // and then we refuse rather than blind-overwrite. The completed result
+    // stays readable on the job row (claude-job-status?job_id=) for
+    // deliberate reapplication.
+    const { data: casRows } = await supabase.from("drafts").update({
       title: result.title || draft.title,
       body: result.content,
       revision_count: currentVersion,
-      updated_at: new Date().toISOString(),
-    }).eq("id", draftId);
+    }).eq("id", draftId).eq("updated_at", draft.updated_at).select("id");
+
+    if (!casRows?.length) {
+      return new Response(
+        JSON.stringify({ error: "draft_changed", message: "Draft changed while the revision ran; the completed revision is retained on the job and was not applied.", jobId }),
+        { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     return new Response(
       JSON.stringify({ success: true, title: result.title || draft.title, content: result.content, revisionCount: currentVersion }),

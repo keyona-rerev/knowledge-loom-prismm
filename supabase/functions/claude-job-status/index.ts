@@ -13,6 +13,21 @@ serve(async (req) => {
   const { data: { user } } = await supabase.auth.getUser((req.headers.get("Authorization") ?? "").replace("Bearer ", ""));
   if (!user || user.id !== TENANT) return json({ error: "unauthorized" }, 401);
 
+  // Per-job read for the interactive 202 flow: tenant can poll one job's
+  // status and, for interactive jobs only, the worker's result payload.
+  // Draft-generating jobs never expose input/output here, only status.
+  const url = new URL(req.url);
+  const jobId = url.searchParams.get("job_id");
+  if (jobId) {
+    const { data: job } = await supabase.from("claude_jobs")
+      .select("id, path, status, result, last_error, updated_at")
+      .eq("id", jobId).eq("user_id", user.id).maybeSingle();
+    if (!job) return json({ error: "not found" }, 404);
+    const body: Record<string, unknown> = { id: job.id, status: job.status, last_error: job.last_error, updated_at: job.updated_at };
+    if (job.path === "interactive" && job.status === "completed") body.result = job.result;
+    return json(body);
+  }
+
   const { data: jobs } = await supabase.from("claude_jobs")
     .select("id, status, run_url, last_error, updated_at").order("updated_at", { ascending: false }).limit(200);
   const all = jobs ?? [];

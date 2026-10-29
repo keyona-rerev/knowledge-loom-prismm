@@ -115,7 +115,7 @@ export const PendingTab = () => {
     const [{ data, error }, { data: fmt }] = await Promise.all([
       supabase
         .from("drafts")
-        .select("id, title, body, approval_status, seed_insight, content_type, created_at, format_id, stat_attributions, stat_flag")
+        .select("id, title, body, approval_status, seed_insight, content_type, created_at, format_id, stat_attributions, stat_flag, revision_count, updated_at")
         .eq("user_id", session.user.id)
         .in("approval_status", ["pending", "needs_revision"])
         .order("created_at", { ascending: false }),
@@ -215,9 +215,88 @@ export const PendingTab = () => {
     if (transitioning[draftId]) return;
     setTransition(draftId, "revising");
 
+    // Captured before the request so the 202-poll completion path can CAS on
+    // it: updated_at is maintained by a DB trigger on EVERY update, so any
+    // concurrent edit while the worker runs flips it and the write is
+    // refused instead of blindly overwriting their edits.
+    const preUpdatedAt = drafts.find(d => d.id === draftId)?.updated_at ?? "";
+
     const { data, error } = await supabase.functions.invoke("revise-draft", { body: { draftId } });
 
+    // 202 flow: the revision runs as a claude_jobs worker job (Claude
+    // subscription path). The edge function returns { queued, jobId } when
+    // the worker hasn't finished inside the edge wall clock; poll the
+    // tenant-pinned status endpoint for the stored result instead of
+    // dropping the request.
+    if (!error && data?.queued && data?.jobId) {
+      toast.info("Revision queued - waiting for the worker (up to ~5 minutes)...");
+      const parseQueued = (text: string) => {
+        let content = text.trim();
+        const fence = content.match(/```(?:\w*)?\s*([\s\S]*?)\s*```/i);
+        if (fence) content = fence[1].trim();
+        const m = content.match(/(\{[\s\S]*\})/);
+        return JSON.parse(m ? m[1] : content);
+      };
+      let result: { title?: string; content?: string } | null = null;
+      let completedUnreadable = false;
+      for (let i = 0; i < 60; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+        const { data: st } = await supabase.functions.invoke(`claude-job-status?job_id=${data.jobId}`, { method: "GET" });
+        if (st?.status === "completed") {
+          try { result = parseQueued(st?.result?.text ?? ""); } catch { result = null; completedUnreadable = true; }
+          break;
+        }
+        if (st?.status === "failed") {
+          clearTransition(draftId);
+          toast.error("Revision failed: " + (st?.last_error || "worker job failed"));
+          return;
+        }
+      }
+      if (!result?.content) {
+        // Two honest failure shapes, labeled distinctly: the worker finished
+        // but the payload was unreadable, vs still running past the window.
+        clearTransition(draftId);
+        toast.error(completedUnreadable
+          ? "Revision completed but the result was unreadable - the draft is unchanged."
+          : "Revision is still running - check back in a few minutes.");
+        return;
+      }
+      // Persist exactly what the synchronous branch writes (title, body,
+      // revision_count bump), guarded by a CAS on the pre-request
+      // revision_count so a concurrent edit while the worker ran is never
+      // blindly overwritten.
+      const preCount = drafts.find(d => d.id === draftId)?.revision_count ?? 0;
+      const { data: casRows, error: casError } = await supabase
+        .from("drafts")
+        .update({
+          title: result.title || drafts.find(d => d.id === draftId)?.title,
+          body: result.content,
+          revision_count: preCount + 1,
+        })
+        .eq("id", draftId)
+        .eq("updated_at", preUpdatedAt)
+        .select("id, updated_at");
+      if (casError || !casRows?.length) {
+        // CAS refused: the draft changed while the worker ran. Reload the
+        // current row instead of overwriting; the revision stays in
+        // claude_jobs and can be reapplied deliberately.
+        const { data: fresh } = await supabase.from("drafts").select("*").eq("id", draftId).single();
+        if (fresh) setDrafts(prev => prev.map(d => d.id === draftId ? fresh : d));
+        clearTransition(draftId);
+        toast.error("This draft changed while the revision ran - the latest version is shown and the revision was not applied.");
+        return;
+      }
+      setDrafts(prev => prev.map(d => d.id === draftId ? { ...d, title: result.title || d.title, body: result.content!, revision_count: preCount + 1, updated_at: casRows[0].updated_at } : d));
+      clearTransition(draftId);
+      toast.success("Revised — trope cleanup pass applied.");
+      return;
+    }
+
     if (error || data?.error) {
+      // A 409 (draft_changed) means someone edited while the worker ran;
+      // either way the honest move is to show the current stored row.
+      const { data: fresh } = await supabase.from("drafts").select("*").eq("id", draftId).single();
+      if (fresh) setDrafts(prev => prev.map(d => d.id === draftId ? fresh : d));
       clearTransition(draftId);
       toast.error("Revision failed: " + (error?.message || data?.error || "unknown error"));
       return;

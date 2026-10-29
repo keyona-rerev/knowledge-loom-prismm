@@ -29,60 +29,69 @@ const PLATFORM_DESTINATION_COPY: Record<string, string> = {
 // Brand, voice, audience, and content libraries live on Strategy and Audience.
 // Visual generation controls live on Visual Studio (/visual-studio).
 
-// Every place the system calls out to the configured AI provider, and what
-// triggers it. This is a map of the code, not a live spend tracker — none of
-// these functions currently log actual token counts, so the cost column is
-// an estimate based on typical prompt/response size at Claude Sonnet 4.6
-// list pricing ($3/$15 per million input/output tokens). Real cost scales
-// with your actual provider and model.
+// Every place the system makes AI calls, and what triggers it. Under the
+// Claude Code provider, only scheduled generation runs (on the subscription,
+// $0); the interactive tools are fail-closed unavailable while they are
+// migrated. The cost column is what each call site would bill per call on an
+// API provider, an estimate based on typical prompt/response size at Claude
+// Sonnet 4.6 list pricing ($3/$15 per million input/output tokens) - none of
+// these functions currently log actual token counts.
 const AI_USAGE = [
   {
     name: "Reference card scoring + summary",
     trigger: "Every newsletter, RSS item, or manual source, at ingestion and whenever you click \"Process with AI\"",
     fn: "process-reference-card",
     est: "$0.005–$0.02 per card",
+    status: "unavailable",
   },
   {
     name: "Newsletter relevance scoring",
     trigger: "Every incoming newsletter email, automatically, before the card is even created",
-    fn: "ingest-gmail-content",
+    fn: "ingest-gmail-content / process-newsletter-email (relevance scorer)",
     est: "~$0.005 per email",
+    status: "unavailable",
   },
   {
     name: "Scheduled draft generation",
     trigger: "Every slot that fires on the daily schedule cron, plus manual \"Run\" and test runs, plus Cadence's Fast-forward batch. With the Claude Code provider this runs in the GitHub Actions worker, not per-call API.",
     fn: "execute-autopilot-template",
     est: "$0.02–$0.04 per draft on an API provider; $0 with Claude Code",
+    status: "subscription",
   },
   {
     name: "Manual content creation",
     trigger: "Create Content page, per draft you generate by hand",
     fn: "generate-content-directions / generate-final-content",
     est: "$0.01–$0.03 per draft",
+    status: "unavailable",
   },
   {
     name: "Draft revision (with feedback)",
     trigger: "Requesting a rewrite with feedback on a draft in Review (\"Request Revision\")",
     fn: "regenerate-draft-with-feedback",
     est: "$0.01–$0.02 per revision",
+    status: "unavailable",
   },
   {
     name: "Draft revision (prose cleanup)",
     trigger: "Clicking \"Revise\" on a pending draft in Review — cuts specific AI-writing tropes without touching the argument",
     fn: "revise-draft",
     est: "$0.01–$0.02 per revision",
+    status: "unavailable",
   },
   {
     name: "Discover Sources scoring",
     trigger: "Every candidate URL found while searching for new sources",
     fn: "search-sources / create-manual-source / process-reference-card",
     est: "$0.01–$0.03 per candidate checked",
+    status: "unavailable",
   },
   {
     name: "Branded visual generation",
     trigger: "Automatic on every draft approval, plus manual regenerate in Visual Studio",
     fn: "generate-draft-visual",
     est: "$0.03–$0.05 per visual — the priciest single call, and it fires on every approval",
+    status: "unavailable",
   },
 ];
 
@@ -454,12 +463,12 @@ const Settings = () => {
               <p className="text-sm text-muted-foreground mt-1">Each scheduled slot enqueues a job; a Claude Code worker in GitHub Actions claims it and writes the draft. Scheduled generation costs $0 in API spend. Drafts land in Review for approval.</p>
             </div>
             <div className="rounded-lg border p-3">
-              <p className="font-medium">Publishing: daily 8:20 AM Central sweep</p>
-              <p className="text-sm text-muted-foreground mt-1">A daily sweep schedules every approved post to your connected platform at its slot time. Scheduled posts can be repaired in place with read-back verification, without cancelling and republishing.</p>
+              <p className="font-medium">Publishing: daily sweep at 13:20 UTC</p>
+              <p className="text-sm text-muted-foreground mt-1">A daily sweep fires at 13:20 UTC year-round - 8:20 AM Central in daylight time, 7:20 AM Central after the November clock change - and schedules every approved post to your connected platform at its slot time. Scheduled posts can be repaired in place with read-back verification, without cancelling and republishing.</p>
             </div>
             <div className="rounded-lg border p-3">
               <p className="font-medium">Current operating state (as of October 29, 2026)</p>
-              <p className="text-sm text-muted-foreground mt-1">Friday explainer slots and framework posts are generating. Monday and Wednesday statistic-led slots are paused while source quality is fixed, so no post ships with an unverified number. Approval currently runs through your assistant's in-system review against your quality bar.</p>
+              <p className="text-sm text-muted-foreground mt-1">All slot types are generating on the subscription worker after the October 29 source-quality fix; a fresh batch covering the full November calendar was generated and reviewed the same day. Interactive AI tools (revision, card processing, visual generation, source search, newsletter scoring) are temporarily unavailable while they are migrated to the subscription; scheduled generation and publishing are unaffected. Approval runs through your assistant's in-system review against your quality bar.</p>
             </div>
           </CardContent>
         </Card>
@@ -471,7 +480,7 @@ const Settings = () => {
               <DollarSign className="h-5 w-5" />Where AI calls happen
             </CardTitle>
             <CardDescription>
-              Every function in the system that calls your configured AI provider, and what triggers it — {AI_USAGE.length} distinct call sites in total. Estimates are based on typical prompt size at Claude Sonnet 4.6 list pricing ($3 input / $15 output per million tokens) — this is a map of what fires, not a live spend tracker, since none of these functions log actual token usage yet.
+              With the Claude Code provider, scheduled generation runs on your Claude subscription at $0. The interactive tools below are temporarily unavailable (fail-closed, no paid API fallback) while they are migrated to the subscription - they are not running and not billing. The pricing column shows what each would cost per call if you switched back to an API provider, based on typical prompt size at Claude Sonnet 4.6 list pricing ($3 input / $15 output per million tokens) - none of these functions log actual token usage yet.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -479,7 +488,13 @@ const Settings = () => {
               <div key={item.fn} className="rounded-lg border p-3">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <p className="font-medium">{item.name}</p>
-                  <Badge variant="outline" className="font-mono text-xs">{item.est}</Badge>
+                  {item.status === "subscription" ? (
+                    <Badge variant="outline" className="font-mono text-xs">$0 - runs on your subscription</Badge>
+                  ) : item.status === "unavailable" ? (
+                    <Badge variant="outline" className="font-mono text-xs">Temporarily unavailable - not billing</Badge>
+                  ) : (
+                    <Badge variant="outline" className="font-mono text-xs">{item.est}</Badge>
+                  )}
                 </div>
                 <p className="text-sm text-muted-foreground mt-1">{item.trigger}</p>
                 <p className="text-xs text-muted-foreground mt-1 font-mono">{item.fn}</p>

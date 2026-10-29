@@ -98,6 +98,9 @@ Search the web for ${Math.min(Math.max(targetCount, 1), 15)} distinct, real, cur
 
 Respond with ONLY minified JSON, no other text: {"candidates":[{"title":"...","url":"...","reason":"one short phrase on why this fits"}]}`;
 
+    if (profile.ai_provider === "claude_code") {
+      throw new Error("Source search is temporarily unavailable: content generation now runs on the Claude subscription, and this tool has not been migrated to it yet. No paid API call was made.");
+    }
     const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {

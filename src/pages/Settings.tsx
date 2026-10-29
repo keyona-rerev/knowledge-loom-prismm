@@ -25,84 +25,17 @@ const PLATFORM_DESTINATION_COPY: Record<string, string> = {
   instagram: "your Instagram business account",
 };
 
-// Settings: appearance and AI provider only.
+// Settings: appearance, queue status and account preferences.
 // Brand, voice, audience, and content libraries live on Strategy and Audience.
 // Visual generation controls live on Visual Studio (/visual-studio).
 
-// Every place the system makes AI calls, and what triggers it. Under the
-// Claude Code provider, only scheduled generation runs (on the subscription,
-// $0); the interactive tools are fail-closed unavailable while they are
-// migrated. The cost column is what each call site would bill per call on an
-// API provider, an estimate based on typical prompt/response size at Claude
-// Sonnet 4.6 list pricing ($3/$15 per million input/output tokens) - none of
-// these functions currently log actual token counts.
+// Current implementation status. Queue deployment is separate from organic lifecycle proof.
 const AI_USAGE = [
-  {
-    name: "Reference card scoring + summary",
-    trigger: "Every newsletter, RSS item, or manual source, at ingestion and whenever you click \"Process with AI\"",
-    fn: "process-reference-card",
-    est: "$0.005–$0.02 per card",
-    status: "unavailable",
-  },
-  {
-    name: "Newsletter relevance scoring",
-    trigger: "Every incoming newsletter email, automatically, before the card is even created",
-    fn: "ingest-gmail-content / process-newsletter-email (relevance scorer)",
-    est: "~$0.005 per email",
-    status: "unavailable",
-  },
-  {
-    name: "Scheduled draft generation",
-    trigger: "Every slot that fires on the daily schedule cron, plus manual \"Run\" and test runs, plus Cadence's Fast-forward batch. With the Claude Code provider this runs in the GitHub Actions worker, not per-call API.",
-    fn: "execute-autopilot-template",
-    est: "$0.02–$0.04 per draft on an API provider; $0 with Claude Code",
-    status: "subscription",
-  },
-  {
-    name: "Manual content creation",
-    trigger: "Create Content page, per draft you generate by hand",
-    fn: "generate-content-directions / generate-final-content",
-    est: "$0.01–$0.03 per draft",
-    status: "unavailable",
-  },
-  {
-    name: "Draft revision (with feedback)",
-    trigger: "Requesting a rewrite with feedback on a draft in Review (\"Request Revision\")",
-    fn: "regenerate-draft-with-feedback",
-    est: "$0.01–$0.02 per revision",
-    status: "unavailable",
-  },
-  {
-    name: "Draft revision (prose cleanup)",
-    trigger: "Clicking \"Revise\" on a pending draft in Review — cuts specific AI-writing tropes without touching the argument",
-    fn: "revise-draft",
-    est: "$0.01–$0.02 per revision",
-    status: "unavailable",
-  },
-  {
-    name: "Discover Sources scoring",
-    trigger: "Every candidate URL found while searching for new sources",
-    fn: "search-sources / create-manual-source / process-reference-card",
-    est: "$0.01–$0.03 per candidate checked",
-    status: "unavailable",
-  },
-  {
-    name: "Branded visual generation",
-    trigger: "Automatic on every draft approval, plus manual regenerate in Visual Studio",
-    fn: "generate-draft-visual",
-    est: "$0.03–$0.05 per visual — the priciest single call, and it fires on every approval",
-    status: "unavailable",
-  },
-];
-
-const AI_PROVIDERS = [
-  { value: "claude_code", label: "Claude Code (your Claude subscription)", keyLabel: "", keyPlaceholder: "", modelPlaceholder: "claude-sonnet-4-6", docsUrl: "", docsLabel: "" },
-  { value: "anthropic", label: "Claude (Anthropic)", keyLabel: "Anthropic API Key", keyPlaceholder: "sk-ant-...", modelPlaceholder: "claude-sonnet-4-6", docsUrl: "https://console.anthropic.com/settings/keys", docsLabel: "console.anthropic.com" },
-  { value: "google-ai", label: "Gemini (Google AI)", keyLabel: "Google AI API Key", keyPlaceholder: "AIza...", modelPlaceholder: "gemini-2.0-flash-exp", docsUrl: "https://aistudio.google.com/app/apikey", docsLabel: "aistudio.google.com" },
-  { value: "openai", label: "OpenAI (GPT)", keyLabel: "OpenAI API Key", keyPlaceholder: "sk-...", modelPlaceholder: "gpt-4o", docsUrl: "https://platform.openai.com/api-keys", docsLabel: "platform.openai.com" },
-  { value: "grok", label: "Grok (xAI)", keyLabel: "xAI API Key", keyPlaceholder: "xai-...", modelPlaceholder: "grok-3", docsUrl: "https://console.x.ai", docsLabel: "console.x.ai" },
-  { value: "deepseek", label: "DeepSeek", keyLabel: "DeepSeek API Key", keyPlaceholder: "sk-...", modelPlaceholder: "deepseek-chat", docsUrl: "https://platform.deepseek.com", docsLabel: "platform.deepseek.com" },
-  { value: "custom", label: "Custom (OpenAI-compatible)", keyLabel: "API Key", keyPlaceholder: "Your API key", modelPlaceholder: "your-model-name", docsUrl: "", docsLabel: "" },
+  { name: "Scheduled and manual draft generation", trigger: "Draft generation uses the Claude subscription queue. Jobs are asynchronous; a queued job is not yet a draft.", fn: "execute-autopilot-template / generate-content-directions / generate-final-content", status: "subscription" },
+  { name: "Draft revision", trigger: "Feedback and prose-cleanup revisions use the Claude subscription queue.", fn: "regenerate-draft-with-feedback / revise-draft", status: "subscription" },
+  { name: "Reference card summary and relevance", trigger: "Card summaries and relevance scoring use separate queue jobs. Results are applied when settled; low-scoring queue cards are archived. Deployment is complete; organic lifecycle verification is still pending.", fn: "process-reference-card / score-relevance", status: "subscription" },
+  { name: "Public source discovery", trigger: "The subscription search route is deployed. Live WebSearch capability is not yet verified; search stays disabled until public topics are deliberately saved.", fn: "search-sources", status: "unverified" },
+  { name: "Branded visuals", trigger: "The visual migration remains off and unmerged. No renders are being initiated as part of this migration. Renderer costs and activation are separate decisions.", fn: "generate-draft-visual / preview-visual", status: "unavailable" },
 ];
 
 // Same list CadenceTab uses for per-slot timezone. This one sets the
@@ -138,10 +71,6 @@ const Settings = () => {
   const [connections, setConnections] = useState<Record<string, any>>({});
   const [connectBusy, setConnectBusy] = useState<Record<string, boolean>>({});
   const [profile, setProfile] = useState({
-    ai_provider: "anthropic",
-    ai_model: "claude-sonnet-4-6",
-    ai_api_key: "",
-    ai_endpoint: "",
     min_approved_threshold: 12,
     low_queue_email_threshold: 3,
     default_timezone: "America/New_York",
@@ -165,7 +94,6 @@ const Settings = () => {
   const [inspectorLoading, setInspectorLoading] = useState(false);
   const [inspectorResult, setInspectorResult] = useState<PromptPreview | null>(null);
 
-  const currentProvider = AI_PROVIDERS.find(p => p.value === profile.ai_provider) || AI_PROVIDERS[0];
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -173,15 +101,11 @@ const Settings = () => {
       if (!session) { navigate("/auth"); return; }
       const { data, error } = await supabase
         .from("profiles")
-        .select("ai_provider, ai_model, ai_api_key, ai_endpoint, min_approved_threshold, low_queue_email_threshold, default_timezone, default_post_time")
+        .select("min_approved_threshold, low_queue_email_threshold, default_timezone, default_post_time")
         .eq("user_id", session.user.id)
         .maybeSingle();
       if (data) {
         setProfile({
-          ai_provider: data.ai_provider || "anthropic",
-          ai_model: data.ai_model || "claude-sonnet-4-6",
-          ai_api_key: data.ai_api_key || "",
-          ai_endpoint: data.ai_endpoint || "",
           min_approved_threshold: (data as any).min_approved_threshold ?? 12,
           low_queue_email_threshold: (data as any).low_queue_email_threshold ?? 3,
           default_timezone: (data as any).default_timezone || "America/New_York",
@@ -306,7 +230,7 @@ const Settings = () => {
       <main className="container mx-auto px-4 py-8 max-w-3xl">
         <h1 className="text-3xl font-bold mb-1">Settings</h1>
         <p className="text-sm text-muted-foreground mb-8">
-          Appearance and AI provider. Brand, voice, and audience live on Strategy and Audience. Visual generation controls live on <button className="underline text-foreground" onClick={() => navigate("/visual-studio")}>Visual Studio</button>.
+          Appearance, queue status and account preferences. Brand, voice, and audience live on Strategy and Audience. Visual generation controls live on <button className="underline text-foreground" onClick={() => navigate("/visual-studio")}>Visual Studio</button>.
         </p>
 
         {/* Appearance */}
@@ -367,7 +291,7 @@ const Settings = () => {
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>Review pipeline</CardTitle>
-            <CardDescription>The dashboard warns you when your approved, ready-to-publish queue drops below your goal. The email alert is the louder backstop: a daily check emails you when the queue drops below the second number, so the nudge reaches you even when you have not opened the app.</CardDescription>
+            <CardDescription>The dashboard warns you when your approved, ready-to-publish queue drops below your goal. The daily queue check can send an alert email when email delivery is configured and the queue drops below the second number. Without email delivery configuration, the alert may not arrive.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -391,7 +315,7 @@ const Settings = () => {
                   onChange={(e) => setProfile(prev => ({ ...prev, low_queue_email_threshold: Math.max(0, Number(e.target.value) || 0) }))}
                   className="max-w-[120px]"
                 />
-                <p className="text-sm text-muted-foreground">Checked daily at 9am ET. One email per dip; re-arms once the queue recovers.</p>
+                <p className="text-sm text-muted-foreground">One alert per dip when email delivery is configured; re-arms once the queue recovers.</p>
               </div>
             </div>
             <Button onClick={handleSave} disabled={loading}>
@@ -403,19 +327,14 @@ const Settings = () => {
         {/* AI Provider */}
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle>AI Provider</CardTitle>
-            <CardDescription>All AI work runs on your Claude subscription. There is no paid API fallback and no API key option.</CardDescription>
+            <CardTitle>Claude subscription</CardTitle>
+            <CardDescription>Supported text AI features use your existing Claude subscription queue. API provider, key, endpoint and model controls are not offered here.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="rounded-lg border p-3 space-y-1">
               <p className="font-medium">Claude Code (your Claude subscription)</p>
-              <p className="text-sm">Drafts are written by a Claude Code worker running in GitHub Actions on your Claude subscription. Scheduled generation carries no per-call API cost, and no API-key provider is offered anywhere in the app.</p>
-              <p className="text-sm text-muted-foreground">Interactive AI tools (revision, card processing, visual generation, source search, newsletter scoring) are temporarily unavailable while they are moved onto the same subscription path. They are not running and not billing.</p>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-base font-semibold">Model</Label>
-              <Input placeholder="claude-sonnet-4-6" value={profile.ai_model} onChange={(e) => setProfile(prev => ({ ...prev, ai_model: e.target.value }))} />
-              <p className="text-sm text-muted-foreground">Passed through to the subscription worker. For Claude it must be <code>claude-sonnet-4-6</code>.</p>
+              <p className="text-sm">Drafts are written by a Claude Code worker running in GitHub Actions on your Claude subscription. A queued job has not completed yet. No API key is needed for this path.</p>
+              <p className="text-sm text-muted-foreground">Source discovery is deployed with live capability still unverified. Visual generation remains off while its migration and rendering cost controls are reviewed.</p>
             </div>
             <Button onClick={handleSave} disabled={loading}>
               {loading ? "Saving..." : "Save Settings"}
@@ -440,7 +359,7 @@ const Settings = () => {
             </div>
             <div className="rounded-lg border p-3">
               <p className="font-medium">Current operating state (as of October 29, 2026)</p>
-              <p className="text-sm text-muted-foreground mt-1">All slot types are generating on the subscription worker after the October 29 source-quality fix; a fresh batch covering the full November calendar was generated and reviewed the same day. Interactive AI tools (revision, card processing, visual generation, source search, newsletter scoring) are temporarily unavailable while they are migrated to the subscription; scheduled generation and publishing are unaffected. Approval runs through your assistant's in-system review against your quality bar.</p>
+              <p className="text-sm text-muted-foreground mt-1">Draft generation and revisions use the subscription queue. Card summary and relevance queue releases are deployed, with organic lifecycle verification still pending. Source discovery is deployed with live WebSearch capability still unverified; visual generation remains off. Deployment status is not proof that a queued job has completed.</p>
             </div>
           </CardContent>
         </Card>
@@ -452,7 +371,7 @@ const Settings = () => {
               <DollarSign className="h-5 w-5" />Where AI calls happen
             </CardTitle>
             <CardDescription>
-              With the Claude Code provider, scheduled generation runs on your Claude subscription at $0. The interactive tools below are temporarily unavailable (fail-closed, no paid API fallback) while they are migrated to the subscription - they are not running and not billing. The pricing column shows what each would cost per call if you switched back to an API provider, based on typical prompt size at Claude Sonnet 4.6 list pricing ($3 input / $15 output per million tokens) - none of these functions log actual token usage yet.
+              Text AI uses the existing Claude subscription rather than a metered API fallback. Queue jobs complete asynchronously. The list distinguishes deployed queue paths from features still under review or off; it is not a measured spending report.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -461,12 +380,12 @@ const Settings = () => {
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <p className="font-medium">{item.name}</p>
                   {item.status === "subscription" ? (
-                    <Badge variant="outline" className="font-mono text-xs">$0 - runs on your subscription</Badge>
+                    <Badge variant="outline" className="font-mono text-xs">Claude subscription queue</Badge>
+                  ) : item.status === "unverified" ? (
+                    <Badge variant="outline" className="font-mono text-xs">Deployed - live proof pending</Badge>
                   ) : item.status === "unavailable" ? (
-                    <Badge variant="outline" className="font-mono text-xs">Temporarily unavailable - not billing</Badge>
-                  ) : (
-                    <Badge variant="outline" className="font-mono text-xs">{item.est}</Badge>
-                  )}
+                    <Badge variant="outline" className="font-mono text-xs">Not activated</Badge>
+                  ) : null}
                 </div>
                 <p className="text-sm text-muted-foreground mt-1">{item.trigger}</p>
                 <p className="text-xs text-muted-foreground mt-1 font-mono">{item.fn}</p>

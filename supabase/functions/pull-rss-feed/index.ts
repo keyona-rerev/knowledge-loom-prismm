@@ -1,7 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { DOMParser } from "https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts";
-import { assessRelevance } from "../_shared/relevance-gate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -237,14 +236,7 @@ serve(async (req) => {
         .trim()
         .substring(0, 10000);
 
-      // Relevance gate: skip creating a card at all for noise (ads, broken
-      // scrapes, off-topic content) before it eats up review-queue space.
-      const verdict = await assessRelevance(supabaseClient, userId, { title, content: cleanDescription });
-      if (!verdict.relevant) {
-        console.log("⏭️ Skipping irrelevant article:", title.substring(0, 50), "-", verdict.reason);
-        skippedIrrelevant++;
-        continue;
-      }
+      // Relevance moved to the subscription queue: card is stored unscored (NULL), scored later by the tick.
 
       // Create reference card
       const { data: card, error: cardError } = await supabaseClient
@@ -257,6 +249,8 @@ serve(async (req) => {
           original_text: cleanDescription,
           source_type: "rss",
           status: "active",
+          global_relevance_score: null,
+          relevance_state: "unscored",
           template_id: feed.default_template_id
         })
         .select()

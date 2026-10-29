@@ -55,6 +55,19 @@ const ReferenceCards = () => {
   // own number here. Empty = disabled.
   const [autoDeleteThreshold, setAutoDeleteThreshold] = useState<string>("");
   const [savingThreshold, setSavingThreshold] = useState(false);
+  const [scoringNow, setScoringNow] = useState(false);
+  const scoreNow = async () => {
+    setScoringNow(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("score-relevance", { body: {} });
+      if (error) { toast.error("Could not start scoring. Try again in a minute."); return; }
+      const d: any = data ?? {};
+      toast.success(d.applied > 0 ? `Scored ${d.applied} card${d.applied === 1 ? "" : "s"}` : "Scoring queued", {
+        description: `${d.remaining ?? 0} card${(d.remaining ?? 0) === 1 ? "" : "s"} still waiting to be scored${d.failed ? `, ${d.failed} failed (will not retry automatically)` : ""}. Scores arrive after the background worker runs; press again later to pick them up.`,
+      });
+      await loadCards();
+    } finally { setScoringNow(false); }
+  };
 
   const loadAutoDeleteThreshold = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -123,8 +136,8 @@ const ReferenceCards = () => {
       // is never misread as "only applies to cards scored from now on."
       toast.success(`Auto-delete threshold set to ${value}`, {
         description: deletedCount > 0
-          ? `${deletedCount} existing card${deletedCount === 1 ? "" : "s"} already scoring below ${value} ${deletedCount === 1 ? "was" : "were"} deleted just now. Any card scoring below ${value} going forward — via "Process with AI" or incoming newsletters — will be deleted the same way.`
-          : `No existing cards scored below ${value}. Any card scoring below ${value} going forward — via "Process with AI" or incoming newsletters — will be deleted the same way.`,
+          ? `${deletedCount} existing card${deletedCount === 1 ? "" : "s"} already scoring below ${value} ${deletedCount === 1 ? "was" : "were"} removed just now (older cards are deleted; cards scored by the queue are archived, not deleted). Cards that have not been scored yet are never removed.`
+          : `No existing cards scored below ${value}. Older cards scoring below ${value} are deleted; cards scored by the queue are archived instead. Cards that have not been scored yet are never removed.`,
       });
     }
   };
@@ -406,9 +419,12 @@ const ReferenceCards = () => {
                     <Button size="sm" onClick={saveAutoDeleteThreshold} disabled={savingThreshold}>
                       {savingThreshold ? "Saving..." : "Save"}
                     </Button>
+                    <Button size="sm" variant="outline" onClick={scoreNow} disabled={scoringNow}>
+                      {scoringNow ? "Scoring..." : "Score now"}
+                    </Button>
                   </div>
                   <p className="text-xs text-muted-foreground mt-2">
-                    Applies both ways, immediately: saving deletes every existing card already scoring below this number right now, and any card that scores below it going forward — via "Process with AI" here, or automatically for incoming newsletters — is deleted the same way. Cards below the threshold are deleted outright, not just flagged.
+                    Applies immediately: saving removes every existing card already scoring below this number. Cards scored by the subscription queue (incoming newsletters, RSS, Gmail, manual sources, Score now) are archived, not deleted. Older cards scored before the queue are deleted outright. Cards that have not been scored yet are never removed.
                   </p>
                 </div>
                 {/* Future settings go here, as additional bordered sections
@@ -549,7 +565,11 @@ const ReferenceCards = () => {
                         {card.status}
                       </Badge>
                       <Badge variant="outline">{card.source_type}</Badge>
-                      <Badge variant="outline">Score: {card.global_relevance_score}/10</Badge>
+                      <Badge variant="outline">
+                        {card.global_relevance_score != null
+                          ? `Score: ${card.global_relevance_score}/10`
+                          : (card as any).relevance_state === "failed" ? "Scoring failed" : "Not scored yet"}
+                      </Badge>
                       <Badge variant={card.approved ? "default" : "outline"}>
                         {card.approved ? "Approved source" : "Not approved"}
                       </Badge>

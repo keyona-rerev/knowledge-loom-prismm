@@ -102,6 +102,9 @@ const InsightDetail = () => {
         source_type: "observation",
         status: "active",
         approved: true,
+        // explicit NULL: the column default is 5, which the relevance trigger would delete at insert (threshold 6).
+        // First-party approved observation: not queued for scoring, never auto-judged.
+        global_relevance_score: null,
       })
       .select("id")
       .single();

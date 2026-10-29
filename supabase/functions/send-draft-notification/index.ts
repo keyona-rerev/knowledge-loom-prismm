@@ -26,23 +26,6 @@ serve(async (req) => {
     }
 
     const token = authHeader.replace("Bearer ", "");
-    const supabaseAuth = createClient(supabaseUrl, serviceRoleKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token);
-    
-    if (authError || !user) {
-      console.error("❌ Invalid token:", authError?.message);
-      return new Response(
-        JSON.stringify({ error: "Invalid or expired authentication token" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const userId = user.id;
-    console.log("✅ Authenticated user:", userId);
-
     // Use service role client for database operations
     const supabaseClient = createClient(supabaseUrl, serviceRoleKey);
 
@@ -54,6 +37,37 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Two callers: the browser (user JWT) and the queue writer
+    // (claude-job-complete / _shared/supabase-db.ts notify), which invokes this
+    // with the service-role key and has no user JWT. The service-role key is
+    // only available to our own functions, so in that case the owner is derived
+    // from the draft row itself. The JWT path is unchanged.
+    let userId: string;
+    if (serviceRoleKey && token === serviceRoleKey) {
+      const { data: owner } = await supabaseClient.from("drafts").select("user_id").eq("id", draftId).single();
+      if (!owner?.user_id) {
+        return new Response(
+          JSON.stringify({ error: "Draft not found" }),
+          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      userId = owner.user_id;
+    } else {
+      const supabaseAuth = createClient(supabaseUrl, serviceRoleKey, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token);
+      if (authError || !user) {
+        console.error("❌ Invalid token:", authError?.message);
+        return new Response(
+          JSON.stringify({ error: "Invalid or expired authentication token" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      userId = user.id;
+    }
+    console.log("✅ Notification owner:", userId);
 
     // Get draft - verify it belongs to the authenticated user
     const { data: draft, error: draftError } = await supabaseClient

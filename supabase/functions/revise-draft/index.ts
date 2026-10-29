@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { enqueueInteractiveJob, awaitInteractiveJob } from "../_shared/claude-queue.ts";
+import { enqueueInteractiveJob, awaitInteractiveJob, findLatestGeneration } from "../_shared/claude-queue.ts";
 import { loadStrategyContext, buildContextBlock, buildSystemPrompt } from "../_shared/strategy-context.ts";
 
 const corsHeaders = {
@@ -54,36 +54,38 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "draftId is required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Rate limiting, same shape and window as regenerate-draft-with-feedback.
-    const windowStart = new Date();
-    windowStart.setMinutes(windowStart.getMinutes() - 60);
-    const { count: rateCount } = await supabase
-      .from("rate_limit_logs")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", user.id)
-      .eq("action", "revise_draft")
-      .gte("created_at", windowStart.toISOString());
-    if ((rateCount || 0) >= 50) {
-      return new Response(JSON.stringify({ error: "Rate limit exceeded. Maximum 50 revisions per hour." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-    await supabase.from("rate_limit_logs").insert({ user_id: user.id, action: "revise_draft" });
-
     const { data: draft } = await supabase.from("drafts").select("*").eq("id", draftId).eq("user_id", user.id).single();
     if (!draft) {
       return new Response(JSON.stringify({ error: "Draft not found or access denied" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-
     // Store revision history before overwriting, same pattern as
     // regenerate-draft-with-feedback, so a bad revise pass is always
     // recoverable from draft_revisions.
     const currentVersion = (draft.revision_count || 0) + 1;
-    await supabase.from("draft_revisions").insert({
-      draft_id: draftId,
-      version: currentVersion,
-      body: draft.body,
-      changes_summary: `Before prose revision (trope cleanup pass)${notes ? `: ${notes}` : ""}`,
-    });
+    const notesHash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(notes ?? ""))).then((b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("").slice(0, 16));
+    const idemKey = `revise:${draftId}:${draft.updated_at}:${notesHash}`;
+
+    let jobId: string;
+    const existingJob = await findLatestGeneration(supabase, user.id, `interactive:revise-draft:${idemKey}`);
+    if (existingJob && existingJob.status !== "failed") {
+      // Idempotent reattach BEFORE any metered side effect: a retry of the
+      // SAME revision attaches to the existing job - no second rate-limit
+      // slot, no duplicate draft_revisions history row.
+      jobId = existingJob.id;
+    } else {
+      // Rate limiting, same shape and window as regenerate-draft-with-feedback.
+      const windowStart = new Date();
+      windowStart.setMinutes(windowStart.getMinutes() - 60);
+      const { count: rateCount } = await supabase
+        .from("rate_limit_logs")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .eq("action", "revise_draft")
+        .gte("created_at", windowStart.toISOString());
+      if ((rateCount || 0) >= 50) {
+        return new Response(JSON.stringify({ error: "Rate limit exceeded. Maximum 50 revisions per hour." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
 
     // Same strategy tables execute-autopilot-template and
     // regenerate-draft-with-feedback read, resolved off the draft's own
@@ -129,14 +131,28 @@ Respond ONLY with valid JSON: {"title": "...", "content": "the fully rewritten p
     // Subscription path: enqueue the edit pass onto claude_jobs; the private
     // worker (Claude Code on the owner's Max subscription) does the AI work.
     // No paid-API route exists.
-    const { jobId } = await enqueueInteractiveJob(supabase, {
+    const handle = await enqueueInteractiveJob(supabase, {
       userId: user.id, route: "revise-draft", kind: "revise", prompt, system,
       context: { draftId },
       // A retried request for the SAME revision returns the existing job
       // instead of double-spending a worker run; a deliberate new pass has a
       // new revision number and correctly gets a fresh job.
-      idempotencyKey: `revise:${draftId}:${draft.updated_at}:${await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(notes ?? ""))).then((b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("").slice(0, 16))}`,
+      idempotencyKey: idemKey,
     });
+    jobId = handle.jobId;
+    if (handle.created) {
+      // Metered + history side effects only when THIS call admitted a new
+      // job; a lost-race reattach charges nothing and writes no history.
+      await supabase.from("rate_limit_logs").insert({ user_id: user.id, action: "revise_draft" });
+      await supabase.from("draft_revisions").insert({
+        draft_id: draftId,
+        version: currentVersion,
+        body: draft.body,
+        changes_summary: `Before prose revision (trope cleanup pass)${notes ? `: ${notes}` : ""}`,
+      });
+    }
+    }
+
     // maxWaitMs is a bounded test/proof hook: lets a synthetic run force the
     // 202 + client-poll path deterministically. Clamped under the edge wall
     // clock; omit for normal operation.

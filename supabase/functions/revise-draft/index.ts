@@ -49,7 +49,7 @@ serve(async (req) => {
     }
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
-    const { draftId, notes } = await req.json();
+    const { draftId, notes, maxWaitMs } = await req.json();
     if (!draftId) {
       return new Response(JSON.stringify({ error: "draftId is required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -137,7 +137,11 @@ Respond ONLY with valid JSON: {"title": "...", "content": "the fully rewritten p
       // new revision number and correctly gets a fresh job.
       idempotencyKey: `revise:${draftId}:${draft.updated_at}`,
     });
-    const jobResult = await awaitInteractiveJob(supabase, jobId);
+    // maxWaitMs is a bounded test/proof hook: lets a synthetic run force the
+    // 202 + client-poll path deterministically. Clamped under the edge wall
+    // clock; omit for normal operation.
+    const waitMs = Math.max(1, Math.min(Number(maxWaitMs) || 100_000, 110_000));
+    const jobResult = await awaitInteractiveJob(supabase, jobId, waitMs);
     if (!jobResult) {
       return new Response(
         JSON.stringify({ queued: true, jobId, error: "still_running" }),

@@ -115,7 +115,7 @@ export const PendingTab = () => {
     const [{ data, error }, { data: fmt }] = await Promise.all([
       supabase
         .from("drafts")
-        .select("id, title, body, approval_status, seed_insight, content_type, created_at, format_id, stat_attributions, stat_flag")
+        .select("id, title, body, approval_status, seed_insight, content_type, created_at, format_id, stat_attributions, stat_flag, revision_count, updated_at")
         .eq("user_id", session.user.id)
         .in("approval_status", ["pending", "needs_revision"])
         .order("created_at", { ascending: false }),
@@ -216,9 +216,10 @@ export const PendingTab = () => {
     setTransition(draftId, "revising");
 
     // Captured before the request so the 202-poll completion path can CAS on
-    // it: if anyone edits the draft while the worker runs, the write is
+    // it: updated_at is maintained by a DB trigger on EVERY update, so any
+    // concurrent edit while the worker runs flips it and the write is
     // refused instead of blindly overwriting their edits.
-    const preRevisionCount = drafts.find(d => d.id === draftId)?.revision_count ?? 0;
+    const preUpdatedAt = drafts.find(d => d.id === draftId)?.updated_at ?? "";
 
     const { data, error } = await supabase.functions.invoke("revise-draft", { body: { draftId } });
 
@@ -264,17 +265,17 @@ export const PendingTab = () => {
       // revision_count bump), guarded by a CAS on the pre-request
       // revision_count so a concurrent edit while the worker ran is never
       // blindly overwritten.
+      const preCount = drafts.find(d => d.id === draftId)?.revision_count ?? 0;
       const { data: casRows, error: casError } = await supabase
         .from("drafts")
         .update({
           title: result.title || drafts.find(d => d.id === draftId)?.title,
           body: result.content,
-          revision_count: preRevisionCount + 1,
-          updated_at: new Date().toISOString(),
+          revision_count: preCount + 1,
         })
         .eq("id", draftId)
-        .eq("revision_count", preRevisionCount)
-        .select("id");
+        .eq("updated_at", preUpdatedAt)
+        .select("id, updated_at");
       if (casError || !casRows?.length) {
         // CAS refused: the draft changed while the worker ran. Reload the
         // current row instead of overwriting; the revision stays in
@@ -285,13 +286,17 @@ export const PendingTab = () => {
         toast.error("This draft changed while the revision ran - the latest version is shown and the revision was not applied.");
         return;
       }
-      setDrafts(prev => prev.map(d => d.id === draftId ? { ...d, title: result.title || d.title, body: result.content!, revision_count: preRevisionCount + 1 } : d));
+      setDrafts(prev => prev.map(d => d.id === draftId ? { ...d, title: result.title || d.title, body: result.content!, revision_count: preCount + 1, updated_at: casRows[0].updated_at } : d));
       clearTransition(draftId);
       toast.success("Revised — trope cleanup pass applied.");
       return;
     }
 
     if (error || data?.error) {
+      // A 409 (draft_changed) means someone edited while the worker ran;
+      // either way the honest move is to show the current stored row.
+      const { data: fresh } = await supabase.from("drafts").select("*").eq("id", draftId).single();
+      if (fresh) setDrafts(prev => prev.map(d => d.id === draftId ? fresh : d));
       clearTransition(draftId);
       toast.error("Revision failed: " + (error?.message || data?.error || "unknown error"));
       return;

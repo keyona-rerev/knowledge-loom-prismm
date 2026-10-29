@@ -135,7 +135,7 @@ Respond ONLY with valid JSON: {"title": "...", "content": "the fully rewritten p
       // A retried request for the SAME revision returns the existing job
       // instead of double-spending a worker run; a deliberate new pass has a
       // new revision number and correctly gets a fresh job.
-      idempotencyKey: `revise:${draftId}:${currentVersion}`,
+      idempotencyKey: `revise:${draftId}:${draft.updated_at}`,
     });
     const jobResult = await awaitInteractiveJob(supabase, jobId);
     if (!jobResult) {
@@ -146,12 +146,23 @@ Respond ONLY with valid JSON: {"title": "...", "content": "the fully rewritten p
     }
     const result = parseJSON((jobResult as { text: string }).text);
 
-    await supabase.from("drafts").update({
+    // CAS on the trigger-maintained updated_at captured before the worker
+    // ran: any concurrent edit (UI, repair tool, another pass) changes it,
+    // and then we refuse rather than blind-overwrite. The completed result
+    // stays readable on the job row (claude-job-status?job_id=) for
+    // deliberate reapplication.
+    const { data: casRows } = await supabase.from("drafts").update({
       title: result.title || draft.title,
       body: result.content,
       revision_count: currentVersion,
-      updated_at: new Date().toISOString(),
-    }).eq("id", draftId);
+    }).eq("id", draftId).eq("updated_at", draft.updated_at).select("id");
+
+    if (!casRows?.length) {
+      return new Response(
+        JSON.stringify({ error: "draft_changed", message: "Draft changed while the revision ran; the completed revision is retained on the job and was not applied.", jobId }),
+        { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     return new Response(
       JSON.stringify({ success: true, title: result.title || draft.title, content: result.content, revisionCount: currentVersion }),

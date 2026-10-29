@@ -5,10 +5,18 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { TENANT } from "../_shared/job-logic.ts";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
 const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
 serve(async (req) => {
+  // Browser polls this from the app origin (202 revise flow); without a
+  // preflight answer the poll never reaches the function.
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const { data: { user } } = await supabase.auth.getUser((req.headers.get("Authorization") ?? "").replace("Bearer ", ""));
   if (!user || user.id !== TENANT) return json({ error: "unauthorized" }, 401);

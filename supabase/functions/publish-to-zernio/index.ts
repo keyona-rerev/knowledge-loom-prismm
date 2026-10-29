@@ -214,13 +214,31 @@ const scheduleDraft = async (
         timezone: resolved.timezone,
         imageUrl,
       });
-      await supabase.from("drafts").update({
+      const { error: writeErr } = await supabase.from("drafts").update({
         external_post_id: result.externalPostId,
         publish_status: "scheduled",
         publish_basis: basis,
         publish_error: null,
         scheduled_for: scheduledForFinal,
       }).eq("id", draft.id);
+      if (writeErr) {
+        // The provider ACCEPTED the post but recording it failed. A blind
+        // retry would duplicate a live post, and there is no provider
+        // idempotency key - park with the external id for reconciliation.
+        // (If this write also fails, the stale-claim parking in the sweep
+        // catches the row later.)
+        await supabase.from("drafts").update({
+          publish_status: "needs_attention",
+          publish_error:
+            `Provider post ${result.externalPostId} was created but recording it failed (${writeErr.message}). Reconcile with Zernio before retrying.`,
+        }).eq("id", draft.id);
+        return json({
+          ok: false,
+          status: "needs_attention",
+          error: "provider accepted; record write failed",
+          externalPostId: result.externalPostId,
+        }, 200);
+      }
       return json({
         ok: true,
         status: "scheduled",
@@ -232,15 +250,23 @@ const scheduleDraft = async (
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Provider publish failed";
 
-      // Only mark failed if a concurrent call hasn't already succeeded for
-      // this same draft in the meantime (see the idempotency-race note
-      // above). The .is("external_post_id", null) guard makes this
-      // conditional on the DB, not on anything read earlier in this
-      // request, so it's safe even if that concurrent success landed
-      // between our read at the top of this function and this write.
+      // Classify the failure before choosing a landing state. A definitive
+      // provider REJECTION (HTTP 4xx from the provider's API) means no post
+      // was created - safe to mark failed and retry later. Anything else is
+      // ambiguous: a network/timeout/5xx/unknown error may have occurred
+      // after the provider accepted the post. With no provider idempotency
+      // key, ambiguous outcomes park as needs_attention for reconciliation
+      // instead of becoming retryable failures. The guarded write below
+      // (.is external_post_id null) stays as depth against a concurrent
+      // success landing between our read and this write.
+      const definitive = /^Zernio .* failed \(4\d\d\)/.test(msg);
+      const landing = definitive ? "failed" : "needs_attention";
+      const landingMsg = definitive
+        ? msg
+        : `Ambiguous publish outcome (possible unrecorded provider post; reconcile with Zernio before retrying): ${msg}`;
       const { data: updated } = await supabase
         .from("drafts")
-        .update({ publish_status: "failed", publish_error: msg })
+        .update({ publish_status: landing, publish_error: landingMsg })
         .eq("id", draft.id)
         .is("external_post_id", null)
         .select("id")

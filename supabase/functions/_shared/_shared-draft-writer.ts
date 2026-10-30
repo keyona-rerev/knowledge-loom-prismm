@@ -2,7 +2,7 @@
 // Shared draft-writing used by BOTH the in-app API path (after the patch) and
 // claude-job-complete. Helper bodies copied VERBATIM from
 // execute-autopilot-template/index.ts so rows and side effects are identical.
-import type { Db } from "./_shared-job-logic.ts";
+import type { Db } from "./job-logic.ts";   // stale import name fixed (was _shared-job-logic.ts; type-only, erased at bundle time)
 
 // --- verbatim from execute-autopilot-template/index.ts ---
 export function parseJSON(text: string): any {

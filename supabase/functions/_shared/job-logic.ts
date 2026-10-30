@@ -4,6 +4,7 @@
 // thin translations from supabase-js to this interface.
 import { findCollision, collisionVerdict, type NoveltyWindowRow } from "./_shared-novelty.ts";
 import { writeDraftsFromSnapshot, type SnapshotCtx, type DraftOutput } from "./_shared-draft-writer.ts";
+import { completeVisualJob, failVisualPlaceholder } from "./visual-logic.ts";
 
 export interface Db {
   getJob(id: string): Promise<any | null>;
@@ -21,10 +22,40 @@ export interface Db {
   updateCard(id: string, fields: Record<string, unknown>): Promise<void>;
   recentDrafts(userId: string, sinceIso: string): Promise<NoveltyWindowRow[]>;
   notify(draftId: string): Promise<void>;
+  // draft_visuals + drafts access for visual jobs (visual-logic.ts)
+  getDraft(id: string): Promise<any | null>;
+  findGeneratingVisual(draftId: string): Promise<any | null>;
+  insertVisual(row: Record<string, unknown>): Promise<any>;
+  getVisual(id: string): Promise<any | null>;
+  updateVisualWhere(id: string, filter: Record<string, unknown>, fields: Record<string, unknown>): Promise<any | null>;
+  uploadVisualPng(path: string, bytes: Uint8Array): Promise<{ error?: string; url?: string }>;
+  // Completion-retry decision inputs (visual-logic.ts): publish state for the
+  // draft a visual belongs to, and automation_config secrets for the
+  // server-to-server handoff retry.
+  getDraftPublishState(id: string): Promise<any | null>;
+  getAutomationConfig(key: string): Promise<string | null>;
+  // Visual render inputs for fingerprint recomputation at completion
+  // (visual-logic.ts). NEVER includes ai_api_key/provider/model/endpoint.
+  getProfileVisualConfig(userId: string): Promise<any | null>;
 }
 
 // Tenant pinning reads from env, fail-closed: an unset/empty TENANT_USER_ID
 // makes every tenant check fail (no real UUID ever equals ""), never permissive.
+// Synthetic proof jobs carry a top-level input_snapshot.proof_route plus a
+// "proof:v5:" request_id. Server-built snapshots never contain that key (user
+// input only reaches nested fields) and interactive request_ids always start
+// "interactive:", so an unprivileged caller cannot mint one. These rows are
+// dispatched ONLY by the scoped shared-secret call with the matching event
+// type; the global sweep never touches them.
+export const PROOF_ROUTE = "claude-job-v5";
+export const PROOF_REQUEST_PREFIX = "proof:v5:";
+export function isProofJob(j: { input_snapshot?: unknown; request_id?: string | null }): boolean {
+  return (j.input_snapshot as any)?.proof_route === PROOF_ROUTE && String(j.request_id ?? "").startsWith(PROOF_REQUEST_PREFIX);
+}
+export function hasProofMarker(j: { input_snapshot?: unknown }): boolean {
+  return (j.input_snapshot as any)?.proof_route !== undefined;
+}
+
 export const TENANT = Deno.env.get("TENANT_USER_ID") ?? "";
 
 // F5: constant-time compare via sha256, and a hard assert that the configured
@@ -115,7 +146,7 @@ export function validateOutput(output: unknown, allowedCardIds: Set<string>): st
 // ---------------------------------------------------------------------------
 export async function completeJob(db: Db, args: {
   jobId: string; completionToken: string; output: unknown; runUrl?: string;
-  now?: Date; noveltyWindowDays?: number;
+  now?: Date; noveltyWindowDays?: number; pngBase64?: string;
 }): Promise<{ status: number; body: any }> {
   const now = args.now ?? new Date();
   const job = await db.getJob(args.jobId);
@@ -129,6 +160,8 @@ export async function completeJob(db: Db, args: {
   if (job.status === "claimed" && job.claim_expires_at && new Date(job.claim_expires_at) < now) {
     await db.updateJobWhere(args.jobId, { status: "claimed" },
       { status: "failed", last_error: "claim expired before completion", completion_token_hash: null, updated_at: now.toISOString() });
+    if ((job.input_snapshot as any)?.interactiveKind === "draft-visual")
+      await failVisualPlaceholder(db, job, "claim expired before completion");   // terminal: unblock re-admission
     return { status: 409, body: { error: "claim expired" } };
   }
 
@@ -148,6 +181,9 @@ export async function completeJob(db: Db, args: {
   // writes, no novelty window. Result is stored on the job row for the caller
   // (edge function or client) to read via claude-job-status.
   if (claimed.path === "interactive") {
+    if ((snap as any)?.interactiveKind === "draft-visual") {
+      return await completeVisualJob(db, { jobId: args.jobId, job: claimed, output: args.output, pngBase64: args.pngBase64, now });
+    }
     const o = args.output as any;
     // C2 size bound: results ride on the job row (jsonb) and are read back by
     // edge functions and clients; cap payload so a runaway worker output can
@@ -285,8 +321,14 @@ export async function failJob(db: Db, args: {
   } else {
     fields = { status: "failed", last_error: detail };
   }
-  await db.updateJobWhere(args.jobId, { status: "claimed" },
+  const transitioned = await db.updateJobWhere(args.jobId, { status: "claimed" },
     { ...fields, claimed_by: null, claim_token: null, completion_token_hash: null, updated_at: now.toISOString() });
+  // Flip the placeholder ONLY on the terminal 'failed' branch: paused_quota /
+  // paused_auth / queued-retry all RESUME this same job, and an early flip
+  // would strand an 'error' placeholder under the in-flight generation (and
+  // break the completion replay check when the resumed job completes).
+  if (transitioned && fields.status === "failed" && (job.input_snapshot as any)?.interactiveKind === "draft-visual")
+    await failVisualPlaceholder(db, job, detail);   // flips 'generating'->'error' exactly once; preview: no-op
   return { status: 200, body: { success: true, newStatus: fields.status } };
 }
 
@@ -318,7 +360,14 @@ export async function sweepJobs(db: Db, args: { now?: Date; dispatchBackoffMin?:
             last_error: `claim expired in '${j.status}'; retry cap (${maxAttempts}) reached - dead-lettered`, updated_at: now.toISOString() }
         : { status: "queued", attempt: nextAttempt, claimed_by: null, claim_token: null, completion_token_hash: null,
             last_error: `claim expired in '${j.status}', requeued by sweep (attempt ${nextAttempt}/${maxAttempts})`, updated_at: now.toISOString() });
-    if (ok) requeued++;
+    if (ok) {
+      requeued++;
+      // Terminal dead-letter ONLY: flip the visual placeholder so the partial
+      // unique index does not park a stale 'generating' row forever. A requeue
+      // must NOT flip - the same job (and its placeholder) resumes.
+      if (capped && (j.input_snapshot as any)?.interactiveKind === "draft-visual")
+        await failVisualPlaceholder(db, j, `claim expired in '${j.status}'; dead-lettered`);
+    }
   }
   // Quota resume: a 5-hour subscription window resets on its own, so parked
   // paused_quota jobs re-enter the queue after quotaPauseHours (default 6h >
@@ -339,11 +388,16 @@ export async function sweepJobs(db: Db, args: { now?: Date; dispatchBackoffMin?:
             last_error: `quota pause elapsed but retry cap (${maxAttempts}) reached - dead-lettered`, updated_at: now.toISOString() }
         : { status: "queued", attempt: nextAttempt, claim_token: null, completion_token_hash: null,
             last_error: `quota pause elapsed; resumed by sweep (attempt ${nextAttempt}/${maxAttempts})`, updated_at: now.toISOString() });
-    if (ok) resumedQuota++;
+    if (ok) {
+      resumedQuota++;
+      if (capped && (j.input_snapshot as any)?.interactiveKind === "draft-visual")
+        await failVisualPlaceholder(db, j, "quota pause elapsed; dead-lettered");
+    }
   }
   // Rotate + dispatch only queued jobs that were never dispatched or whose
   // last dispatch is older than the backoff - no churn on in-flight runs (R4).
   const queued = (await db.listJobsWhere({ status: "queued" }))
+    .filter((j) => !hasProofMarker(j))
     .filter((j) => !j.last_dispatched_at || new Date(j.last_dispatched_at) < new Date(now.getTime() - backoff * 60000));
   const dispatch = [];
   for (const j of queued) {

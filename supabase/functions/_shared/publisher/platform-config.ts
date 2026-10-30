@@ -41,9 +41,18 @@ export function platformSpec(platform: string | null | undefined): PlatformSpec 
   return PLATFORM_SPECS[DEFAULT_PLATFORM];
 }
 
-// A draft carries no platform column of its own; it's reachable only via
-// its format. Falls back to the default platform for drafts with no format
-// (ad-hoc/legacy drafts predating the format system).
+// Row-first platform precedence (all paths agree, 2026-10-29): drafts carry
+// a denormalized platform column (set_draft_platform_from_schedule trigger);
+// a persisted user-authorized change lives there. normalizeRowPlatform is the
+// ONE normalization rule everywhere: a row/input value wins only when it is a
+// known, non-empty platform key; empty strings and unknown values fall
+// through identically (no "||" cosmetics guessing differently per path).
+export function normalizeRowPlatform(p: unknown): string | null {
+  return typeof p === "string" && p && PLATFORM_SPECS[p] ? p : null;
+}
+
+// Format lookup: the draft's format names a platform for rows whose platform
+// column is empty (ad-hoc/legacy drafts predating the denormalized column).
 export async function resolveDraftPlatform(
   // deno-lint-ignore no-explicit-any
   supabase: any,
@@ -55,5 +64,10 @@ export async function resolveDraftPlatform(
     .select("platform")
     .eq("id", formatId)
     .maybeSingle();
-  return data?.platform ?? DEFAULT_PLATFORM;
+  // C1 (v11): the format value goes through the SAME normalizeRowPlatform
+  // rule as every row value. A raw unknown/empty format platform (e.g. a
+  // legacy "twitter") must NOT leak through here: admit bound fingerprints
+  // with this result while completion normalized it away, deterministically
+  // terminal-staling every draft carrying such a format.
+  return normalizeRowPlatform(data?.platform) ?? DEFAULT_PLATFORM;
 }

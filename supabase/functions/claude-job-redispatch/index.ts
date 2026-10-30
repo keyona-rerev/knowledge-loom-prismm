@@ -6,7 +6,7 @@
 // only; repository_dispatch empirically requires Contents:write (verified 2026-10-28).
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { sweepJobs, markDispatched, workerSecretOk, TENANT } from "../_shared/job-logic.ts";
+import { sweepJobs, markDispatched, workerSecretOk, TENANT, PROOF_ROUTE, isProofJob, hasProofMarker } from "../_shared/job-logic.ts";
 import { makeDb } from "../_shared/supabase-db.ts";
 
 const json = (body: unknown, status = 200) =>
@@ -48,18 +48,33 @@ serve(async (req) => {
   // can match the predicates and POST - status='queued' alone would NOT be a
   // one-winner guard, because every rotation keeps status 'queued'.
   let scopedJobId: string | null = null;
+  let requestedEvent: unknown = undefined;
   try {
     const b = await req.json();
     if (b && typeof b.job_id === "string") scopedJobId = b.job_id;
+    if (b && "event_type" in b) requestedEvent = b.event_type;
   } catch { scopedJobId = null; }
+  // An event_type is honored only on the shared-secret path, only for the one
+  // allowlisted value, and only for a marked synthetic proof job. Anything else
+  // is refused (the tenant JWT path never gets it); no event_type keeps the
+  // exact "claude-job" behavior below.
+  if (requestedEvent !== undefined && (!viaSecret || !scopedJobId || requestedEvent !== PROOF_ROUTE))
+    return json({ error: "event_type not permitted" }, 403);
 
   if (scopedJobId) {
     const { data: job } = await supabase.from("claude_jobs")
-      .select("id, user_id, status, request_id, claim_token, last_dispatched_at")
+      .select("id, user_id, status, request_id, claim_token, last_dispatched_at, attempt, input_snapshot")
       .eq("id", scopedJobId).maybeSingle();
     if (!job) return json({ error: "not found" }, 404);
     if (job.user_id !== TENANT) return json({ error: "forbidden" }, 403);
     if (job.status !== "queued") return json({ error: "not dispatchable", status: job.status }, 409);
+    // Proof jobs: only via the secret path WITH the allowlisted event type, only at
+    // attempt=2 (so no failure/expiry/quota path can ever re-queue them). Every
+    // other route, including a plain scoped call or Settings resume, is refused.
+    if (hasProofMarker(job) || requestedEvent !== undefined) {
+      if (!viaSecret || requestedEvent !== PROOF_ROUTE || !isProofJob(job) || job.attempt !== 2)
+        return json({ error: "proof job not dispatchable on this route" }, 403);
+    }
     const backoffMs = 15 * 60 * 1000;
     if (job.last_dispatched_at && Date.now() - new Date(job.last_dispatched_at).getTime() < backoffMs) {
       return json({ error: "dispatch backoff", last_dispatched_at: job.last_dispatched_at }, 409);
@@ -83,7 +98,7 @@ serve(async (req) => {
     const r = await fetch(`https://api.github.com/repos/${workerRepo}/dispatches`, {
       method: "POST",
       headers: { Authorization: `Bearer ${dispatchToken}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
-      body: JSON.stringify({ event_type: "claude-job", client_payload: { job_id: job.id, request_id: job.request_id, claim_token: fresh, ts, sig } }),
+      body: JSON.stringify({ event_type: requestedEvent === PROOF_ROUTE ? PROOF_ROUTE : "claude-job", client_payload: { job_id: job.id, request_id: job.request_id, claim_token: fresh, ts, sig } }),
     }).catch(() => null);
     if (!r?.ok) {
       // S4 preserved: a lost POST must not strand the job behind the backoff.

@@ -1,7 +1,7 @@
 // supabase/functions/_shared/supabase-db.ts - translates supabase-js to the Db
 // interface used by job-logic. Equality filters only; the conditional update
 // relies on Postgres row locking (single UPDATE ... WHERE) for atomicity.
-import type { Db } from "./_shared/job-logic.ts";
+import type { Db } from "./job-logic.ts";
 
 export function makeDb(supabase: any): Db {
   return {
@@ -72,6 +72,56 @@ export function makeDb(supabase: any): Db {
         supabase.functions.invoke("send-draft-notification", { body: { draftId } }),
         new Promise((_, rej) => setTimeout(() => rej(new Error("notify timeout")), 10000)),
       ]);
+    },
+    async getDraft(id) {
+      const { data } = await supabase.from("drafts").select("id, user_id, title, body, seed_insight, platform").eq("id", id).maybeSingle();
+      return data ?? null;
+    },
+    async findGeneratingVisual(draftId) {
+      const { data } = await supabase.from("draft_visuals").select("*")
+        .eq("draft_id", draftId).eq("status", "generating").maybeSingle();
+      return data ?? null;
+    },
+    async insertVisual(row) {
+      const { data, error } = await supabase.from("draft_visuals").insert(row).select().single();
+      if (error) { const e = new Error(error.message) as Error & { code?: string }; e.code = error.code; throw e; }  // 23505 preserved for adopt-winner
+      return data;
+    },
+    async getVisual(id) {
+      const { data } = await supabase.from("draft_visuals").select("*").eq("id", id).maybeSingle();
+      return data ?? null;
+    },
+    async updateVisualWhere(id, filter, fields) {
+      // Atomic conditional update, same contract as updateJobWhere: apply only
+      // if every filter key still equals its value; null when 0 rows matched.
+      let q = supabase.from("draft_visuals").update(fields).eq("id", id);
+      for (const [k, v] of Object.entries(filter)) q = q.eq(k, v);
+      const { data, error } = await q.select().maybeSingle();
+      if (error) { const e = new Error(error.message) as Error & { code?: string }; e.code = error.code; throw e; }
+      return data ?? null;
+    },
+    async getDraftPublishState(id) {
+      const { data } = await supabase.from("drafts")
+        .select("id, user_id, approval_status, publish_status, publish_error, external_post_id, platform, scheduled_for")
+        .eq("id", id).maybeSingle();
+      return data ?? null;
+    },
+    async getProfileVisualConfig(userId) {
+      const { data } = await supabase.from("profiles")
+        .select("business_name, business_description, visual_design_rules, visual_studio_config")
+        .eq("user_id", userId).maybeSingle();
+      return data ?? null;
+    },
+    async getAutomationConfig(key) {
+      const { data } = await supabase.from("automation_config").select("value").eq("key", key).maybeSingle();
+      return data?.value ?? null;
+    },
+    async uploadVisualPng(path, bytes) {
+      const { error } = await supabase.storage.from("draft-visuals")
+        .upload(path, bytes, { contentType: "image/png", upsert: true });
+      if (error) return { error: error.message };
+      const { data: pub } = supabase.storage.from("draft-visuals").getPublicUrl(path);
+      return { url: pub.publicUrl };
     },
   };
 }

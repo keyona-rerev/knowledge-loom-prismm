@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { enqueueInteractiveJob, awaitInteractiveJob, findLatestGeneration } from "../_shared/claude-queue.ts";
 import { PENDING_STATUSES, bindingsEqual, isUuid, parseJsonPayload } from "../_shared/interactive-bindings.ts";
+import { formatFitsPlatform, feedPlatform } from "../_shared/publisher/platform-rules.ts";
 import { loadStrategyContext, buildContextBlock, buildSystemPrompt } from "../_shared/strategy-context.ts";
 
 const corsHeaders = {
@@ -77,6 +78,16 @@ serve(async (req) => {
     }
 
     const { ctx, hardRules, voiceRules, inlineAttribution } = await loadStrategyContext(supabase, user.id, { formatId, natureId, jobId });
+
+    // A format whose declared minimum length cannot fit its platform's limit
+    // would produce a draft that can never publish. Refuse before queuing.
+    if (ctx.format) {
+      const fit = formatFitsPlatform(ctx.format, feedPlatform(ctx.format.platform));
+      if (!fit.fits)
+        return new Response(JSON.stringify({ error: "format_exceeds_platform_limit", format: ctx.format.name,
+          estimated_min_chars: fit.estimatedMinChars, platform_max_chars: fit.maxChars }),
+          { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     const strategyBlock = buildContextBlock(ctx);
 
     const { data: cards } = await supabase

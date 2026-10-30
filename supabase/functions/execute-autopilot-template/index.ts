@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveNext, type Frequency } from "../_shared/schedule-resolver.ts";
+import { slotFeedBlock, formatFitsPlatform, feedPlatform } from "../_shared/publisher/platform-rules.ts";
 import { instagramConventionsBlock } from "../_shared/strategy-context.ts";
 
 // Knowledge Loom autopilot. A schedule slot is a standing instruction: produce a post
@@ -496,6 +497,22 @@ serve(async (req) => {
       ]);
       return { cf, cn };
     };
+
+    // Feed-bound format check (before any prompt, job or draft). Article parent +
+    // Feed child passes (only the child is feed-published); a standalone Article
+    // slot, or an Article used AS the child, is skipped. 200 + skipped, never an
+    // error, so the daily cron does not fail forever. Word ranges never rewritten.
+    {
+      const needsChild = !!slot.requires_child && !!slot.child_format_id;
+      const cfRow = (reuseParent || needsChild) ? (await loadChildLibs()).cf : null;
+      const blocked = slotFeedBlock({ format, childFormat: cfRow, requiresChild: !!slot.requires_child,
+        hasChildFormat: !!slot.child_format_id, reuse: !!reuseParent, slotPlatform: slot.platform ?? null });
+      if (blocked) {
+        const f = blocked === "child_format" ? cfRow : format;
+        return json({ success: true, skipped: "format_exceeds_platform_limit", draftsCreated: 0, blocked,
+          format: f?.name, platform_max_chars: formatFitsPlatform(f, feedPlatform(slot.platform ?? f?.platform)).maxChars });
+      }
+    }
 
     // Subscription-worker route (design A1): assemble the SAME prompts the
     // in-function paths below build, park the run as a claude_jobs row, and let

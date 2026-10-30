@@ -15,6 +15,7 @@ import { Plus, Trash2, Loader2, Play, RefreshCw, Calendar, RotateCcw, CalendarCl
 import { resolveNext, nextOccurrence } from "@/lib/scheduleResolver";
 import { ScheduleWeekGrid } from "@/components/ScheduleWeekGrid";
 import { platformLabel } from "@/lib/platform";
+import { formatFitsPlatform, unavailableFormatLabel } from "@/lib/format-fit";
 
 const DAYS_OF_WEEK = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DAYS_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -93,13 +94,14 @@ interface Slot {
   requires_child: boolean;
   child_format_id: string | null;
   child_nature_id: string | null;
+  platform?: string | null; // live content_schedules.platform (not in generated types yet)
   max_reuse_count: number;
   reuse_window_days: number;
   _isNew?: boolean;
 }
 
 interface NamedRow { id: string; name: string; }
-interface FormatOption extends NamedRow { platform: string; }
+interface FormatOption extends NamedRow { platform: string; min_words?: number | null; }
 
 interface EligibleParent {
   id: string;
@@ -255,7 +257,7 @@ export const CadenceTab = () => {
     setUserId(uid);
 
     const [fmt, nat, jb, ln, rd, sched, ffRow, prof] = await Promise.all([
-      supabase.from("formats").select("id, name, platform").eq("user_id", uid).eq("is_active", true).order("sort_order"),
+      supabase.from("formats").select("id, name, platform, min_words").eq("user_id", uid).eq("is_active", true).order("sort_order"),
       supabase.from("natures").select("id, name").eq("user_id", uid).eq("is_active", true).order("sort_order"),
       supabase.from("jobs").select("id, name").eq("user_id", uid).eq("kind", "engine_job").eq("is_active", true).order("sort_order"),
       supabase.from("lanes").select("id, name").eq("user_id", uid).eq("is_active", true).order("sort_order"),
@@ -283,6 +285,7 @@ export const CadenceTab = () => {
       requires_child: s.requires_child, child_format_id: s.child_format_id,
       child_nature_id: s.child_nature_id, max_reuse_count: s.max_reuse_count,
       reuse_window_days: s.reuse_window_days,
+      platform: (s as any).platform ?? null,
     })));
 
     // Seed / reconcile the fast-forward post-type filter against the formats
@@ -746,9 +749,18 @@ export const CadenceTab = () => {
                           <Label className="text-xs">Format</Label>
                           <Select value={slot.format_id} onValueChange={(v) => updateSlot(slot.id, { format_id: v })}>
                             <SelectTrigger><SelectValue placeholder="Format" /></SelectTrigger>
-                            <SelectContent>{formats.map((f) => <SelectItem key={f.id} value={f.id}>{f.name} ({platformLabel(f.platform)})</SelectItem>)}</SelectContent>
+                            <SelectContent>{formats.map((f) => {
+                              const fit = formatFitsPlatform(f, f.platform);
+                              return <SelectItem key={f.id} value={f.id} disabled={!fit.fits && f.id !== slot.format_id && !(slot.requires_child && slot.child_format_id)}>{f.name} ({platformLabel(f.platform)}){fit.fits ? "" : ` - ${unavailableFormatLabel(platformLabel(f.platform), fit.maxChars)}`}</SelectItem>;
+                            })}</SelectContent>
                           </Select>
-                        </div>
+                          {(() => {
+                            // Parent warning: only when the parent itself is feed-bound (no child).
+                            const hasChild = !!(slot.requires_child && slot.child_format_id);
+                            const bound = hasChild ? null : formats.find((f) => f.id === slot.format_id);
+                            const fit = bound ? formatFitsPlatform(bound, slot.platform && ["linkedin", "instagram"].includes(slot.platform) ? slot.platform : bound.platform) : null;
+                            return bound && fit && !fit.fits ? <p className="text-xs text-destructive mt-1">{bound.name} is {unavailableFormatLabel(platformLabel(bound.platform), fit.maxChars)}. This slot will be skipped until you pick a format that fits (for example Feed post).</p> : null;
+                          })()}                        </div>
                         <div>
                           <Label className="text-xs">Nature</Label>
                           <Select value={slot.nature_id} onValueChange={(v) => updateSlot(slot.id, { nature_id: v })}>
@@ -864,9 +876,15 @@ export const CadenceTab = () => {
                                 <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select" /></SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value={NONE}>Same as parent</SelectItem>
-                                  {formats.map((f) => <SelectItem key={f.id} value={f.id}>{f.name} ({platformLabel(f.platform)})</SelectItem>)}
+                                  {formats.map((f) => { const fit = formatFitsPlatform(f, f.platform);
+                                    return <SelectItem key={f.id} value={f.id} disabled={!fit.fits && f.id !== slot.child_format_id}>{f.name} ({platformLabel(f.platform)}){fit.fits ? "" : ` - ${unavailableFormatLabel(platformLabel(f.platform), fit.maxChars)}`}</SelectItem>; })}
                                 </SelectContent>
                               </Select>
+                              {(() => {
+                                const cur = formats.find((f) => f.id === slot.child_format_id);
+                                const fit = cur ? formatFitsPlatform(cur, slot.platform && ["linkedin", "instagram"].includes(slot.platform) ? slot.platform : cur.platform) : null;
+                                return cur && fit && !fit.fits ? <p className="text-xs text-destructive mt-1">Child format {cur.name} is {unavailableFormatLabel(platformLabel(cur.platform), fit.maxChars)}. This slot will be skipped until you pick a child format that fits (for example Feed post).</p> : null;
+                              })()}
                             </div>
                             <div>
                               <Label className="text-xs">Child nature</Label>

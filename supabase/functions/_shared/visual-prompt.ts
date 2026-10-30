@@ -130,7 +130,7 @@ export function buildSystemPromptFromConfig(
 
 BRAND:
 - Colors: Background ${config.color_background} (base), Accent ${config.color_accent} (energy), Highlight ${config.color_highlight}, Sparing accent ${config.color_sparing_accent} (used sparingly)
-- Fonts: ${config.display_font} (display) + ${config.body_font} (body) via Google Fonts
+- Fonts: ${config.display_font} (display) + ${config.body_font} (body)
 - Logo: ${config.logo_url} — bottom-left, minimum ${config.logo_min_height}px height, visually prominent
 - Tone: direct, trustworthy, human.
 - ${config.color_background} base. Soft radial or linear gradients of ${config.color_highlight} or ${config.color_accent} as background texture. No harsh lines.
@@ -144,7 +144,7 @@ OUTPUT RULES:
 - Return ONLY a JSON object, no markdown, no backticks
 - JSON must have exactly two keys: "visual_type" (string, must be one of the ids listed above) and "html" (string)
 - The html must be a complete self-contained HTML document
-- Include Google Fonts import for ${config.display_font} and ${config.body_font}
+- Fonts load offline: no @import, no <link>, no url() and no external font or stylesheet references. Name the fonts in CSS font-family with this fallback: font-family: '${config.display_font}', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif (display) and '${config.body_font}', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif (body)
 - Fixed width ${width}px, height ${height}px (${platformLabel} ${orientationLabel(width, height)})
 - Inline CSS only, no external stylesheets
 - ${config.color_background} background as the base
@@ -225,7 +225,7 @@ export function legacyBaseSystemPrompt(width: number, height: number, orientatio
 
 BRAND:
 - Colors: Navy #1b2b45 (background base), Coral #f9655b (accent/energy), Purple #6658ea (highlights), Yellow #f5c070 (sparingly), White #ffffff, Paper #f4f1ea
-- Fonts: Bricolage Grotesque (display, 700-800) + Hanken Grotesk (body, 400-500) via Google Fonts
+- Fonts: Bricolage Grotesque (display, 700-800) + Hanken Grotesk (body, 400-500)
 - Logo: https://res.cloudinary.com/dialhpycd/image/upload/v1772044659/prismm-logo-dark-bright_2x-removebg-preview_ut98x4.png
 - Tone: calm authority. Trusted financial software with a human pulse. Direct, trustworthy, human.
 - Navy base. Soft radial or linear gradients of purple or coral as background texture. No harsh lines.
@@ -242,7 +242,7 @@ OUTPUT RULES:
 - Return ONLY a JSON object, no markdown, no backticks
 - JSON must have exactly two keys: "visual_type" (string) and "html" (string)
 - The html must be a complete self-contained HTML document
-- Include Google Fonts import for Bricolage Grotesque and Hanken Grotesk
+- Fonts load offline: no @import, no <link>, no url() and no external font or stylesheet references. Name the fonts in CSS font-family with this fallback: font-family: 'Bricolage Grotesque', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif (display) and 'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif (body)
 - Fixed width ${width}px, height ${height}px (${orientation})
 - Inline CSS only, no external stylesheets
 - Navy background (#1b2b45) as the base

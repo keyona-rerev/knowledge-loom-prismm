@@ -748,10 +748,12 @@ export const CadenceTab = () => {
                         <div>
                           <Label className="text-xs">Format</Label>
                           <Select value={slot.format_id} onValueChange={(v) => updateSlot(slot.id, { format_id: v })}>
-                            <SelectTrigger><SelectValue placeholder="Format" /></SelectTrigger>
+                            <SelectTrigger><SelectValue placeholder="Format">{(() => { const cur = formats.find((f) => f.id === slot.format_id); return cur ? `${cur.name} (${platformLabel(cur.platform)})` : undefined; })()}</SelectValue></SelectTrigger>
                             <SelectContent>{formats.map((f) => {
                               const fit = formatFitsPlatform(f, f.platform);
-                              return <SelectItem key={f.id} value={f.id} disabled={!fit.fits && f.id !== slot.format_id && !(slot.requires_child && slot.child_format_id)}>{f.name} ({platformLabel(f.platform)}){fit.fits ? "" : ` - ${unavailableFormatLabel(platformLabel(f.platform), fit.maxChars)}`}</SelectItem>;
+                              const parentHasChild = !!(slot.requires_child && slot.child_format_id);
+                              // A feed-bound format is only flagged when it would actually post as the parent (no child).
+                              return <SelectItem key={f.id} value={f.id} disabled={!fit.fits && f.id !== slot.format_id && !parentHasChild}>{f.name} ({platformLabel(f.platform)}){fit.fits || parentHasChild ? "" : " - not available"}</SelectItem>;
                             })}</SelectContent>
                           </Select>
                           {(() => {
@@ -873,11 +875,11 @@ export const CadenceTab = () => {
                             <div>
                               <Label className="text-xs">Child format</Label>
                               <Select value={slot.child_format_id ?? NONE} onValueChange={(v) => updateSlot(slot.id, { child_format_id: v === NONE ? null : v })}>
-                                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select" /></SelectTrigger>
+                                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select">{slot.child_format_id ? (() => { const cur = formats.find((f) => f.id === slot.child_format_id); return cur ? `${cur.name} (${platformLabel(cur.platform)})` : undefined; })() : "Same as parent"}</SelectValue></SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value={NONE}>Same as parent</SelectItem>
                                   {formats.map((f) => { const fit = formatFitsPlatform(f, f.platform);
-                                    return <SelectItem key={f.id} value={f.id} disabled={!fit.fits && f.id !== slot.child_format_id}>{f.name} ({platformLabel(f.platform)}){fit.fits ? "" : ` - ${unavailableFormatLabel(platformLabel(f.platform), fit.maxChars)}`}</SelectItem>; })}
+                                    return <SelectItem key={f.id} value={f.id} disabled={!fit.fits && f.id !== slot.child_format_id}>{f.name} ({platformLabel(f.platform)}){fit.fits ? "" : " - not available"}</SelectItem>; })}
                                 </SelectContent>
                               </Select>
                               {(() => {
@@ -889,7 +891,7 @@ export const CadenceTab = () => {
                             <div>
                               <Label className="text-xs">Child nature</Label>
                               <Select value={slot.child_nature_id ?? NONE} onValueChange={(v) => updateSlot(slot.id, { child_nature_id: v === NONE ? null : v })}>
-                                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select" /></SelectTrigger>
+                                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select">{slot.child_format_id ? (() => { const cur = formats.find((f) => f.id === slot.child_format_id); return cur ? `${cur.name} (${platformLabel(cur.platform)})` : undefined; })() : "Same as parent"}</SelectValue></SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value={NONE}>Same as parent</SelectItem>
                                   {natures.map((n) => <SelectItem key={n.id} value={n.id}>{n.name}</SelectItem>)}

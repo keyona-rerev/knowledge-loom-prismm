@@ -808,19 +808,24 @@ const CreateContent = () => {
                 <div>
                   <Label htmlFor="format" className="text-xs">Format</Label>
                   <Select value={selectedFormat} onValueChange={setSelectedFormat}>
-                    <SelectTrigger id="format" className="mt-2"><SelectValue placeholder="Unset" /></SelectTrigger>
+                    <SelectTrigger id="format" className="mt-2"><SelectValue placeholder="Unset">{selectedFormat === NONE ? "Unset" : (formats.find((f) => f.id === selectedFormat)?.name ?? "Unset")}</SelectValue></SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NONE}>Unset</SelectItem>
                       {formats.map((f) => {
                         const fit = formatFitsPlatform(f, f.platform);
                         return (
                           <SelectItem key={f.id} value={f.id} disabled={!fit.fits}>
-                            {f.name}{fit.fits ? "" : ` - ${unavailableFormatLabel(platformLabel(f.platform), fit.maxChars)}`}
+                            {f.name}{fit.fits ? "" : " - not available"}
                           </SelectItem>
                         );
                       })}
                     </SelectContent>
                   </Select>
+                  {formats.filter((f) => !formatFitsPlatform(f, f.platform).fits).map((f) => (
+                    <p key={f.id} className="text-xs text-muted-foreground mt-1 break-words">
+                      {f.name} is {unavailableFormatLabel(platformLabel(f.platform), formatFitsPlatform(f, f.platform).maxChars)}. Choose Feed post instead.
+                    </p>
+                  ))}
                 </div>
                 <div>
                   <Label htmlFor="nature" className="text-xs">Nature</Label>

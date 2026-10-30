@@ -42,7 +42,7 @@ jobs:
       # function here only via reviewed PR.
       - name: Deploy allowlisted edge functions
         env:
-          DEPLOY_FUNCTIONS: "claude-job-complete"
+          DEPLOY_FUNCTIONS: ""
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           if [[ -z "$DEPLOY_FUNCTIONS" ]]; then

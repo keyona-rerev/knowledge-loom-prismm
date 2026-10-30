@@ -9,6 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
+import { platformLabel } from "@/lib/platform";
+import { formatFitsPlatform, unavailableFormatLabel } from "@/lib/format-fit";
 import { ArrowLeft, Sparkles, Lightbulb, FileText } from "lucide-react";
 import {
   bindGenerationJob,
@@ -49,7 +51,7 @@ interface InsightCard {
 // Strategy library rows - same tables the Strategy page and the schedule
 // autopilot read, so manual content creation can align with them too.
 interface NamedRow { id: string; name: string; }
-interface FormatRow extends NamedRow { key: string; }
+interface FormatRow extends NamedRow { key: string; platform?: string | null; min_words?: number | null; }
 
 const NONE = "__none__";
 
@@ -127,7 +129,7 @@ const CreateContent = () => {
       const uid = session.user.id;
 
       const [{ data: fmt }, { data: nat }, { data: jb }] = await Promise.all([
-        supabase.from("formats").select("id, name, key").eq("user_id", uid).eq("is_active", true).order("sort_order"),
+        supabase.from("formats").select("id, name, key, platform, min_words").eq("user_id", uid).eq("is_active", true).order("sort_order"),
         supabase.from("natures").select("id, name").eq("user_id", uid).eq("is_active", true).order("sort_order"),
         supabase.from("jobs").select("id, name").eq("user_id", uid).eq("is_active", true).order("sort_order"),
       ]);
@@ -287,6 +289,11 @@ const CreateContent = () => {
   const handleGenerateDirections = async () => {
     if (!seedInsight.trim()) {
       toast.error("Please enter your insight");
+      return;
+    }
+    const pickedFormat = formats.find((f) => f.id === selectedFormat);
+    if (pickedFormat && !formatFitsPlatform(pickedFormat, pickedFormat.platform).fits) {
+      toast.error(`${pickedFormat.name} is ${unavailableFormatLabel(platformLabel(pickedFormat.platform), formatFitsPlatform(pickedFormat, pickedFormat.platform).maxChars)}. Choose Feed post or leave Format unset.`);
       return;
     }
     const { data: { session } } = await supabase.auth.getSession();
@@ -804,7 +811,14 @@ const CreateContent = () => {
                     <SelectTrigger id="format" className="mt-2"><SelectValue placeholder="Unset" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NONE}>Unset</SelectItem>
-                      {formats.map((f) => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
+                      {formats.map((f) => {
+                        const fit = formatFitsPlatform(f, f.platform);
+                        return (
+                          <SelectItem key={f.id} value={f.id} disabled={!fit.fits}>
+                            {f.name}{fit.fits ? "" : ` - ${unavailableFormatLabel(platformLabel(f.platform), fit.maxChars)}`}
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 </div>

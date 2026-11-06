@@ -1,13 +1,55 @@
 -- Reconciliation note (Phase 1, hardcode/multi-tenancy audit): this file and the following
 -- eight 2025-12-10 migrations (55e063be.. through 29624b6a..) are not recorded as applied in
 -- this project's live migration history (supabase_migrations.schema_migrations), even though
--- the schema they describe matches what's live. Every statement in this file uses
--- `CREATE TABLE IF NOT EXISTS`/`IF NOT EXISTS`, and the eight that follow use
--- `DROP CONSTRAINT IF EXISTS`/`DROP POLICY IF EXISTS` guards, so replaying them (a fresh
--- `supabase db push`, including against this same project) is a safe no-op wherever the
--- objects already exist -- there is no fresh-fork divergence risk here. Left as-is rather
--- than tombstoned, since -- unlike the genuinely-superseded migrations elsewhere in this
--- directory -- this one is a live, accurate description of the base schema.
+-- the schema they describe matches what's live. Left as-is rather than tombstoned, since --
+-- unlike the genuinely-superseded migrations elsewhere in this directory -- this one is a
+-- live, accurate description of the base schema.
+--
+-- Idempotency history (making this file safe to replay against a database that already has
+-- this schema, e.g. a fresh fork or a re-run of `supabase db push`):
+--   Round 1: a grep-based pass claimed every statement was already guarded. False confidence --
+--     it only checked CREATE TABLE/CREATE EXTENSION, which already had IF NOT EXISTS.
+--   Round 2: added `DROP POLICY IF EXISTS` before all 52 CREATE POLICY statements and
+--     `DROP TRIGGER IF EXISTS` before the 1 CREATE TRIGGER; wrapped all 37
+--     ADD CONSTRAINT statements in `DO $$ BEGIN ... EXCEPTION WHEN duplicate_object THEN NULL;
+--     END $$;`.
+--   Round 3 (this pass): CI run #101 against live proved round 2 wrong for PRIMARY KEY
+--     constraints -- `ALTER TABLE ... ADD CONSTRAINT ... PRIMARY KEY` on a table that already
+--     has one raises `invalid_table_definition` (42P16), not `duplicate_object` (42710), so the
+--     EXCEPTION WHEN guard never caught it and the migration failed on replay. Rather than widen
+--     the exception list (still a guess at which Postgres error classes a given constraint type
+--     can raise), all 37 blocks were rewritten to an existence check against pg_constraint,
+--     which is correct for every constraint type regardless of its error class:
+--       DO $$ BEGIN
+--         IF NOT EXISTS (
+--           SELECT 1 FROM pg_constraint
+--           WHERE conname = '<name>' AND conrelid = '<schema>.<table>'::regclass
+--         ) THEN
+--           ALTER TABLE ONLY "<schema>"."<table>" ADD CONSTRAINT "<name>" ...;
+--         END IF;
+--       END $$;
+--     A full statement-type audit of this file (every CREATE/ALTER/DROP/GRANT keyword, not just
+--     constraints) found two more real gaps: 12 `CREATE INDEX` statements with no IF NOT EXISTS
+--     guard (fixed), and a `drop extension if exists "pg_net";` with nothing after it in this
+--     file to recreate the extension -- pg_net is created by
+--     20260613190657_schedule_auto_fire_cron.sql, which is already tracked-applied on live and
+--     is skipped by a fresh `db push`, so that DROP running against live would have permanently
+--     removed pg_net and silently broken every cron job's net.http_post call with no pending
+--     migration left to fix it. Removed rather than guarded, since there's nothing in this file
+--     that should be dropping it. Every other statement type in the file (GRANT, ALTER DEFAULT
+--     PRIVILEGES, ALTER TABLE ... OWNER TO / ENABLE ROW LEVEL SECURITY, ALTER FUNCTION,
+--     ALTER PUBLICATION ... OWNER TO, COMMENT ON, CREATE OR REPLACE FUNCTION, CREATE EXTENSION
+--     IF NOT EXISTS) is idempotent by construction in Postgres -- re-running any of them against
+--     an unchanged target is a no-op, not an error.
+--
+-- This round was verified by static, statement-by-statement reading (grep counts confirming
+-- 37/37/37/37 for the constraint rewrite, 12/0 for CREATE INDEX, 0 remaining `drop extension`),
+-- NOT by actually applying the file to a database. An attempt to verify by real application --
+-- a Supabase dev branch, then a free throwaway project -- was blocked: branching requires the
+-- Pro plan, and this organization was already at its 2-active-free-project cap with no project
+-- available to pause without disrupting unrelated active work. If a genuine apply-from-empty
+-- test becomes possible later (Pro plan, local `supabase db start`, or freeing an org project
+-- slot), that is the strictly stronger check and should supersede this note.
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -433,202 +475,278 @@ ALTER TABLE "public"."user_newsletter_emails" OWNER TO "postgres";
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."autopilot_templates"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'autopilot_templates_pkey' AND conrelid = 'public.autopilot_templates'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."autopilot_templates"
     ADD CONSTRAINT "autopilot_templates_pkey" PRIMARY KEY ("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."content_calendar"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'content_calendar_pkey' AND conrelid = 'public.content_calendar'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."content_calendar"
     ADD CONSTRAINT "content_calendar_pkey" PRIMARY KEY ("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."content_templates"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'content_templates_pkey' AND conrelid = 'public.content_templates'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."content_templates"
     ADD CONSTRAINT "content_templates_pkey" PRIMARY KEY ("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."draft_revisions"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'draft_revisions_pkey' AND conrelid = 'public.draft_revisions'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."draft_revisions"
     ADD CONSTRAINT "draft_revisions_pkey" PRIMARY KEY ("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."drafts"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'drafts_pkey' AND conrelid = 'public.drafts'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."drafts"
     ADD CONSTRAINT "drafts_pkey" PRIMARY KEY ("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."email_notifications"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'email_notifications_pkey' AND conrelid = 'public.email_notifications'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."email_notifications"
     ADD CONSTRAINT "email_notifications_pkey" PRIMARY KEY ("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."user_newsletter_emails"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'email_prefix_unique' AND conrelid = 'public.user_newsletter_emails'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."user_newsletter_emails"
     ADD CONSTRAINT "email_prefix_unique" UNIQUE ("email_prefix");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."insight_cards"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'insight_cards_pkey' AND conrelid = 'public.insight_cards'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."insight_cards"
     ADD CONSTRAINT "insight_cards_pkey" PRIMARY KEY ("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."insight_ratings"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'insight_ratings_pkey' AND conrelid = 'public.insight_ratings'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."insight_ratings"
     ADD CONSTRAINT "insight_ratings_pkey" PRIMARY KEY ("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."newsletter_emails"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'newsletter_emails_pkey' AND conrelid = 'public.newsletter_emails'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."newsletter_emails"
     ADD CONSTRAINT "newsletter_emails_pkey" PRIMARY KEY ("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."profiles"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'profiles_pkey' AND conrelid = 'public.profiles'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."profiles"
     ADD CONSTRAINT "profiles_pkey" PRIMARY KEY ("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."profiles"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'profiles_user_id_key' AND conrelid = 'public.profiles'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."profiles"
     ADD CONSTRAINT "profiles_user_id_key" UNIQUE ("user_id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."question_sets"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'question_sets_pkey' AND conrelid = 'public.question_sets'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."question_sets"
     ADD CONSTRAINT "question_sets_pkey" PRIMARY KEY ("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."rate_limit_logs"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'rate_limit_logs_pkey' AND conrelid = 'public.rate_limit_logs'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."rate_limit_logs"
     ADD CONSTRAINT "rate_limit_logs_pkey" PRIMARY KEY ("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."reference_card_templates"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'reference_card_templates_pkey' AND conrelid = 'public.reference_card_templates'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."reference_card_templates"
     ADD CONSTRAINT "reference_card_templates_pkey" PRIMARY KEY ("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."reference_cards"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'reference_cards_pkey' AND conrelid = 'public.reference_cards'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."reference_cards"
     ADD CONSTRAINT "reference_cards_pkey" PRIMARY KEY ("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."source_feeds"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'source_feeds_pkey' AND conrelid = 'public.source_feeds'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."source_feeds"
     ADD CONSTRAINT "source_feeds_pkey" PRIMARY KEY ("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."user_newsletter_emails"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'user_newsletter_emails_email_address_key' AND conrelid = 'public.user_newsletter_emails'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."user_newsletter_emails"
     ADD CONSTRAINT "user_newsletter_emails_email_address_key" UNIQUE ("email_address");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."user_newsletter_emails"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'user_newsletter_emails_pkey' AND conrelid = 'public.user_newsletter_emails'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."user_newsletter_emails"
     ADD CONSTRAINT "user_newsletter_emails_pkey" PRIMARY KEY ("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
-CREATE INDEX "idx_content_calendar_scheduled_date" ON "public"."content_calendar" USING "btree" ("scheduled_date");
+CREATE INDEX IF NOT EXISTS "idx_content_calendar_scheduled_date" ON "public"."content_calendar" USING "btree" ("scheduled_date");
 
 
 
-CREATE INDEX "idx_content_calendar_status" ON "public"."content_calendar" USING "btree" ("status");
+CREATE INDEX IF NOT EXISTS "idx_content_calendar_status" ON "public"."content_calendar" USING "btree" ("status");
 
 
 
-CREATE INDEX "idx_content_calendar_user_id" ON "public"."content_calendar" USING "btree" ("user_id");
+CREATE INDEX IF NOT EXISTS "idx_content_calendar_user_id" ON "public"."content_calendar" USING "btree" ("user_id");
 
 
 
-CREATE INDEX "idx_email_notifications_draft_id" ON "public"."email_notifications" USING "btree" ("draft_id");
+CREATE INDEX IF NOT EXISTS "idx_email_notifications_draft_id" ON "public"."email_notifications" USING "btree" ("draft_id");
 
 
 
-CREATE INDEX "idx_email_notifications_sent_at" ON "public"."email_notifications" USING "btree" ("sent_at");
+CREATE INDEX IF NOT EXISTS "idx_email_notifications_sent_at" ON "public"."email_notifications" USING "btree" ("sent_at");
 
 
 
-CREATE INDEX "idx_email_notifications_user_id" ON "public"."email_notifications" USING "btree" ("user_id");
+CREATE INDEX IF NOT EXISTS "idx_email_notifications_user_id" ON "public"."email_notifications" USING "btree" ("user_id");
 
 
 
-CREATE INDEX "idx_insight_cards_created_at" ON "public"."insight_cards" USING "btree" ("created_at");
+CREATE INDEX IF NOT EXISTS "idx_insight_cards_created_at" ON "public"."insight_cards" USING "btree" ("created_at");
 
 
 
-CREATE INDEX "idx_insight_cards_status" ON "public"."insight_cards" USING "btree" ("status");
+CREATE INDEX IF NOT EXISTS "idx_insight_cards_status" ON "public"."insight_cards" USING "btree" ("status");
 
 
 
-CREATE INDEX "idx_insight_cards_user_id" ON "public"."insight_cards" USING "btree" ("user_id");
+CREATE INDEX IF NOT EXISTS "idx_insight_cards_user_id" ON "public"."insight_cards" USING "btree" ("user_id");
 
 
 
-CREATE INDEX "idx_newsletter_emails_user_received" ON "public"."newsletter_emails" USING "btree" ("user_id", "received_at");
+CREATE INDEX IF NOT EXISTS "idx_newsletter_emails_user_received" ON "public"."newsletter_emails" USING "btree" ("user_id", "received_at");
 
 
 
-CREATE INDEX "idx_rate_limit_user_action_time" ON "public"."rate_limit_logs" USING "btree" ("user_id", "action", "created_at");
+CREATE INDEX IF NOT EXISTS "idx_rate_limit_user_action_time" ON "public"."rate_limit_logs" USING "btree" ("user_id", "action", "created_at");
 
 
 
-CREATE INDEX "idx_reference_cards_question_set_id" ON "public"."reference_cards" USING "btree" ("question_set_id");
+CREATE INDEX IF NOT EXISTS "idx_reference_cards_question_set_id" ON "public"."reference_cards" USING "btree" ("question_set_id");
 
 
 
@@ -673,145 +791,217 @@ CREATE OR REPLACE TRIGGER "update_templates_updated_at" BEFORE UPDATE ON "public
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."autopilot_templates"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'autopilot_templates_custom_template_id_fkey' AND conrelid = 'public.autopilot_templates'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."autopilot_templates"
     ADD CONSTRAINT "autopilot_templates_custom_template_id_fkey" FOREIGN KEY ("custom_template_id") REFERENCES "public"."reference_card_templates"("id") ON DELETE SET NULL;
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."content_calendar"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'content_calendar_draft_id_fkey' AND conrelid = 'public.content_calendar'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."content_calendar"
     ADD CONSTRAINT "content_calendar_draft_id_fkey" FOREIGN KEY ("draft_id") REFERENCES "public"."drafts"("id") ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."content_templates"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'content_templates_user_id_fkey' AND conrelid = 'public.content_templates'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."content_templates"
     ADD CONSTRAINT "content_templates_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."draft_revisions"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'draft_revisions_draft_id_fkey' AND conrelid = 'public.draft_revisions'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."draft_revisions"
     ADD CONSTRAINT "draft_revisions_draft_id_fkey" FOREIGN KEY ("draft_id") REFERENCES "public"."drafts"("id") ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."drafts"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'drafts_autopilot_template_id_fkey' AND conrelid = 'public.drafts'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."drafts"
     ADD CONSTRAINT "drafts_autopilot_template_id_fkey" FOREIGN KEY ("autopilot_template_id") REFERENCES "public"."autopilot_templates"("id") ON DELETE SET NULL;
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."drafts"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'drafts_revised_from_fkey' AND conrelid = 'public.drafts'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."drafts"
     ADD CONSTRAINT "drafts_revised_from_fkey" FOREIGN KEY ("revised_from") REFERENCES "public"."drafts"("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."drafts"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'drafts_template_id_fkey' AND conrelid = 'public.drafts'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."drafts"
     ADD CONSTRAINT "drafts_template_id_fkey" FOREIGN KEY ("template_id") REFERENCES "public"."content_templates"("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."email_notifications"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'email_notifications_draft_id_fkey' AND conrelid = 'public.email_notifications'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."email_notifications"
     ADD CONSTRAINT "email_notifications_draft_id_fkey" FOREIGN KEY ("draft_id") REFERENCES "public"."drafts"("id") ON DELETE SET NULL;
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."email_notifications"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'email_notifications_user_id_fkey' AND conrelid = 'public.email_notifications'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."email_notifications"
     ADD CONSTRAINT "email_notifications_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."insight_cards"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'insight_cards_user_id_fkey' AND conrelid = 'public.insight_cards'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."insight_cards"
     ADD CONSTRAINT "insight_cards_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("user_id") ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."insight_ratings"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'insight_ratings_draft_id_fkey' AND conrelid = 'public.insight_ratings'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."insight_ratings"
     ADD CONSTRAINT "insight_ratings_draft_id_fkey" FOREIGN KEY ("draft_id") REFERENCES "public"."drafts"("id") ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."insight_ratings"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'insight_ratings_reference_card_id_fkey' AND conrelid = 'public.insight_ratings'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."insight_ratings"
     ADD CONSTRAINT "insight_ratings_reference_card_id_fkey" FOREIGN KEY ("reference_card_id") REFERENCES "public"."reference_cards"("id") ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."newsletter_emails"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'newsletter_emails_reference_card_id_fkey' AND conrelid = 'public.newsletter_emails'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."newsletter_emails"
     ADD CONSTRAINT "newsletter_emails_reference_card_id_fkey" FOREIGN KEY ("reference_card_id") REFERENCES "public"."reference_cards"("id") ON DELETE SET NULL;
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."newsletter_emails"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'newsletter_emails_user_id_fkey' AND conrelid = 'public.newsletter_emails'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."newsletter_emails"
     ADD CONSTRAINT "newsletter_emails_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."reference_cards"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'reference_cards_source_feed_id_fkey' AND conrelid = 'public.reference_cards'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."reference_cards"
     ADD CONSTRAINT "reference_cards_source_feed_id_fkey" FOREIGN KEY ("source_feed_id") REFERENCES "public"."source_feeds"("id") ON DELETE SET NULL;
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."reference_cards"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'reference_cards_template_id_fkey' AND conrelid = 'public.reference_cards'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."reference_cards"
     ADD CONSTRAINT "reference_cards_template_id_fkey" FOREIGN KEY ("template_id") REFERENCES "public"."reference_card_templates"("id") ON DELETE SET NULL;
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."source_feeds"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'source_feeds_default_template_id_fkey' AND conrelid = 'public.source_feeds'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."source_feeds"
     ADD CONSTRAINT "source_feeds_default_template_id_fkey" FOREIGN KEY ("default_template_id") REFERENCES "public"."reference_card_templates"("id");
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
 
 DO $$ BEGIN
-ALTER TABLE ONLY "public"."user_newsletter_emails"
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'user_newsletter_emails_user_id_fkey' AND conrelid = 'public.user_newsletter_emails'::regclass
+  ) THEN
+    ALTER TABLE ONLY "public"."user_newsletter_emails"
     ADD CONSTRAINT "user_newsletter_emails_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
-EXCEPTION WHEN duplicate_object THEN NULL;
+  END IF;
 END $$;
 
 
@@ -1464,7 +1654,13 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
-drop extension if exists "pg_net";
+-- NOT dropping pg_net here: this file originally had `drop extension if exists "pg_net";`
+-- at this point, with nothing after it to recreate the extension. pg_net is created by
+-- 20260613190657_schedule_auto_fire_cron.sql, which is already tracked-applied on live and
+-- would be skipped by a fresh `db push` -- so that DROP running against live would
+-- permanently remove pg_net and silently break every cron job's net.http_post call, with
+-- no pending migration left to fix it. Removed rather than guarded, since there's nothing
+-- this file should be dropping it for.
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();

@@ -143,6 +143,68 @@ files only — no database touched:
   idempotent by pattern (not by assumption) via a full sweep for unguarded
   `CREATE POLICY`/`CREATE INDEX`/`CREATE TABLE`/`ADD CONSTRAINT`/`CREATE TRIGGER`.
 
+**Second post-merge incident (CI run #101):** `remote_schema.sql` statement 58 failed —
+`ERROR: multiple primary keys for table "autopilot_templates" are not allowed (SQLSTATE
+42P16)` — once `db push --include-all` actually replayed the file against live. The
+`EXCEPTION WHEN duplicate_object` guard above is the wrong exception class for a duplicate
+PRIMARY KEY: that raises `invalid_table_definition` (42P16), not `duplicate_object`
+(42710), so it slipped through on every PK among the 37 wrapped constraints. This is the
+same root problem as the original "safe no-op" conclusion two paragraphs up: guessing which
+Postgres error class a statement can raise, instead of checking.
+
+**Fixed, on a fresh branch off `main` (`claude/fix-remote-schema-idempotency`):**
+- All 37 constraint `DO` blocks rewritten from exception-catching to an existence check
+  against `pg_constraint`, which is correct for every constraint type regardless of error
+  class:
+  ```sql
+  DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conname = '<name>' AND conrelid = '<schema>.<table>'::regclass
+    ) THEN
+      ALTER TABLE ONLY "<schema>"."<table>" ADD CONSTRAINT "<name>" ...;
+    END IF;
+  END $$;
+  ```
+- A full statement-type audit of the file (every `CREATE`/`ALTER`/`DROP`/`GRANT` keyword,
+  not just constraints — the exact gap the previous two rounds each missed a different
+  category of) found two more real bugs: 12 `CREATE INDEX` statements with no `IF NOT
+  EXISTS` guard (fixed), and a `drop extension if exists "pg_net";` with nothing after it
+  in this file to recreate the extension. pg_net is created by
+  `20260613190657_schedule_auto_fire_cron.sql`, which is already tracked-applied on live
+  and would be skipped by a fresh `db push` — so that DROP, replayed against live, would
+  have permanently removed pg_net and silently broken every cron job's `net.http_post`
+  call (including the 2a fix above) with no pending migration left to fix it. Removed
+  rather than guarded. Every other statement type in the file (`GRANT`, `ALTER DEFAULT
+  PRIVILEGES`, `ALTER TABLE ... OWNER TO`/`ENABLE ROW LEVEL SECURITY`, `ALTER FUNCTION`,
+  `ALTER PUBLICATION ... OWNER TO`, `COMMENT ON`, `CREATE OR REPLACE FUNCTION`, `CREATE
+  EXTENSION IF NOT EXISTS`) is idempotent by construction in Postgres — re-running any of
+  them unchanged is a no-op, not an error.
+- Verified via grep counts: 37/37/37/37 for the constraint rewrite (`DO $$ BEGIN` /
+  `SELECT 1 FROM pg_constraint` / `END IF;` / `END $$;`), 0 `EXCEPTION WHEN` remaining;
+  12 `CREATE INDEX IF NOT EXISTS` / 0 bare `CREATE INDEX` remaining; 0 `drop extension`
+  statements remaining.
+
+**Verification attempt by actual application (not just reading) — blocked, not completed:**
+after three rounds of "verified idempotent" each missing a different real bug, the next
+step was to prove this file by replaying the full migration history against an empty
+database, not by reading it again. Two paths were tried and both were blocked before any
+apply happened:
+- `mcp__Supabase__create_branch` (a disposable dev branch of this project) → refused:
+  "Branching is supported only on the Pro plan or above."
+- A free, throwaway full project in the same org as a substitute → refused: the
+  organization (`gbpkoitevzrgvrxguyjs`) was already at its 2-active-free-project cap, and
+  both active slots were in-use work (this project itself, and an unrelated active project)
+  that couldn't be paused for this. No local `supabase` CLI or running Docker daemon was
+  available in-session either, so there was no zero-footprint fallback.
+- **Decision (user call):** proceed on the static, statement-by-statement read-through
+  above rather than block further on an apply-based check. This is explicitly a weaker
+  guarantee than actually running the file — if a Pro-plan branch, a local `supabase db
+  start`, or a free org project slot becomes available later, replaying the full history
+  against it is the strictly stronger check and should supersede this note.
+
+**Status:** committed and pushed to `claude/fix-remote-schema-idempotency`, not yet merged.
+
 ---
 
 ## Phase 2 — The 2 critical DB issues

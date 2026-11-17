@@ -118,9 +118,10 @@ From Anthropic's Claude Code legal and compliance page
   own applications, or to route requests through Free, Pro, Max, or Ultra plan credentials
   on behalf of their users." Routing a client's subscription token through this app's edge
   functions or any custom harness is prohibited.
-- What stays allowed: "an end user signing in to the unmodified Claude Code binary with
-  their own Claude subscription, including where a platform hosts Claude Code." The
-  worker-runs-unmodified-Claude-Code pattern sits on this allowance.
+- What may stay allowed: "an end user signing in to the unmodified Claude Code binary with
+  their own Claude subscription, including where a platform hosts Claude Code." Whether a
+  CI worker running a business content pipeline fits that allowance is not addressed -
+  see the open item below on setup-token intent.
 - "Advertised usage limits for Pro, Max, and Ultra plans assume ordinary, individual
   usage of Claude Code and the Agent SDK." A multi-client fleet on one personal plan is
   outside that assumption; each client on their own plan fits it.
@@ -158,8 +159,10 @@ Recommendation with concrete risks and costs, for Keyona's decision:
 **Per-client worker (recommended).** Each client gets their own private worker repo on
 their own GitHub account, their own Claude subscription via setup-token, their own
 WORKER_SECRET / DISPATCHER_SECRET pair.
-- Terms fit: each end user on their own plan matches "ordinary, individual usage" and
-  the unmodified-binary allowance. Shared infrastructure on Keyona's Max does not.
+- Terms fit best of the options: each end user on their own plan is the closest match to
+  "ordinary, individual usage" and the unmodified-binary allowance (neither addressed for
+  CI pipelines specifically - section 3). Shared infrastructure on Keyona's Max fits
+  neither.
 - Data isolation: client prompts, drafts and business material never touch Keyona's
   Supabase, repo, or Actions logs. The repo rule (no lead data) stays intact.
 - Cost: $0/month while usage fits the $12 included compute (set a budget cap); the

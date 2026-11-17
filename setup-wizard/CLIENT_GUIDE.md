@@ -59,7 +59,7 @@ Lasting change - tone, length, topics to avoid: tell your installer in plain wor
 
 Your installer keeps a current cost table with each price and its source, checked on the day it was written. The pieces:
 
-- **App hosting and database**: free tiers exist at the providers used. One real caveat: the free database pauses after a week with no activity, and a normal weekly posting rhythm keeps it awake. If it ever pauses, the fix is logging into the database provider and pressing restore.
+- **App hosting and database**: free tiers exist at the providers used. One real caveat: the free database pauses after a week with no activity. If that happens, the fix is logging into the database provider and pressing restore - a one-minute fix your installer can also do.
 - **The AI**: runs under an account set up for your install. Your installer tells you which plan yours uses and what it costs per month.
 - **Sending your posts to LinkedIn**: the connector has a free allowance for the first accounts.
 
@@ -71,7 +71,7 @@ Prices change. The table in your install materials has the date it was checked.
 
 In order:
 
-1. **No new drafts this week**: tell your installer. The most common cause is the paused free database (above), a one-minute fix.
+1. **No new drafts this week**: tell your installer. One possible cause is the paused free database (above), a one-minute fix.
 2. **A post did not publish**: open **Calendar** and check the post is still there, then tell your installer.
 3. **You cannot log in**: use the password-reset link on the login page, then tell your installer if it still fails.
 

@@ -1,6 +1,6 @@
 {
   "title": "Insight Forge Setup",
-  "intro": "Set up your own Insight Forge step by step. Enter each value once. The wizard keeps it and fills it into every later step. Each client gets its own database, its own repo and one login. You can stop at any step - everything you enter is saved in this browser, and you pick up exactly where you left off.",
+  "intro": "Set up your own Insight Forge step by step. Enter each value once. The wizard keeps it and fills it into every later step. Each client gets its own database, its own app repo and one login. You can stop at any step - everything you enter is saved in this browser, and you pick up exactly where you left off.",
   "variables": [
     {
       "key": "ai_provider",
@@ -360,9 +360,9 @@
     },
     {
       "title": "Set the renewal reminder",
-      "instructions": "If the AI setup from 'Connect the AI' signs in with a Claude token, that sign-in lasts about one year (checked November 17, 2026). Add a calendar reminder for 11 months from today so the renewal is never missed. If this install uses an API key instead, there is nothing to renew.",
-      "checkbox_label": "Renewal reminder set, or not needed on this install",
-      "verify_hint": "A reminder exists 11 months from today, or this install uses an API key."
+      "instructions": "The AI sign-in from 'Connect the AI' does not last forever. If it uses a Claude setup token, Anthropic's own guide says that token lasts one year (code.claude.com/docs/en/authentication, checked November 17, 2026); an API key can also be revoked or rotated at any time. Check the expiry the provider shows for this install, set a calendar reminder ahead of it, and write down who owns the renewal. A reminder lowers the chance of a silent stop - it cannot prevent one.",
+      "checkbox_label": "Renewal reminder set and owner written down",
+      "verify_hint": "A reminder exists ahead of the provider-shown expiry, and the renewal owner is named."
     }
   ]
 }

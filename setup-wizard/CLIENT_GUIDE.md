@@ -74,6 +74,7 @@ In order:
 1. **No new drafts this week**: tell your installer. One possible cause is the paused free database (above).
 2. **A post did not publish**: open **Calendar** and check the post is still there, then tell your installer.
 3. **You cannot log in**: use the password-reset link on the login page, then tell your installer if it still fails.
+4. **Drafts stop around the same month each year**: the AI connection can need a yearly renewal. Tell your installer - it is a short job they own.
 
 You cannot break anything by looking. Every screen is safe to open.
 

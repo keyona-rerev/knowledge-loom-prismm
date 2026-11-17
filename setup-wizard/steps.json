@@ -357,6 +357,12 @@
       ],
       "checkbox_label": "All checks are green",
       "verify_hint": "Every line shows OK."
+    },
+    {
+      "title": "Set the renewal reminder",
+      "instructions": "If the AI setup from 'Connect the AI' signs in with a Claude token, that sign-in lasts about one year (checked November 17, 2026). Add a calendar reminder for 11 months from today so the renewal is never missed. If this install uses an API key instead, there is nothing to renew.",
+      "checkbox_label": "Renewal reminder set, or not needed on this install",
+      "verify_hint": "A reminder exists 11 months from today, or this install uses an API key."
     }
   ]
 }

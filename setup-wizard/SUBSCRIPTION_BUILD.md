@@ -97,9 +97,11 @@ pipeline. The gap is packaging the worker per client:
    prevents surprise bills and should be set at install.
 4. **Token expiry.** A setup-token lasts one year. The install needs a documented yearly
    renewal step and an owner for it, or the system silently stops drafting in month 13.
-5. **Wizard + docs alignment.** Wizard step 19 and the Settings page should tell a
-   subscription install that the API key field is optional (visuals/backfill only), or the
-   key prompt confuses the client. Small copy change, not yet made.
+5. **Wizard + docs alignment.** Done Nov 17: wizard step 19 rewritten (now "Connect the
+   AI") - no key paste for drafting, the optional Settings key is scoped to visuals and
+   the newsletter-score backfill, and its checkbox requires installer confirmation rather
+   than claiming a completed setup. Step 2 carries the Gemini API-key limit in traced
+   terms.
 6. **Path B decision.** Either port `generate-draft-visual`, `preview-visual`,
    `backfill-newsletter-scores` to the queue (they are prompt jobs like the others), or
    document that visuals stay off and the backfill stays key-based with the key optional.
@@ -130,13 +132,16 @@ Corroboration: The Register, Feb 20 2026
 on the February 2026 clarification that Pro/Max OAuth tokens in any other product, tool or
 service - including the Agent SDK - violate the Consumer Terms.
 
-Gemini boundary (verified Nov 17, geminicli.com/docs/resources/tos-privacy and
-/docs/get-started/authentication): Gemini CLI headless mode (`gemini -p`) is officially
-supported for programmatic use BUT authenticates with a Gemini API key or Vertex AI - not
-a personal Google account. Using third-party software to piggyback on Gemini CLI OAuth "is
-a violation of applicable terms and policies... grounds for suspension or termination."
-So the gemini and split choices in the wizard CANNOT run subscription-only on the
-automatic parts; they need a Gemini API key. Wizard step 2 now says this on its face.
+Gemini boundary (verified Nov 17): the official Gemini CLI authentication guide
+(geminicli.com/docs/get-started/authentication) lists for "Headless mode": "Use Gemini API
+Key or Vertex AI" - a personal Google account is NOT listed for headless use. Separately,
+the Gemini CLI ToS page (geminicli.com/docs/resources/tos-privacy) says directly accessing
+the services powering Gemini CLI via third-party software that piggybacks its OAuth "is a
+violation of applicable terms and policies... grounds for suspension or termination."
+Whether the official `gemini -p` binary itself may run headless under personal-account
+OAuth is not stated in either text; the documented headless path is API key / Vertex AI.
+So the gemini and split choices should plan on a Gemini API key for the automatic parts.
+Wizard step 2 now says this in those traced terms.
 
 STILL open (do not fill by assumption):
 

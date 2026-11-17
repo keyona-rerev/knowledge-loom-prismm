@@ -77,28 +77,43 @@ live use in Keyona's instance. Any change below should add a queue-level test.
 Not "convert the app from API keys" - that conversion already happened for the core
 pipeline. The gap is packaging the worker per client:
 
-1. **A worker for the client.** Today the only worker is Keyona's private repo, bound to
-   her Supabase project (`WORKER_SECRET`, `DISPATCHER_SECRET`) and her subscription. A
+1. **A worker for the client.** Today the only worker is Keyona's private repo
+   (keyona-rerev/knowledge-loom-worker), bound to her Supabase project (`WORKER_SECRET`,
+   `DISPATCHER_SECRET`) and her subscription. A
    client install needs either (a) its own worker repo under an account the client owns,
    or (b) a documented decision to run client jobs through Keyona's worker - which mixes
    client data into Keyona's infrastructure and her subscription usage, and needs her
    explicit sign-off, not a default.
-2. **Worker auth.** The worker runs Claude Code in GitHub Actions. The documented pattern
-   is `claude setup-token` (prints a one-year token for "CI pipelines and scripts where
-   browser login isn't available") stored as a repo secret. Verify this is how Keyona's
-   worker authenticates before copying the pattern; the worker repo is private and was not
-   inspected for this handoff.
-3. **GitHub Actions minutes.** Verified Nov 17 (docs.github.com/en/billing/reference/product-usage-included):
-   private-repo Actions draws from included compute of $12/month on GitHub Free and
-   $18/month on GitHub Pro; overage bills to the repo owner. Actions is free on PUBLIC
-   repos and on self-hosted runners. Whether one client's drafting cadence fits $12/month
-   depends on minutes per job in the worker - unknown until the private worker repo is
-   inspected (section 5, step 1). A budget cap ("Stop usage when budget limit is reached")
+2. **Worker auth.** VERIFIED Nov 17 by reading the worker repo through the connected
+   GitHub account (it was readable all along): the live workflow
+   (.github/workflows/claude-loom-worker.yml, repository_dispatch only) runs
+   anthropics/claude-code-action pinned at d70510b with
+   claude_code_oauth_token: secrets.CLAUDE_CODE_OAUTH_TOKEN - exactly the `claude
+   setup-token` pattern (source and expiry in item 4). The model job runs the CLI inside
+   a docker child namespace with an env allowlist (the token only). A client worker
+   needs its own CLAUDE_CODE_OAUTH_TOKEN from an account the client owns.
+3. **GitHub Actions minutes.** Rates verified Nov 17 (docs.github.com/en/billing/reference/product-usage-included
+   and /actions-runner-pricing): private-repo Actions draws from included compute of
+   $12/month on GitHub Free and $18/month on GitHub Pro; the worker's ubuntu-latest is
+   standard Linux 2-core at $0.006/min, each job rounded up to whole minutes; overage
+   bills to the repo owner. Actions is free on PUBLIC repos and self-hosted runners.
+   MEASURED Nov 17 from the worker's own Actions history: 23 recent production
+   dispatches averaged ~4.5 minutes wall each (range 1m25s-8m42s; 3 jobs per dispatch:
+   verify-claim, model, complete) - call it ~6 billed minutes, ~$0.04, per dispatch
+   after per-job rounding. A client drafting daily (~30 dispatches/month) uses about
+   $1-2 of the $12 included. A budget cap ("Stop usage when budget limit is reached")
    prevents surprise bills and should be set at install.
-4. **Token expiry.** A setup-token lasts one year. Without a yearly renewal step and a
-   named owner, the system silently stops drafting in month 13. Documented Nov 17: the
-   wizard's final step ("Set the renewal reminder") and CLIENT_GUIDE.md section 7 item 4
-   now carry the renewal; naming its owner stays an install-time decision.
+4. **Token expiry.** Anthropic's authentication guide
+   (code.claude.com/docs/en/authentication#generate-a-long-lived-token, checked Nov 17,
+   2026) says `claude setup-token` generates a ONE-YEAR OAuth token that authenticates
+   with a Claude subscription (Pro, Max, Ultra, Team or Enterprise required) and can
+   only make model requests. Limits of this claim: one year is the lifetime Anthropic
+   documents today - a token can stop working earlier (revocation, plan change) and
+   Anthropic can change the documented lifetime; the reminder guards both. Without a
+   renewal step and a named owner, the system silently stops drafting when the token
+   lapses. Documented Nov 17: the wizard's final step ("Set the renewal reminder") and
+   CLIENT_GUIDE.md section 7 item 4 now carry the renewal; naming its owner stays an
+   install-time decision.
 5. **Wizard + docs alignment.** Done Nov 17: wizard step 19 rewritten (now "Connect the
    AI") - no key paste for drafting, the optional Settings key is scoped to visuals and
    the newsletter-score backfill, and its checkbox requires installer confirmation rather
@@ -168,9 +183,13 @@ WORKER_SECRET / DISPATCHER_SECRET pair.
 - Data isolation: client prompts, drafts and business material never touch Keyona's
   Supabase, repo, or Actions logs. The repo rule (no lead data) stays intact.
 - Cost: $0/month while usage fits the $12 included compute (set a budget cap); the
-  client's Claude subscription is the only standing AI bill. Unknown: minutes per job
-  until the worker is timed.
-- Maintenance cost: one yearly token renewal per client, owned by a named person.
+  client's Claude subscription is the only standing AI bill. Measured Nov 17: ~6 billed
+  minutes (~$0.04) per dispatch, so daily drafting is roughly $1-2/month - wide margin.
+- Maintenance cost: one token renewal per client per provider-documented lifetime
+  (one year today - item 4), owned by a named person. Inspection Nov 17 reinforces
+  per-client: every secret in the live workflow is single-tenant (one SUPABASE_FN_BASE,
+  one DISPATCH_SECRET pair), so sharing the worker would mix every client's jobs into
+  one queue and one subscription.
 
 **Shared worker (only as a time-boxed pilot, needs Keyona's explicit yes).** Client jobs
 run through Keyona's worker and subscription.
@@ -194,10 +213,12 @@ Until the items in section 2 are built and section 3's open questions are answer
 
 ## 5. Suggested work order for the build session
 
-1. Inspect Keyona's private worker repo: how it authenticates (setup-token?), what the
-   Actions workflow looks like, what it costs in minutes per draft.
-2. Price one client: cadence x jobs per draft x minutes per job, against the Actions
-   allowance.
+1. DONE Nov 17: worker repo inspected via the connected GitHub account
+   (keyona-rerev/knowledge-loom-worker). Auth confirmed (section 2 item 2); live
+   workflow has 3 jobs on ubuntu-latest, repository_dispatch only. The v7 boundary
+   workflow at repo root is an inert hardening draft, not deployed.
+2. DONE Nov 17: priced from 23 real production runs (section 2 item 3) - ~$0.04 per
+   dispatch, ~$1-2/month at one draft a day, inside the $12 included compute.
 3. Decide per-client worker vs shared worker (needs Keyona's explicit choice - section 2.1).
 4. Port or formally defer Path B callers (section 2.6), with one queue-level test added.
 5. Wizard step 19 + Settings copy: key optional on subscription installs (section 2.5).

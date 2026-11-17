@@ -134,7 +134,7 @@
     },
     {
       "title": "Choose your AI",
-      "instructions": "Decide how the AI side runs before anything is built. Pick one: all-Claude, all-Gemini, or split (one for drafting, another for images or checks). Use the one you already pay for and open most - this system never adds a second AI bill on purpose.\n\nThen use the copy block below. Paste it into your Claude or Gemini chat. It interviews you about your business, one question at a time, and gives back a short profile plus ready-to-import lines. Keep that answer - the next step imports it.",
+      "instructions": "Decide how the AI side runs before anything is built. Pick one: all-Claude, all-Gemini, or split (one for drafting, another for images or checks). Use the one you already pay for and open most - this system never adds a second AI bill on purpose.\n\nOne honest limit, checked November 17, 2026: only the Claude path runs without an API key today, because Anthropic allows a subscription inside its own Claude Code app. Gemini's rules send automatic (headless) runs to an API key instead. If you pick gemini or split, plan on a Gemini API key for the automatic parts.\n\nThen use the copy block below. Paste it into your Claude or Gemini chat. It interviews you about your business, one question at a time, and gives back a short profile plus ready-to-import lines. Keep that answer - the next step imports it.",
       "collect": [
         "ai_provider"
       ],

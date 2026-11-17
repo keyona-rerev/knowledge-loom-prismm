@@ -88,9 +88,13 @@ pipeline. The gap is packaging the worker per client:
    browser login isn't available") stored as a repo secret. Verify this is how Keyona's
    worker authenticates before copying the pattern; the worker repo is private and was not
    inspected for this handoff.
-3. **GitHub Actions minutes.** Private-repo Actions usage bills against the repo owner's
-   account (free allowance exists; overage is metered). Verify the client's posting cadence
-   fits the free allowance or price the overage. Do not promise $0 here.
+3. **GitHub Actions minutes.** Verified Nov 17 (docs.github.com/en/billing/reference/product-usage-included):
+   private-repo Actions draws from included compute of $12/month on GitHub Free and
+   $18/month on GitHub Pro; overage bills to the repo owner. Actions is free on PUBLIC
+   repos and on self-hosted runners. Whether one client's drafting cadence fits $12/month
+   depends on minutes per job in the worker - unknown until the private worker repo is
+   inspected (section 5, step 1). A budget cap ("Stop usage when budget limit is reached")
+   prevents surprise bills and should be set at install.
 4. **Token expiry.** A setup-token lasts one year. The install needs a documented yearly
    renewal step and an owner for it, or the system silently stops drafting in month 13.
 5. **Wizard + docs alignment.** Wizard step 19 and the Settings page should tell a
@@ -126,15 +130,46 @@ Corroboration: The Register, Feb 20 2026
 on the February 2026 clarification that Pro/Max OAuth tokens in any other product, tool or
 service - including the Agent SDK - violate the Consumer Terms.
 
-NOT verified (open questions, do not fill by assumption):
+Gemini boundary (verified Nov 17, geminicli.com/docs/resources/tos-privacy and
+/docs/get-started/authentication): Gemini CLI headless mode (`gemini -p`) is officially
+supported for programmatic use BUT authenticates with a Gemini API key or Vertex AI - not
+a personal Google account. Using third-party software to piggyback on Gemini CLI OAuth "is
+a violation of applicable terms and policies... grounds for suspension or termination."
+So the gemini and split choices in the wizard CANNOT run subscription-only on the
+automatic parts; they need a Gemini API key. Wizard step 2 now says this on its face.
+
+STILL open (do not fill by assumption):
 
 - Whether Anthropic's enforcement view of `claude setup-token` in a CI worker that serves
   a business content pipeline matches the "CI pipelines and scripts" intent. Community
   guides treat CI-on-your-own-repo as allowed; that is not an Anthropic statement about
   this use case.
-- Gemini subscription terms for the all-Gemini and split choices. Not researched at all.
-- GitHub Actions free allowance numbers as of the install date - recheck
-  https://docs.github.com/billing before quoting.
+- Actual minutes per drafting job in the worker, to size the $12/month included compute.
+
+## 3b. Recommendation: per-client worker, not shared
+
+Recommendation with concrete risks and costs, for Keyona's decision:
+
+**Per-client worker (recommended).** Each client gets their own private worker repo on
+their own GitHub account, their own Claude subscription via setup-token, their own
+WORKER_SECRET / DISPATCHER_SECRET pair.
+- Terms fit: each end user on their own plan matches "ordinary, individual usage" and
+  the unmodified-binary allowance. Shared infrastructure on Keyona's Max does not.
+- Data isolation: client prompts, drafts and business material never touch Keyona's
+  Supabase, repo, or Actions logs. The repo rule (no lead data) stays intact.
+- Cost: $0/month while usage fits the $12 included compute (set a budget cap); the
+  client's Claude subscription is the only standing AI bill. Unknown: minutes per job
+  until the worker is timed.
+- Maintenance cost: one yearly token renewal per client, owned by a named person.
+
+**Shared worker (only as a time-boxed pilot, needs Keyona's explicit yes).** Client jobs
+run through Keyona's worker and subscription.
+- Risk: client data in Keyona's infrastructure; her plan's usage assumption is
+  individual, not fleet; Anthropic may enforce "without prior notice" - an enforcement
+  action would hit her own account and every client at once.
+- Only defensible as a short pilot to prove the install, with a migration date.
+
+Do not present this pick to Martha or the client before Keyona chooses.
 
 ## 4. Explicit non-promises
 

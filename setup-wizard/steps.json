@@ -1,6 +1,6 @@
 {
   "title": "Insight Forge Setup",
-  "intro": "Set up your own Insight Forge in about an hour. Enter each value once. The wizard keeps it and fills it into every later step. Each client gets its own database, its own repo and one login. You can stop at any step - everything you enter is saved in this browser, and you pick up exactly where you left off.",
+  "intro": "Set up your own Insight Forge step by step. Enter each value once. The wizard keeps it and fills it into every later step. Each client gets its own database, its own repo and one login. You can stop at any step - everything you enter is saved in this browser, and you pick up exactly where you left off.",
   "variables": [
     {
       "key": "ai_provider",
@@ -128,13 +128,13 @@
   "steps": [
     {
       "title": "What this costs",
-      "instructions": "Read this first so nothing surprises you later. All prices checked November 17, 2026 - providers change prices, so glance at their pages if it has been a while.\n\nGitHub: $0 on the free plan. GitHub Pages (what hosts your app) is free on public repositories. If you keep your repo private, Pages needs GitHub's paid personal plan, a few dollars a month.\n\nSupabase (your database): $0 on the free tier, 500 MB - plenty for one business. Note: free projects pause after a week with no activity; a weekly posting schedule keeps yours active. Their Pro plan ($25/month) removes the pause.\n\nResend (sends your alert emails): $0 up to 3,000 emails a month, 100 a day. You will send a handful a week.\n\nZernio (publishes to LinkedIn): your first 2 connected social accounts are free, then $6/month per account. One LinkedIn account: $0.\n\nAI: runs on your own subscription or provider key - you make that choice in the next step. Claude Pro is $20/month; Max is $100/month.\n\nA typical install runs at $0/month on the free tiers, plus whatever AI plan you already pay for.",
+      "instructions": "Read this first so nothing surprises you later. All prices checked November 17, 2026 - providers change prices, so glance at their pages if it has been a while.\n\nGitHub: $0 on the free plan. GitHub Pages (what hosts your app) is free on public repositories. If you keep your repo private, Pages needs GitHub's paid personal plan, a few dollars a month.\n\nSupabase (your database): $0 on the free tier, 500 MB - plenty for one business. Note: free projects pause after a week with no activity. If that ever happens, reopening the project in Supabase restores it in a minute. Their Pro plan ($25/month) removes the pause.\n\nResend (sends your alert emails): $0 up to 3,000 emails a month, 100 a day. You will send a handful a week.\n\nZernio (publishes to LinkedIn): your first 2 connected social accounts are free, then $6/month per account. One LinkedIn account: $0.\n\nAI: runs on your own subscription or provider key - you make that choice in the next step. Claude Pro is $20/month; Max is $100/month.\n\nA typical install runs at $0/month on the free tiers, plus whatever AI plan you already pay for.",
       "checkbox_label": "I know what this costs",
       "verify_hint": "No surprises: every later step that touches a paid service links back to this list."
     },
     {
       "title": "Choose your AI",
-      "instructions": "Decide how the AI side runs before anything is built. Pick one: all-Claude, all-Gemini, or split (one for drafting, another for images or checks). Use the one you already pay for and open most - this system never adds a second AI bill on purpose.\n\nOne honest limit, checked November 17, 2026: only the Claude path runs without an API key today, because Anthropic allows a subscription inside its own Claude Code app. Gemini's rules send automatic (headless) runs to an API key instead. If you pick gemini or split, plan on a Gemini API key for the automatic parts.\n\nThen use the copy block below. Paste it into your Claude or Gemini chat. It interviews you about your business, one question at a time, and gives back a short profile plus ready-to-import lines. Keep that answer - the next step imports it.",
+      "instructions": "Decide how the AI side runs before anything is built. Pick one: all-Claude, all-Gemini, or split (one for drafting, another for images or checks). Use the one you already pay for and open most - this system never adds a second AI bill on purpose.\n\nOne honest limit, checked November 17, 2026: Anthropic's rules allow a Claude subscription inside its own Claude Code app, so the Claude path is the one being set up to run without an API key. Google's own Gemini CLI authentication guide lists an API key or Vertex AI for automatic (headless) runs - if you pick gemini or split, plan on a Gemini API key for those parts.\n\nThen use the copy block below. Paste it into your Claude or Gemini chat. It interviews you about your business, one question at a time, and gives back a short profile plus ready-to-import lines. Keep that answer - the next step imports it.",
       "collect": [
         "ai_provider"
       ],
@@ -334,10 +334,11 @@
       "verify_hint": "Settings shows your business name and colors."
     },
     {
-      "title": "Add your AI provider",
-      "instructions": "In the app, open Settings. Choose {{ai_provider}} - the provider you picked in Choose your AI - and your model. Paste your AI key there. The key stays in your own account and never goes in this wizard.",
-      "checkbox_label": "AI provider is saved",
-      "verify_hint": "The app makes a draft with no error. If the draft fails, check the key and model name first."
+      "title": "Connect the AI",
+      "instructions": "No key goes in this wizard. Drafting runs on the AI account your installer connects for you. They follow SUBSCRIPTION_BUILD.md in the repo to set it up.\n\nWith claude (your pick in Choose your AI), Anthropic's rules allow the drafting worker to run on a subscription inside Anthropic's own Claude Code app - no API key needed for drafting (checked November 17, 2026). With gemini or split, the automatic parts need a Gemini API key, and your installer handles that too.\n\nThe AI key field in the app's Settings is optional today: it only powers visual drafts (which stay off for now) and a newsletter-score backfill. If you ever need it, paste the key in the app's own Settings, never here.\n\nIf the AI is not connected yet, this step simply waits - leave it unchecked and finish the rest.",
+      "checkbox_label": "My installer confirmed the AI is connected",
+      "verify_hint": "Make one test draft in the app. No error means drafting is connected.",
+      "collect": null
     },
     {
       "title": "Connect publishing",

@@ -95,8 +95,10 @@ pipeline. The gap is packaging the worker per client:
    depends on minutes per job in the worker - unknown until the private worker repo is
    inspected (section 5, step 1). A budget cap ("Stop usage when budget limit is reached")
    prevents surprise bills and should be set at install.
-4. **Token expiry.** A setup-token lasts one year. The install needs a documented yearly
-   renewal step and an owner for it, or the system silently stops drafting in month 13.
+4. **Token expiry.** A setup-token lasts one year. Without a yearly renewal step and a
+   named owner, the system silently stops drafting in month 13. Documented Nov 17: the
+   wizard's final step ("Set the renewal reminder") and CLIENT_GUIDE.md section 7 item 4
+   now carry the renewal; naming its owner stays an install-time decision.
 5. **Wizard + docs alignment.** Done Nov 17: wizard step 19 rewritten (now "Connect the
    AI") - no key paste for drafting, the optional Settings key is scoped to visuals and
    the newsletter-score backfill, and its checkbox requires installer confirmation rather
@@ -199,5 +201,5 @@ Until the items in section 2 are built and section 3's open questions are answer
 3. Decide per-client worker vs shared worker (needs Keyona's explicit choice - section 2.1).
 4. Port or formally defer Path B callers (section 2.6), with one queue-level test added.
 5. Wizard step 19 + Settings copy: key optional on subscription installs (section 2.5).
-6. Write the yearly token-renewal step into CLIENT_GUIDE.md section 7 and the install
-   checklist.
+6. DONE Nov 17: yearly renewal is wizard step 22 ("Set the renewal reminder") and
+   CLIENT_GUIDE.md section 7 item 4. Remaining: name the renewal owner at install.

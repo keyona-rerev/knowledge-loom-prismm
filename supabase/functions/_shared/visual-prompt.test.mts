@@ -16,8 +16,9 @@ for (const [name, p] of Object.entries(prompts)) {
     assert.ok(!/include google fonts import/i.test(p), "old import instruction present");
     assert.ok(!/via google fonts/i.test(p), "old via-Google-Fonts brand line present");
     assert.match(p, /no @import, no <link>, no url\(\)/);
-    assert.match(p, /font-family: 'Bricolage Grotesque', system-ui/);
-    assert.match(p, /font-family: 'Hanken Grotesk'|'Hanken Grotesk', system-ui/);
+    assert.match(p, /font-family: system-ui/);
+    // The neutral fallback must carry no client brand residue.
+    assert.ok(!/prismm/i.test(p), "client brand residue in fallback prompt");
   });
 }
 test("configured custom fonts use the same offline contract", () => {

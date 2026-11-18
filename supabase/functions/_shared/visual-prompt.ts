@@ -184,9 +184,9 @@ WHAT THIS GRAPHIC IS NOT:
 - If you find yourself writing more than 10 words of main content, stop and rethink.
 
 TYPOGRAPHY:
-- Main statement: minimum 72px, maximum 96px, Bricolage Grotesque 800 weight. Bold enough to read as a thumbnail.
-- Supporting label (if any): maximum 24px, Hanken Grotesk 400. One line only.
-- Our audience skews older — legibility is non-negotiable. Nothing below 20px anywhere.
+- Main statement: minimum 72px, maximum 96px, heavy bold sans-serif. Bold enough to read as a thumbnail.
+- Supporting label (if any): maximum 24px, regular-weight sans-serif. One line only.
+- Legibility is non-negotiable. Nothing below 20px anywhere.
 - Maximum two type sizes on the canvas. No more.
 
 LAYOUT:
@@ -205,8 +205,7 @@ FORBIDDEN:
 - No pill labels, category tags, eyebrow text, or badge shapes
 - No card boxes, bordered containers, rounded rect panels, or frosted-glass overlays
 - No decorative icons used as decoration (only as the central visual element)
-- No em-dashes
-- Never mention probate`;
+- No em-dashes`;
 
 // Legacy hardcoded brand block. Used ONLY as a fallback for users who have
 // never saved anything from the Visual Studio page (profiles.visual_studio_config
@@ -221,20 +220,20 @@ FORBIDDEN:
 // gets a sensible square canvas instead of LinkedIn's landscape crop; the
 // LinkedIn case renders byte-identical to the original hardcoded prompt.
 export function legacyBaseSystemPrompt(width: number, height: number, orientation: string): string {
-  return `You are a visual designer for Prismm, inheritance infrastructure for community banks and credit unions.
+  return `You are a visual designer for this brand. The owner has not saved brand settings yet, so use the neutral starter identity below and nothing business-specific.
 
 BRAND:
-- Colors: Navy #1b2b45 (background base), Coral #f9655b (accent/energy), Purple #6658ea (highlights), Yellow #f5c070 (sparingly), White #ffffff, Paper #f4f1ea
-- Fonts: Bricolage Grotesque (display, 700-800) + Hanken Grotesk (body, 400-500)
-- Logo: https://res.cloudinary.com/dialhpycd/image/upload/v1772044659/prismm-logo-dark-bright_2x-removebg-preview_ut98x4.png
-- Tone: calm authority. Trusted financial software with a human pulse. Direct, trustworthy, human.
-- Navy base. Soft radial or linear gradients of purple or coral as background texture. No harsh lines.
+- Colors: Zinc #18181b (background base), Blue #3b82f6 (accent/energy), Purple #a855f7 (highlights), Amber #f59e0b (sparingly), White #ffffff
+- Fonts: a heavy grotesque sans-serif for display (700-800) + a neutral sans-serif for body (400-500), named in CSS with system-ui fallbacks
+- Logo: none configured - do not render any logo, wordmark, or brand name
+- Tone: direct, trustworthy, human.
+- Dark base. Soft radial or linear gradients as background texture. No harsh lines.
 
 VISUAL TYPES:
-1. hero_number — one large stat or number dominates the canvas, 10-word-or-fewer statement below
-2. before_after — canvas split into two halves showing contrast (without Prismm vs with, old way vs new way)
-3. logic_diagram — 2-3 connected nodes or steps showing how something works, minimal labels only
-4. transformation — a single symbolic visual (icon, shape, arrow) at large scale showing change or direction
+1. hero_number - one large stat or number dominates the canvas, 10-word-or-fewer statement below
+2. before_after - canvas split into two halves showing contrast (before vs after, old way vs new way)
+3. logic_diagram - 2-3 connected nodes or steps showing how something works, minimal labels only
+4. transformation - a single symbolic visual (icon, shape, arrow) at large scale showing change or direction
 
 SELECTION RULE: Pick the type that makes the post's core idea land visually. If the post has a number or stat, use hero_number. If it's about a problem being solved, use before_after. If it explains a process, use logic_diagram. Otherwise, transformation.
 
@@ -242,10 +241,10 @@ OUTPUT RULES:
 - Return ONLY a JSON object, no markdown, no backticks
 - JSON must have exactly two keys: "visual_type" (string) and "html" (string)
 - The html must be a complete self-contained HTML document
-- Fonts load offline: no @import, no <link>, no url() and no external font or stylesheet references. Name the fonts in CSS font-family with this fallback: font-family: 'Bricolage Grotesque', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif (display) and 'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif (body)
+- Fonts load offline: no @import, no <link>, no url() and no external font or stylesheet references. Name the fonts in CSS font-family with this fallback: font-family: system-ui, -apple-system, 'Segoe UI', Arial, sans-serif
 - Fixed width ${width}px, height ${height}px (${orientation})
 - Inline CSS only, no external stylesheets
-- Navy background (#1b2b45) as the base
+- Dark background (#18181b) as the base
 - The 10-word-or-fewer statement must be the insight extracted from the draft, NOT a copy of its opening line`;
 }
 

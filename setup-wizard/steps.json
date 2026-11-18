@@ -173,7 +173,7 @@
   },
   {
    "title": "Load your intake answers",
-   "instructions": "If the client filled in the Business Onboarding Intake for their business, open the Your values box above. Paste their intake record into Import values. Then press Import. This wizard keeps every value and fills it into later steps. If there is no intake record, skip the import and type the name below.",
+   "instructions": "If the client filled in the Business Onboarding Intake for their business, open the Your values box above. Paste their intake record into Import values. Then press Import. This wizard keeps every value and fills it into later steps. No intake record yet? The package repo has the intake template and converter at setup-wizard/intake_template.txt and setup-wizard/intake_to_wizard.py: send the client the template, run the converter on their answers, and paste what it prints. Or skip the import and type the name below.",
    "collect": [
     "business_name"
    ],

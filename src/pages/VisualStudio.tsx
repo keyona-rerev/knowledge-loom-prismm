@@ -133,6 +133,18 @@ const VisualStudio = () => {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
+  const previewBoxRef = useRef<HTMLDivElement>(null);
+  const [previewBoxWidth, setPreviewBoxWidth] = useState(0);
+  useEffect(() => {
+    const box = previewBoxRef.current;
+    if (!box) return;
+    const update = () => setPreviewBoxWidth(box.clientWidth);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, []);
+
 
   // Live preview: generates against the CURRENT in-memory config (including
   // unsaved edits), never against what's saved in the DB, and never
@@ -397,7 +409,8 @@ const VisualStudio = () => {
             )}
 
             <div
-              className="rounded-md border overflow-hidden bg-white flex items-center justify-center"
+              ref={previewBoxRef}
+              className="relative rounded-md border overflow-hidden bg-white flex items-center justify-center"
               style={{ aspectRatio: `${previewCanvas.width} / ${previewCanvas.height}` }}
             >
               {previewLoading ? (
@@ -409,8 +422,13 @@ const VisualStudio = () => {
                   title="Visual preview"
                   sandbox=""
                   srcDoc={previewHtml}
-                  className="w-full h-full border-0"
-                  style={{ width: previewCanvas.width, height: previewCanvas.height, transform: "scale(1)" }}
+                  className="absolute left-0 top-0 border-0 max-w-none"
+                  style={{
+                    width: previewCanvas.width,
+                    height: previewCanvas.height,
+                    transformOrigin: "top left",
+                    transform: `scale(${previewBoxWidth > 0 ? previewBoxWidth / previewCanvas.width : 0})`,
+                  }}
                 />
               ) : (
                 <p className="text-sm text-muted-foreground px-4 text-center">

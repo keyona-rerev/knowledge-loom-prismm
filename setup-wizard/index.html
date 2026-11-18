@@ -9,7 +9,7 @@
 <title>Setup Wizard</title>
 <style>
 :root{--bg:#f7f5f0;--ink:#14213d;--accent:#0f766e;--line:#d9d4c7;--card:#fff;--warn:#b45309;--bad:#b91c1c;--soft:#e6f2f0}
-*{box-sizing:border-box}
+*{box-sizing:border-box}[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 Inter,system-ui,sans-serif}
 main{max-width:760px;margin:0 auto;padding:24px 16px 64px}
 h1{font-family:Newsreader,Georgia,serif;font-size:2rem;margin:.2em 0}
@@ -44,7 +44,7 @@ td{padding:4px 6px;border-top:1px solid var(--line);vertical-align:top;word-brea
 td:first-child{width:38%;color:#4b5563}
 .note{font-size:.85rem;color:#4b5563;margin-top:24px}
 
-.beginner{margin:18px 0;padding:14px;background:#eef5f3;border:1px solid #9bbdb6;border-radius:8px}.beginner summary{font-weight:600;cursor:pointer;padding:6px 0}.beginner li{margin:12px 0}.beginner code{overflow-wrap:anywhere}.automation-list section{border-top:1px solid var(--line);padding:10px 0}.automation-list h3{margin:4px 0}.instr{overflow-wrap:anywhere}.costs{font-size:1rem}.costs th,.costs td{padding:12px 10px;text-align:left;border:1px solid #d9d4c7;word-break:normal;overflow-wrap:anywhere}.costs th{background:#e6f2f0;color:#14213d}.costs td:first-child{width:22%;font-weight:600;color:#14213d}.guide{display:block;width:100%;height:auto;margin-top:16px;border:1px solid var(--line);border-radius:8px}.caption{font-size:.9rem;color:#4b5563}.links{padding-left:20px}.links a{color:#075e58;text-decoration:underline}.review{margin-top:20px;padding:16px;border:2px solid #9bbdb6;border-radius:8px}.review textarea,.field textarea{width:100%;min-height:90px;font:inherit;padding:9px;border:1px solid #a5aab2;border-radius:8px}.review label{display:block;font-weight:600}.review .field{margin-top:18px}.review-status{font-weight:600;color:#075e58}button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{outline:3px solid #b45309;outline-offset:3px}
+.actor{font-size:.85rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#075e58;margin:0 0 8px}.journey-choices section{border:1px solid var(--line);border-radius:8px;padding:16px;margin:16px 0}.journey-choices h3{margin-top:0}.journey-choices button{width:100%;white-space:normal}.human-stop{border-left:4px solid #b45309;background:#fff7e8;padding:12px 16px;margin:20px 0}.human-stop h3{margin:0}.human-stop p{margin:6px 0}.evidence{font-size:.85rem;color:#4b5563}.small{padding:6px 10px;font-size:.85rem;margin:4px 0 4px 6px}.stage-link{display:block;text-align:left;width:100%;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:10px 0;color:#075e58}.stage-link[aria-current]{font-weight:700;color:#14213d}.takeover{border-top:1px solid var(--line);padding-top:16px;margin-top:24px}.takeover summary{cursor:pointer;font-weight:600;min-height:44px}.beginner{margin:18px 0;padding:14px;background:#eef5f3;border:1px solid #9bbdb6;border-radius:8px}.beginner summary{font-weight:600;cursor:pointer;padding:6px 0}.beginner li{margin:12px 0}.beginner code{overflow-wrap:anywhere}.automation-list section{border-top:1px solid var(--line);padding:10px 0}.automation-list h3{margin:4px 0}.instr{overflow-wrap:anywhere}.costs{font-size:1rem}.costs th,.costs td{padding:12px 10px;text-align:left;border:1px solid #d9d4c7;word-break:normal;overflow-wrap:anywhere}.costs th{background:#e6f2f0;color:#14213d}.costs td:first-child{width:22%;font-weight:600;color:#14213d}.guide{display:block;width:100%;height:auto;margin-top:16px;border:1px solid var(--line);border-radius:8px}.caption{font-size:.9rem;color:#4b5563}.links{padding-left:20px}.links a{color:#075e58;text-decoration:underline}.review{margin-top:20px;padding:16px;border:2px solid #9bbdb6;border-radius:8px}.review textarea,.field textarea{width:100%;min-height:90px;font:inherit;padding:9px;border:1px solid #a5aab2;border-radius:8px}.review label{display:block;font-weight:600}.review .field{margin-top:18px}.review-status{font-weight:600;color:#075e58}button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{outline:3px solid #b45309;outline-offset:3px}
 @media(max-width:500px){.card{padding:16px}.costs{font-size:.84rem}.costs th,.costs td{padding:7px 5px}.copy{padding-right:12px;padding-top:45px}.copy button{top:7px;right:7px}main{padding-left:10px;padding-right:10px}}
 </style>
 </head>
@@ -53,7 +53,7 @@ td:first-child{width:38%;color:#4b5563}
 <p style="text-align:right;margin:0;font-size:.9rem"><a href='/history' style='color:var(--accent)'>Version history</a></p>
 <h1 id="title">Loading…</h1>
 <p class="intro" id="intro"></p>
-<details class="vals" id="automation"><summary>How much can Claude do?</summary><div id="automationContent"></div></details>
+<div id="journeyStatus" hidden></div><details class="vals" id="routeMap" hidden><summary>Installation stages</summary><div id="routeItems"></div></details>
 <div class="bar"><i id="fill"></i></div>
 <div class="meta" id="meta"></div>
 <details class="vals" id="vals"><summary id="valsSum">Your values</summary><table id="valsTable"></table>
@@ -76,13 +76,13 @@ td:first-child{width:38%;color:#4b5563}
               checkbox_label, verify_hint } ] }
 */
 (function(){
-  var KEY='wizard:'+location.pathname, data, i=0, done={}, vals={}, mem=null;
+  var KEY='wizard:'+location.pathname, data, i=0, done={}, vals={}, mem=null, journey=null, helperReady=false;
   var SECRET=/^(sk-|sk_|pk_live|sk_live|eyJ|ghp_|gho_|github_pat_|xox[abp]-|AKIA|AIza|SG\.|re_)/i;
   function store(){try{return window.localStorage;}catch(e){return null;}}
   function load(){
-    try{var st=store(),s=JSON.parse((st&&st.getItem(KEY))||'null')||mem||{};i=s.i||0;done=s.done||{};vals=s.vals||{};}catch(e){}
+    try{var st=store(),s=JSON.parse((st&&st.getItem(KEY))||'null')||mem||{};i=s.i||0;done=s.done||{};vals=s.vals||{};journey=s.journey==='assisted'||s.journey==='manual'?s.journey:null;helperReady=s.helperReady===true;}catch(e){}
   }
-  function save(){var s={i:i,done:done,vals:vals};mem=s;try{var st=store();if(st)st.setItem(KEY,JSON.stringify(s));}catch(e){}}
+  function save(){var s={i:i,done:done,vals:vals,journey:journey,helperReady:helperReady};mem=s;try{var st=store();if(st)st.setItem(KEY,JSON.stringify(s));}catch(e){}}
   function esc(t){var d=document.createElement('div');d.textContent=t==null?'':String(t);return d.innerHTML;}
   function def(k){for(var j=0;j<(data.variables||[]).length;j++)if(data.variables[j].key===k)return data.variables[j];return {key:k,label:k};}
   function val(k,depth){
@@ -115,8 +115,34 @@ td:first-child{width:38%;color:#4b5563}
     for(var j=0;j<c.length;j++)if(check(c[j],val(c[j])))return false;
     return true;
   }
-  function terminalHelp(){return `<details class="beginner"><summary>First time using a terminal? Start here.</summary><p>A terminal is a window where you type a command and the computer runs it. A Claude conversation is different. Do not paste a handoff paragraph into the terminal.</p><ol><li><strong>Mac:</strong> press Command + Space, type Terminal, then press Return. A window opens with a blinking cursor.</li><li><strong>Windows:</strong> open Start, type PowerShell and open Windows PowerShell. Use an ordinary window, not Run as administrator. Its line begins with PS. Do not use CMD for PowerShell instructions.</li><li>To install the Claude CLI, use the official first-time terminal guide linked in this step or the local-preparation step. Follow the Mac or Windows section, not both. Close and reopen the terminal afterward. Copy <code>claude --version</code>, paste at the cursor and press Enter/Return once. Success is a version number. If it is not found, stop and use that guide's matching fix. Do not improvise an administrator command.</li><li>To run a command: click its Copy button, click after the terminal cursor, then paste with Command + V on Mac or Ctrl + V on Windows. Press Enter/Return once. Do not type a leading $ or PS prompt. Use one command at a time; wait until the cursor prompt returns before the next.</li><li>For app commands, open a terminal in the prepared app folder. In Claude desktop Code, open the app folder and click Terminal in that session's title bar. Its terminal starts in that folder. Ask Claude to show the folder and INSTALL-PREPARED.json before any app command. Do not guess a cd path.</li><li>Text may scroll while a command works. Do not paste it again while it is busy. A login may open in your browser; complete it there, then return. A password prompt may display no characters while you type. Never type a secret into Claude chat or this wizard.</li><li>Success is the check described in this step, not just the absence of red text. On Error, failed, permission denied or an unexpected account: stop. Keep the error message but remove tokens, passwords and codes before asking for help. Do not continue, reset a database or widen permissions to bypass it.</li></ol><p>If you are at Claude's conversation prompt in the terminal, use a NEW terminal window for manual shell commands. Do not type git or npx commands into the chat by mistake. Keep the original window open for Claude.</p></details>`;}
-  function renderAutomation(){var a=data.automation_summary;if(!a)return;var t=a.table;document.getElementById('automationContent').innerHTML='<h2>'+esc(a.title)+'</h2><p>'+esc(a.instructions)+'</p><div class="automation-list">'+t.rows.map(function(r){return '<section><h3>'+esc(r[0])+'</h3><p><strong>Claude:</strong> '+esc(r[1])+'</p><p><strong>You:</strong> '+esc(r[2])+'</p></section>';}).join('')+'</div>';}
+  function terminalHelp(){return `<details class="beginner"><summary>First time using a terminal? Start here.</summary><p>A terminal is a window where you type a command and the computer runs it. A Claude conversation is different. Do not paste a handoff paragraph into the terminal.</p><ol><li><strong>Mac:</strong> press Command + Space, type Terminal, then press Return. A window opens with a blinking cursor.</li><li><strong>Windows:</strong> open Start, type PowerShell and open Windows PowerShell. Use an ordinary window, not Run as administrator. Its line begins with PS. Do not use CMD for PowerShell instructions.</li><li>To install the Claude CLI, use the official first-time terminal guide linked in this step or the local-preparation step. Follow the Mac or Windows section, not both. Close and reopen the terminal afterward. Copy <code>claude --version</code>, paste at the cursor and press Enter/Return once. Success is a version number. If it is not found, stop and use that guide's matching fix. Do not improvise an administrator command.</li><li>To run a command: click its Copy button, click after the terminal cursor, then paste with Command + V on Mac or Ctrl + V on Windows. Press Enter/Return once. Do not type a leading $ or PS prompt. Use one command at a time; wait until the cursor prompt returns before the next.</li><li>For app commands, use the prepared app folder, the one containing INSTALL-PREPARED.json. Windows: open that folder in File Explorer, type powershell in its address bar and press Enter. Mac: type cd and a space in Terminal, drag that folder from Finder into the terminal, then press Return. If using Claude desktop Code instead, open that app folder and click Terminal in the session title bar. Do not guess a folder path.</li><li>Text may scroll while a command works. Do not paste it again while it is busy. A login may open in your browser; complete it there, then return. A password prompt may display no characters while you type. Never type a secret into Claude chat or this wizard.</li><li>Success is the check described in this step, not just the absence of red text. On Error, failed, permission denied or an unexpected account: stop. Keep the error message but remove tokens, passwords and codes before asking for help. Do not continue, reset a database or widen permissions to bypass it.</li></ol><p>If you are at Claude's conversation prompt in the terminal, use a NEW terminal window for manual shell commands. Do not type git or npx commands into the chat by mistake. Keep the original window open for Claude.</p></details>`;}
+  function route(){
+    if(journey==='assisted')return data.assisted_stages;
+    return data.steps.map(function(s,k){var out=Object.assign({},s,s.manual||{});out.checkpoints=[k].concat(s.also_completes||[]);return out;}).filter(function(s){return s.combined_into==null;});
+  }
+  function position(){var r=route();for(var n=0;n<r.length;n++)if(r[n].checkpoints.indexOf(i)>=0)return n;return 0;}
+  function completed(s){return s.checkpoints.every(function(k){return done[k];});}
+  function invalidate(s){s.checkpoints.forEach(function(k){done[k]=false;});}
+  function setShell(show){['fill','meta','vals','routeMap'].forEach(function(id){document.getElementById(id==='fill'?'fill':id).hidden=!show;});document.querySelector('.bar').hidden=!show;document.querySelector('.nav').hidden=!show;}
+  function choose(){
+    setShell(false);document.getElementById('journeyStatus').hidden=true;
+    var c=Object.keys(done).filter(function(k){return done[k];}).length;
+    document.getElementById('card').innerHTML='<h2>How do you want to install?</h2><p>The same app. Different instructions for who does the work.</p><div class="journey-choices"><section><h3>Let Claude do as much as possible</h3><p>Claude handles browser tasks and local code. Each stage gives you a ready handoff and a clear human stop.</p><p>You handle accounts, secrets and approvals.</p><button class="primary" id="chooseAssisted">Use the Claude-assisted route</button></section><section><h3>Guide me through it manually</h3><p>You do the dashboard clicks and commands, with first-time terminal help. No browser helper or local Code session needed.</p><p>Both routes still need the worker’s supported Claude plan and required visual checks.</p><button id="chooseManual">Use the manual route</button></section></div>'+(c||Object.keys(vals).length?'<p class="hint">Your existing values and '+c+' completed checkpoints are kept. Either choice resumes near your saved place. You can switch later.</p>':'<p class="hint">Nothing has been created or connected. You can switch routes later without clearing your work.</p>');
+    document.getElementById('chooseAssisted').onclick=function(){journey='assisted';save();render();};
+    document.getElementById('chooseManual').onclick=function(){journey='manual';save();render();};
+  }
+  function setupBrowser(){
+    setShell(false);document.getElementById('journeyStatus').hidden=false;
+    document.getElementById('card').innerHTML='<p class="actor">You set this up once</p><h2>Connect your browser helper</h2><p>This route uses <strong>Claude in Chrome</strong>, the browser extension, plus a Local Code session when files or commands are needed. Ordinary Claude web chat without browser access cannot click through your dashboards.</p><ol><li>On this computer, use Google Chrome. Install the official Claude extension from the link below. Sign in with your existing approved Claude paid account. Organization settings may restrict it. Do not purchase a plan just to continue.</li><li>Click the Claude icon in Chrome to open its side panel. In the permission menu choose <strong>Manually approve</strong> (older versions: Ask before acting). Do not choose Skip all approvals. Use only the tabs needed for the install; close private client, billing, key and token pages.</li><li>With this wizard open, ask in the side panel: <strong>Read this page’s heading and tell me its title. Do not change anything.</strong> The reply must match this page. If Claude cannot read it, use the official guide or choose the manual route.</li><li>Later, copy each browser handoff into that side panel. Review the account, target and action when Claude asks. For local-code handoffs, switch to the Claude desktop Code conversation instead. This wizard does not connect to or command Claude itself.</li></ol><p><a href="https://chromewebstore.google.com/detail/claude/fcoeoabgfenejglbffodgkkbkcdhcgfn" target="_blank" rel="noopener noreferrer">Install the official Claude extension</a></p><label class="chk"><input id="helperCheck" type="checkbox"> I saw the correct page title from the browser helper</label><p><button class="primary" id="helperContinue" disabled>Continue to the assisted install</button></p><button id="setupManual">Use manual instructions instead</button><details class="beginner"><summary>Capabilities, limits and another connected setup</summary><p>The extension can navigate, read, click and fill ordinary forms. Account creation and purchases are prohibited by its current permissions guide. Authorizations and sensitive inputs require explicit permission. This route keeps credentials and tokens owner-only, with assistance paused. Websites and organization policies may still block an action; use the exact manual fallback rather than bypassing a restriction.</p><p>Already use Claude Code with Chrome? That connected setup can combine local and browser work after a real connection check. It needs interactive /login, not the worker setup-token. Use /chrome to verify the connection. The simple route here uses two clearly named conversations so no terminal setup is needed just for browser help.</p><p>Product documentation is capability evidence, not proof these client-account handoffs have run successfully. Only the local helper has fresh execution evidence.</p><ul>'+data.browser_sources.map(function(l){return '<li><a target="_blank" rel="noopener noreferrer" href="'+esc(l.url)+'">'+esc(l.label)+'</a></li>';}).join('')+'</ul><p>Checked November 18, 2026. Access and interface labels may vary during product rollouts. Chrome is the common supported choice across the current guides.</p></details>';
+    document.getElementById('helperCheck').onchange=function(e){document.getElementById('helperContinue').disabled=!e.target.checked;};
+    document.getElementById('helperContinue').onclick=function(){helperReady=true;save();render();};
+    document.getElementById('setupManual').onclick=function(){journey='manual';save();render();};
+  }
+  function journeyHeader(){
+    var el=document.getElementById('journeyStatus');el.hidden=false;el.innerHTML='<p><strong>'+ (journey==='assisted'?'Claude-assisted route':'Manual route')+'</strong> <button class="small" id="changeJourney">Change route</button>'+(journey==='assisted'?' <button class="small" id="recheckHelper">Browser setup</button>':'')+'</p>';
+    document.getElementById('changeJourney').onclick=function(){journey=null;save();render();};
+    var rb=document.getElementById('recheckHelper');if(rb)rb.onclick=function(){helperReady=false;save();render();};
+  }
   function renderVals(){
     var ks=(data.variables||[]).map(function(v){return v.key;});
     var filled=ks.filter(function(k){return val(k);}).length;
@@ -126,10 +152,15 @@ td:first-child{width:38%;color:#4b5563}
     Array.prototype.forEach.call(document.querySelectorAll('[data-val-edit]'),function(el){el.onchange=function(){var k=el.getAttribute('data-val-edit'),v=el.value.trim(),m=check(k,v);if(m){el.setCustomValidity(m);el.reportValidity();return;}el.setCustomValidity('');if(v)vals[k]=v;else delete vals[k];save();render();};});
   }
   function render(){
-    var s=data.steps[i],n=data.steps.length,c=Object.keys(done).filter(function(k){return done[k];}).length;
-    document.getElementById('fill').style.width=Math.round(c/n*100)+'%';
-    document.getElementById('meta').textContent='Step '+(i+1)+' of '+n+' · '+c+' done';
-    var h='<h2>'+esc(s.title)+'</h2><div class="instr">'+sub(esc(s.instructions).replace(/\{\{/g,'{{'),true)+'</div>';
+    if(!journey){choose();return;}journeyHeader();if(journey==='assisted'&&!helperReady){setupBrowser();return;}setShell(true);
+    var r=route(),pos=position(),s=r[pos],n=r.length,c=Object.keys(done).filter(function(k){return done[k];}).length;i=s.checkpoints[0];
+    document.getElementById('routeItems').innerHTML=r.map(function(x,k){return '<button class="stage-link" data-stage="'+k+'"'+(k===pos?' aria-current="step"':'')+'>'+ (completed(x)?'✓ ':'')+(k+1)+'. '+esc(x.title)+'</button>';}).join('');
+    Array.prototype.forEach.call(document.querySelectorAll('[data-stage]'),function(b){b.onclick=function(){i=r[+b.getAttribute('data-stage')].checkpoints[0];save();render();document.getElementById('card').scrollIntoView({block:'start'});};});
+    document.getElementById('fill').style.width=Math.round(c/data.steps.length*100)+'%';
+    document.getElementById('meta').textContent=(journey==='assisted'?'Stage ':'Step ')+(pos+1)+' of '+n+' · '+c+' of '+data.steps.length+' safety checkpoints done';
+    var h=(s.actor?'<p class="actor">'+esc(s.actor)+'</p>':'')+'<h2>'+esc(s.title)+'</h2><div class="instr">'+sub(esc(s.instructions).replace(/\{\{/g,'{{'),true)+'</div>';
+    if(s.human)h+='<section class="human-stop"><h3>Your part</h3><p>'+sub(esc(s.human),true)+'</p></section>';
+    if(s.evidence)h+='<p class="evidence">'+esc(s.evidence)+'</p>';
     if(s.table){h+='<table class="costs"><thead><tr>'+s.table.headers.map(function(t){return '<th scope="col">'+esc(t)+'</th>';}).join('')+'</tr></thead><tbody>'+s.table.rows.map(function(r){return '<tr>'+r.map(function(t){return '<td>'+esc(t)+'</td>';}).join('')+'</tr>';}).join('')+'</tbody></table>';}
     if(s.terminal_help){h+=terminalHelp();}
     if(s.links){h+='<ul class="links">'+s.links.map(function(l){return '<li><a target="_blank" rel="noopener noreferrer" '+(l.download?'download="prepare-app.mjs" ':'')+'href="'+esc(l.url)+'">'+esc(l.label)+'</a></li>';}).join('')+'</ul>';}
@@ -148,17 +179,18 @@ td:first-child{width:38%;color:#4b5563}
       ['business_name','business_website','business_location','business_description','target_audience','tone_of_voice','words_to_avoid','logo_url','color_background','color_accent','color_highlight','color_sparing_accent','display_font','body_font','posting_timezone','posting_time','posting_cadence','intake_sources'].forEach(function(k){var d=def(k);h+='<div class="field"><label for="r_'+k+'">'+esc(d.label)+'</label>'+(d.long?'<textarea':'<input')+' id="r_'+k+'" data-review="'+k+'"'+(d.long?'>':' value="'+esc(val(k))+'">')+(d.long?esc(val(k))+'</textarea>':'')+'<div class="err" id="re_'+k+'"></div></div>';});h+='</section>';
     }
     if(s.verify_hint)h+='<div class="hint">How to check: '+sub(esc(s.verify_hint),true)+'</div>';
-    h+='<label class="chk"><input type="checkbox" id="ck"'+(done[i]?' checked':'')+(stepReady(s)?'':' disabled')+'> '+esc(s.checkbox_label||'I did this step')+'</label>';
-    document.getElementById('card').innerHTML=h;
-    document.getElementById('ck').onchange=function(e){done[i]=e.target.checked;(s.also_completes||[]).forEach(function(k){done[k]=e.target.checked;});save();render();};
+    h+='<label class="chk"><input type="checkbox" id="ck"'+(completed(s)?' checked':'')+(stepReady(s)?'':' disabled')+'> '+esc(s.checkbox_label||'I did this step')+'</label>';
+    if(journey==='assisted')h+='<details class="takeover"><summary>Need to do this yourself?</summary><p>Switch to the exact manual checkpoint. Your values and completed work stay saved. You can return to the assisted route at any time.</p><button id="takeoverManual">Use manual directions for this stage</button></details>';
+    document.getElementById('card').innerHTML=h;var tm=document.getElementById('takeoverManual');if(tm)tm.onclick=function(){journey='manual';save();render();};
+    document.getElementById('ck').onchange=function(e){s.checkpoints.forEach(function(k){done[k]=e.target.checked;});save();render();};
     var inputs=document.querySelectorAll('#card input[data-k]');
     Array.prototype.forEach.call(inputs,function(el){
       el.oninput=function(){
         var k=el.getAttribute('data-k'),v=el.value.trim(),msg=v?check(k,v):'';
         document.getElementById('e_'+k).textContent=msg;el.className=msg?'bad':'';
         if(msg){delete vals[k];}else if(v){vals[k]=v;}else{delete vals[k];}
-        save();renderVals();
-        var ck=document.getElementById('ck');ck.disabled=!stepReady(s);if(ck.disabled){done[i]=false;ck.checked=false;}
+        invalidate(s);save();renderVals();var mirror=document.getElementById('r_'+k);if(mirror)mirror.value=v;
+        var ck=document.getElementById('ck');ck.checked=false;ck.disabled=!stepReady(s);if(ck.disabled){invalidate(s);ck.checked=false;}
         (s.copy||[]).forEach(function(b,bi){document.getElementById('cp'+bi).innerHTML=sub(esc(b.text),true);});
       };
     });
@@ -166,21 +198,21 @@ td:first-child{width:38%;color:#4b5563}
       b.onclick=function(){var t=sub(s.copy[+b.getAttribute('data-cp')].text,false);
         try{navigator.clipboard.writeText(t);b.textContent='Copied';setTimeout(function(){b.textContent='Copy';},1200);}catch(e){}};
     });
-    Array.prototype.forEach.call(document.querySelectorAll('[data-review]'),function(el){el.oninput=function(){var k=el.getAttribute('data-review'),v=el.value.trim(),m=v?check(k,v):'';document.getElementById('re_'+k).textContent=m;if(!m){if(v)vals[k]=v;else delete vals[k];}done[i]=false;document.getElementById('ck').checked=false;save();renderVals();};});
+    Array.prototype.forEach.call(document.querySelectorAll('[data-review]'),function(el){el.oninput=function(){var k=el.getAttribute('data-review'),v=el.value.trim(),m=v?check(k,v):'';document.getElementById('re_'+k).textContent=m;if(!m){if(v)vals[k]=v;else delete vals[k];}invalidate(s);var ck=document.getElementById('ck');ck.checked=false;ck.disabled=!stepReady(s);var mirror=document.getElementById('f_'+k);if(mirror)mirror.value=v;(s.copy||[]).forEach(function(b,bi){document.getElementById('cp'+bi).innerHTML=sub(esc(b.text),true);});save();renderVals();};});
     var lr=document.getElementById('loadResearch');if(lr)lr.onclick=function(){
       var raw=document.getElementById('researchPaste').value.trim(),obj;try{raw=raw.replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'');obj=JSON.parse(raw);if(!obj||Array.isArray(obj)||typeof obj!=='object')throw 0;}catch(e){document.getElementById('researchMsg').textContent='Could not read that JSON object. Copy only the JSON part of the research answer.';return;}
       var allowed=['business_name','business_website','business_location','business_description','target_audience','tone_of_voice','words_to_avoid','logo_url','color_background','color_accent','color_highlight','color_sparing_accent','display_font','body_font','posting_timezone','posting_time','posting_cadence','intake_sources'],bad=[],pending={};
       Object.keys(obj).forEach(function(k){if(allowed.indexOf(k)<0)return;var v=typeof obj[k]==='string'?obj[k].trim():'';if(v&&check(k,v))bad.push(k);else if(v)pending[k]=v;});
       if(bad.length){document.getElementById('researchMsg').textContent='Nothing loaded. Check these fields: '+bad.join(', ')+'. Never include secret values.';return;}
       if(!pending.business_name){document.getElementById('researchMsg').textContent='Nothing loaded. Include the business_name so you can verify the right business.';return;}
-      allowed.forEach(function(k){if(pending[k])vals[k]=pending[k];else delete vals[k];});done[i]=false;save();render();document.getElementById('researchMsg').textContent='Draft loaded. Review and correct it below, then tick the confirmation only when you agree.';
+      allowed.forEach(function(k){if(pending[k])vals[k]=pending[k];else delete vals[k];});invalidate(s);save();render();document.getElementById('researchMsg').textContent='Draft loaded. Review and correct it below, then tick the confirmation only when you agree.';
     };
-    document.getElementById('back').disabled=i===0;
-    document.getElementById('next').disabled=i===n-1;
+    document.getElementById('back').disabled=pos===0;
+    document.getElementById('next').disabled=pos===n-1;
     renderVals();
   }
-  document.getElementById('back').onclick=function(){if(i>0){i--;while(data.steps[i].combined_into!=null&&i>0)i--;save();render();}};
-  document.getElementById('next').onclick=function(){if(i<data.steps.length-1){i++;while(data.steps[i].combined_into!=null&&i<data.steps.length-1)i++;save();render();}};
+  document.getElementById('back').onclick=function(){var r=route(),p=position();if(p>0){i=r[p-1].checkpoints[0];save();render();document.getElementById('card').scrollIntoView({block:'start'});}};
+  document.getElementById('next').onclick=function(){var r=route(),p=position();if(p<r.length-1){i=r[p+1].checkpoints[0];save();render();document.getElementById('card').scrollIntoView({block:'start'});}};
   document.getElementById('copyVals').onclick=function(){
     var t=(data.variables||[]).map(function(v){return v.key+'='+val(v.key);}).join('\n');
     try{navigator.clipboard.writeText(t);}catch(e){}
@@ -199,12 +231,12 @@ td:first-child{width:38%;color:#4b5563}
     document.getElementById('impBox').value='';
   };
   document.getElementById('reset').onclick=function(){
-    if(confirm('Clear all saved values and progress?')){vals={};done={};i=0;save();render();}
+    if(confirm('Clear all saved values and progress?')){vals={};done={};i=0;journey=null;helperReady=false;save();render();}
   };
   fetch('steps.json').then(function(r){return r.json();}).then(function(j){
     data=j;document.title=j.title;document.getElementById('title').textContent=j.title;
     document.getElementById('intro').textContent=j.intro||'';load();
-    if(i>=j.steps.length)i=0;if(j.steps[i].combined_into!=null)i=j.steps[i].combined_into;renderAutomation();render();
+    if(i>=j.steps.length)i=0;if(j.steps[i].combined_into!=null)i=j.steps[i].combined_into;render();
   }).catch(function(){document.getElementById('title').textContent='Could not load steps.json';});
 })();
 </script>

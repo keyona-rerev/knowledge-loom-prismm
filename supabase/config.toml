@@ -34,3 +34,26 @@ verify_jwt = false
 # Cron entrypoint - daily low-queue email alert, same shared-secret pattern
 [functions.check-approved-queue]
 verify_jwt = false
+
+# Worker + cron + dispatcher entrypoints: these authenticate with their own
+# shared secrets (x-worker-secret / x-dispatcher-secret) or validate the user
+# JWT in-function via supabase.auth.getUser. The GitHub worker and pg_cron
+# send no apikey/JWT, so gateway JWT verification must be off or every call
+# is rejected with 401 UNAUTHORIZED_NO_AUTH_HEADER before the function runs.
+[functions.claude-job-claim]
+verify_jwt = false
+
+[functions.claude-job-complete]
+verify_jwt = false
+
+[functions.claude-job-fail]
+verify_jwt = false
+
+[functions.claude-job-sweep]
+verify_jwt = false
+
+[functions.claude-job-redispatch]
+verify_jwt = false
+
+[functions.claude-job-status]
+verify_jwt = false

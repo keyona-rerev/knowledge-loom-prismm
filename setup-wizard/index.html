@@ -167,7 +167,8 @@ td:first-child{width:38%;color:#4b5563}
       var allowed=['business_name','business_website','business_location','business_description','target_audience','tone_of_voice','words_to_avoid','logo_url','color_background','color_accent','color_highlight','color_sparing_accent','display_font','body_font','posting_timezone','posting_time','posting_cadence','intake_sources'],bad=[],pending={};
       Object.keys(obj).forEach(function(k){if(allowed.indexOf(k)<0)return;var v=typeof obj[k]==='string'?obj[k].trim():'';if(v&&check(k,v))bad.push(k);else if(v)pending[k]=v;});
       if(bad.length){document.getElementById('researchMsg').textContent='Nothing loaded. Check these fields: '+bad.join(', ')+'. Never include secret values.';return;}
-      Object.keys(pending).forEach(function(k){vals[k]=pending[k];});done[i]=false;save();render();document.getElementById('researchMsg').textContent='Draft loaded. Review and correct it below, then tick the confirmation only when you agree.';
+      if(!pending.business_name){document.getElementById('researchMsg').textContent='Nothing loaded. Include the business_name so you can verify the right business.';return;}
+      allowed.forEach(function(k){if(pending[k])vals[k]=pending[k];else delete vals[k];});done[i]=false;save();render();document.getElementById('researchMsg').textContent='Draft loaded. Review and correct it below, then tick the confirmation only when you agree.';
     };
     document.getElementById('back').disabled=i===0;
     document.getElementById('next').disabled=i===n-1;

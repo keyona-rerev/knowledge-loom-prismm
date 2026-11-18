@@ -1,6 +1,6 @@
 {
   "title": "Insight Forge Setup",
-  "intro": "Set up your own Insight Forge step by step. Enter each value once. The wizard keeps it and fills it into every later step. Each client gets its own database, its own app repo and one login. You can stop at any step - everything you enter is saved in this browser, and you pick up exactly where you left off.",
+  "intro": "This wizard is for the installer. You set up one client's Insight Forge from start to finish, inside the client's own accounts. Enter each value once. The wizard keeps it and fills it into every later step. Each client gets its own database, its own app repo, its own AI worker and one login. Steps marked THE CLIENT need the client with you for a few minutes. You can stop at any step - everything you enter is saved in this browser, and you pick up exactly where you left off.",
   "variables": [
     {
       "key": "business_name",
@@ -10,8 +10,8 @@
     },
     {
       "key": "github_username",
-      "label": "Your GitHub username",
-      "help": "The account that will own your copy of the app.",
+      "label": "Client's GitHub username",
+      "help": "The client's own GitHub account. It will own the app repo and the AI worker repo.",
       "placeholder": "acme-co",
       "pattern": "^[A-Za-z0-9-]{1,39}$",
       "pattern_error": "Use letters, numbers and hyphens only."
@@ -89,9 +89,10 @@
     {
       "key": "logo_url",
       "label": "Logo URL",
-      "optional": true,
+      "optional": false,
       "pattern": "^https://\\S+$",
-      "pattern_error": "Use a full https:// address."
+      "pattern_error": "Use a full https:// address.",
+      "help": "A public https:// link to the client's logo (PNG, JPEG, WebP or SVG). The app and the image worker both use this exact link."
     },
     {
       "key": "font_names",
@@ -115,18 +116,51 @@
       "label": "Posting cadence",
       "optional": true,
       "placeholder": "3 per week"
+    },
+    {
+      "key": "display_font",
+      "label": "Display font (Google Fonts name:weight)",
+      "placeholder": "Playfair Display:700",
+      "help": "Pick it on fonts.google.com. Use the exact family name, a colon, then the weights.",
+      "pattern": "^[A-Za-z0-9 ]+:[0-9]{3}(,[0-9]{3})*$",
+      "pattern_error": "Use Family Name:weight, for example Lato:400,500"
+    },
+    {
+      "key": "body_font",
+      "label": "Body font (Google Fonts name:weights)",
+      "placeholder": "Lato:400,500",
+      "help": "Pick it on fonts.google.com. Use the exact family name, a colon, then the weights.",
+      "pattern": "^[A-Za-z0-9 ]+:[0-9]{3}(,[0-9]{3})*$",
+      "pattern_error": "Use Family Name:weight, for example Lato:400,500"
+    },
+    {
+      "key": "worker_repo",
+      "label": "AI worker repo",
+      "derive": "{{github_username}}/insightforge-worker"
     }
   ],
   "steps": [
     {
+      "title": "Before you start",
+      "instructions": "Get these ready before step 1. The install takes one working session.\n\nOn your computer (Mac or Windows):\n- Git: git-scm.com/downloads\n- Node.js 22 or newer: nodejs.org (choose LTS)\n- Claude Code: after Node is installed, run the command below once.\n\nFrom the client (they create these, or you create them together with their email):\n- A GitHub account (github.com/signup)\n- A Supabase account (supabase.com)\n- A Claude Pro plan (claude.ai) - THE CLIENT signs in to it once, in the 'Claude sign-in' step\n- A Resend account (resend.com) and access to their website domain's DNS\n- A Zernio account (zernio.com) and their LinkedIn login - THE CLIENT approves LinkedIn once\n- Their logo as a public https:// link, and their two Google Fonts\n- Their Business Onboarding Intake record, if they filled one in\n\nPlan the session so the client is with you for the two THE CLIENT steps.",
+      "copy": [
+        {
+          "label": "Terminal command: install Claude Code (once per computer)",
+          "text": "npm install -g @anthropic-ai/claude-code"
+        }
+      ],
+      "checkbox_label": "My computer has Git, Node and Claude Code, and the client's accounts are ready",
+      "verify_hint": "In a terminal, git --version, node --version and claude --version each print a version number."
+    },
+    {
       "title": "What this costs",
-      "instructions": "Read this first so nothing surprises you later. All prices checked November 17, 2026 - providers change prices, so glance at their pages if it has been a while.\n\nGitHub: $0 on the free plan. GitHub Pages (what hosts your app) is free on public repositories. If you keep your repo private, Pages needs GitHub's paid personal plan, a few dollars a month.\n\nSupabase (your database): $0 on the free tier, 500 MB - plenty for one business. Note: free projects pause after a week with no activity. If that ever happens, reopening the project in Supabase restores it. Their Pro plan ($25/month) removes the pause.\n\nResend (sends your alert emails): $0 up to 3,000 emails a month, 100 a day. You will send a handful a week.\n\nZernio (publishes to LinkedIn): your first 2 connected social accounts are free, then $6/month per account. One LinkedIn account: $0.\n\nAI: Claude Pro, $20/month ($17/month billed yearly). This install runs on Claude Pro only. It uses no AI API key and has no per-use AI bill. Your Claude Pro plan writes every draft and every image.\n\nGitHub Actions (runs the AI worker on your GitHub account): GitHub Free includes $12/month of compute. Measured on real runs, one draft uses about 2 cents of it. Set a budget cap in GitHub so it can never bill you past the free amount.\n\nThe free tiers above can cover hosting, database, email and the worker. Your one standing AI bill is Claude Pro.",
+      "instructions": "Read this first so nothing surprises you later. All prices checked November 17, 2026 - providers change prices, so glance at their pages if it has been a while.\n\nGitHub: $0 on the free plan. GitHub Pages hosts the app for free from a public repo. The app repo holds code only, never client data or keys.\n\nSupabase (your database): $0 on the free tier, 500 MB - plenty for one business. Note: free projects pause after a week with no activity. If that ever happens, reopening the project in Supabase restores it. Their Pro plan ($25/month) removes the pause.\n\nResend (sends your alert emails): $0 up to 3,000 emails a month, 100 a day. You will send a handful a week.\n\nZernio (publishes to LinkedIn): your first 2 connected social accounts are free, then $6/month per account. One LinkedIn account: $0.\n\nAI: Claude Pro, $20/month ($17/month billed yearly). This install runs on Claude Pro only. It uses no AI API key and has no per-use AI bill. Your Claude Pro plan writes every draft and every image.\n\nGitHub Actions (runs the AI worker on your GitHub account): GitHub Free includes $12/month of compute. Measured on real runs, one draft uses about 2 cents of it. Set a budget cap in GitHub so it can never bill you past the free amount.\n\nThe free tiers above can cover hosting, database, email and the worker. Your one standing AI bill is Claude Pro.",
       "checkbox_label": "I know what this costs",
       "verify_hint": "No surprises: every later step that touches a paid service links back to this list."
     },
     {
       "title": "Your AI: Claude Pro",
-      "instructions": "This system runs on Claude Pro, and only on Claude Pro. You need a Claude Pro account before you start. Sign up or check your plan at claude.ai/settings/billing. A free Claude account does not work.\n\nNo AI API key is used anywhere in this install. Your Pro plan writes your drafts and your images through a worker on your own GitHub account. Nothing runs on anyone else's account.\n\nNow copy the block below. Paste it into a new Claude chat. Claude asks you six questions, one at a time, and gives back a short business profile plus ready-to-import lines. Keep that answer. The next step imports it.",
+      "instructions": "This system runs on Claude Pro, and only on Claude Pro. The client needs a Claude Pro plan before you start (claude.ai/settings/billing shows the plan). A free Claude account does not work.\n\nNo AI API key is used anywhere in this install. The client's Pro plan writes their drafts and images through a worker on the client's own GitHub account. Nothing runs on anyone else's account.\n\nNow copy the block below. Give it to the client to paste into a new Claude chat, or paste it with them. Claude asks six questions, one at a time, and gives back a short business profile plus ready-to-import lines. Keep that answer. The next step imports it.",
       "collect": null,
       "copy": [
         {
@@ -134,12 +168,12 @@
           "text": "You are helping me set up a content system for my business. Ask me these questions one at a time and remember my answers: What does my business do and who do we serve? What offers or services do we want to be known for? What topics should we never post about? Describe my voice - formal, warm, direct? Who are three peers whose content I respect? How often do I want to post, and at what time of day, in what time zone? When you have all six answers, do two things: (1) summarize them as a short business profile I can keep, and (2) give me my answers as these exact lines so I can import them into my setup wizard: business_name=<my business name>, posting_cadence=<how often I chose>, posting_time=<the time I chose>, posting_timezone=<my time zone>."
         }
       ],
-      "checkbox_label": "I have Claude Pro and my business profile",
-      "verify_hint": "Your Claude plan page shows Pro, and your chat holds the profile with the import lines."
+      "checkbox_label": "The client has Claude Pro, and I have their business profile",
+      "verify_hint": "The client's Claude plan page shows Pro, and the chat holds the profile with the import lines."
     },
     {
       "title": "Load your intake answers",
-      "instructions": "You already filled in the Business Onboarding Intake for your business. Open the Your values box above. Paste your intake record into Import values. Then press Import. This wizard keeps every value and fills it into later steps. If you have no intake record, skip the import and type the name below.",
+      "instructions": "If the client filled in the Business Onboarding Intake for their business, open the Your values box above. Paste their intake record into Import values. Then press Import. This wizard keeps every value and fills it into later steps. If there is no intake record, skip the import and type the name below.",
       "collect": [
         "business_name"
       ],
@@ -148,7 +182,7 @@
     },
     {
       "title": "Choose your account names",
-      "instructions": "Each client gets its own GitHub repo and its own Supabase project. Nothing is shared between clients. Type your GitHub username and pick a name for your new repo.",
+      "instructions": "Each client gets its own GitHub repo and its own Supabase project. Nothing is shared between clients. Type the client's GitHub username and pick a name for the new app repo.",
       "collect": [
         "github_username",
         "repo_name"
@@ -158,7 +192,7 @@
     },
     {
       "title": "Create your empty repo",
-      "instructions": "In your GitHub account, create a new empty repo named {{repo_name}}. Set it to Private. Do not add a README or other files.",
+      "instructions": "Sign in to GitHub as the client. Create a new empty repo named {{repo_name}}. Set it to Public. Do not add a README or other files.\n\nWhy Public: GitHub Pages hosts the app for free only on public repos. The repo holds app code only. The client's data and keys live in Supabase, never in this repo.",
       "copy": [
         {
           "label": "Repo address",
@@ -203,7 +237,7 @@
     },
     {
       "title": "Turn on database extensions",
-      "instructions": "In Supabase, open Database, then Extensions. Turn on pg_cron and pg_net. The daily jobs need them. VERIFY: If a later step shows an error about cron or net, come back here first.",
+      "instructions": "In Supabase, open Database, then Extensions. Turn on pg_cron and pg_net. The daily jobs need them. If a later step shows an error about cron or net, come back here first.",
       "checkbox_label": "Both extensions are on",
       "verify_hint": "Both show as enabled."
     },
@@ -221,7 +255,7 @@
     },
     {
       "title": "Point the daily jobs at your project",
-      "instructions": "Open the SQL Editor in your Supabase project. Run this SQL. Replace PASTE_YOUR_ANON_KEY with the anon public key from Project Settings, API. That key stays in your Supabase account only. VERIFY: key names app_url and alert_from_email come from the Prismm build.",
+      "instructions": "Open the SQL Editor in the client's Supabase project. Paste this SQL. Replace PASTE_YOUR_ANON_KEY with the anon public key from Project Settings, API. That key stays in Supabase only. Then press Run.",
       "collect": [
         "from_email"
       ],
@@ -252,7 +286,7 @@
     },
     {
       "title": "Add your email key",
-      "instructions": "Create a Resend account and verify the domain of {{from_email}}. Then run the command below. Replace PASTE_YOUR_RESEND_KEY in your own terminal. Never paste it in this wizard. VERIFY: the secret name RESEND_API_KEY comes from the check-approved-queue function.",
+      "instructions": "Create a Resend account for the client and verify the domain of {{from_email}} (Resend shows the DNS records to add). Then create an API key in Resend. Run the command below in your terminal, with PASTE_YOUR_RESEND_KEY replaced by that key. Never paste the key in this wizard.",
       "copy": [
         {
           "label": "Terminal command",
@@ -321,7 +355,7 @@
     },
     {
       "title": "Enter your brand",
-      "instructions": "Log in. Open Settings and Strategy. Enter your brand values from your intake. Do not import Prismm content. VERIFY: a script that loads the intake record straight into the app is not built yet, so this is manual. Long fields such as description, audience, tone and words to avoid come from your intake record.",
+      "instructions": "Log in to the app as the client. Open Settings and Strategy. Enter the brand values below, and the long fields (description, audience, tone, words to avoid) from the intake record. Do not import Prismm content.\n\nThen open Visual Studio. Set the logo URL to exactly {{logo_url}}, and the display and body fonts to the family names in {{display_font}} and {{body_font}}. Press Save. The image worker uses these same values.",
       "copy": [
         {
           "label": "Brand values",
@@ -329,20 +363,148 @@
         }
       ],
       "checkbox_label": "Brand values are in the app",
-      "verify_hint": "Settings shows your business name and colors."
+      "verify_hint": "Settings shows your business name and colors.",
+      "collect": [
+        "logo_url",
+        "display_font",
+        "body_font"
+      ]
     },
     {
-      "title": "Connect the AI",
-      "instructions": "Your installer does this step with you. It takes one short session. No key is pasted anywhere, and no key is typed into this wizard.\n\nWhat happens: your installer copies the AI worker to your GitHub account. Then they run one command that opens a Claude sign-in page. You sign in with YOUR Claude Pro account. That creates a sign-in token for your own plan only. Your installer stores it as a secret in your worker repo, where nobody can read it back.\n\nWhy: the worker is Claude's own Claude Code app, running on your GitHub. It signs in with your Pro plan. That is how your drafts and images are made with no API key. Your data stays in your accounts.\n\nYour installer follows CLIENT_INSTALL.md in the worker repo for the exact steps. When they finish, make one test draft in the app.",
-      "checkbox_label": "I signed in with my Claude Pro account and my installer confirmed the worker is connected",
-      "verify_hint": "Make one test draft and approve it. The draft appears, and its image appears a few minutes later.",
-      "collect": null
+      "title": "Copy the AI worker to the client's GitHub",
+      "instructions": "The worker is the part that writes drafts and images with the client's Claude Pro plan. It runs on the client's GitHub, not on anyone else's account.\n\nSigned in to GitHub as the client, open the import page below. In 'Your source repository's clone URL', paste the source address. Owner: {{github_username}}. Repository name: insightforge-worker. Choose Private. Press Begin import and wait for 'Import complete'.\n\nWhy Private: the worker's run logs belong to the client.",
+      "copy": [
+        {
+          "label": "Import page",
+          "text": "https://github.com/new/import"
+        },
+        {
+          "label": "Source address",
+          "text": "https://github.com/keyona-rerev/knowledge-loom-worker"
+        }
+      ],
+      "checkbox_label": "The import is complete and the repo is Private",
+      "verify_hint": "https://github.com/{{worker_repo}} opens and shows the folders .github, render and scripts."
     },
     {
-      "title": "Connect publishing",
-      "instructions": "VERIFY: Publishing runs through Zernio. In the app, open Settings and use the connect button for LinkedIn or Instagram. Instagram needs a Business or Creator account linked to a Facebook Page.",
-      "checkbox_label": "My channels show as connected",
-      "verify_hint": "Settings shows each channel as connected."
+      "title": "THE CLIENT: Claude sign-in",
+      "instructions": "The client must do this part. It creates a sign-in token for the client's own Claude Pro plan. No API key is involved.\n\n1. On your computer, run the command below.\n2. A browser page opens. THE CLIENT signs in with their own Claude Pro account and approves.\n3. The terminal shows a long token. Leave the terminal open. You paste the token in the next step, inside GitHub only.\n\nWrite down today's date. The token lasts one year (Anthropic's authentication guide, checked November 17, 2026).",
+      "copy": [
+        {
+          "label": "Terminal command",
+          "text": "claude setup-token"
+        }
+      ],
+      "checkbox_label": "The client signed in and the terminal shows the token",
+      "verify_hint": "The terminal shows a token and no error."
+    },
+    {
+      "title": "Make the two setup tokens",
+      "instructions": "The connect button in a later step needs two tokens. You make them in the client's accounts and paste them into GitHub only.\n\nToken 1 - GitHub (signed in as the client): open the first link. Name: insightforge-setup. Expiration: 1 year. Repository access: Only select repositories, then {{worker_repo}}. Permissions: Contents: Read and write. Secrets: Read and write. Actions: Read-only. Nothing else. Press Generate and keep the token on screen.\n\nToken 2 - Supabase (signed in as the client): open the second link. Press Generate new token. Name: insightforge-setup. Keep the token on screen.\n\nWhy: the connect button uses these to store the matching secrets on both sides by itself, so you never handle the secrets.",
+      "copy": [
+        {
+          "label": "GitHub token page",
+          "text": "https://github.com/settings/personal-access-tokens/new"
+        },
+        {
+          "label": "Supabase token page",
+          "text": "https://supabase.com/dashboard/account/tokens"
+        }
+      ],
+      "checkbox_label": "Both tokens are on screen",
+      "verify_hint": "GitHub shows the new token once. Supabase shows the new token once."
+    },
+    {
+      "title": "Paste the three tokens into the worker repo",
+      "instructions": "Open the worker repo's secrets page below. Press New repository secret three times, once per row. Paste each token as the value. Use these exact names.\n\nThis is the only place the tokens go. Never paste them in this wizard, an email or a chat.",
+      "copy": [
+        {
+          "label": "Worker secrets page",
+          "text": "https://github.com/{{worker_repo}}/settings/secrets/actions"
+        },
+        {
+          "label": "Name for the Claude token (from the Claude sign-in step)",
+          "text": "CLAUDE_CODE_OAUTH_TOKEN"
+        },
+        {
+          "label": "Name for GitHub token 1",
+          "text": "SETUP_GH_TOKEN"
+        },
+        {
+          "label": "Name for Supabase token 2",
+          "text": "SUPABASE_ACCESS_TOKEN"
+        }
+      ],
+      "checkbox_label": "The worker repo lists all three secrets",
+      "verify_hint": "The secrets page lists CLAUDE_CODE_OAUTH_TOKEN, SETUP_GH_TOKEN and SUPABASE_ACCESS_TOKEN."
+    },
+    {
+      "title": "Press the connect button",
+      "instructions": "Open the connect page below. Press Run workflow. Fill in the five boxes with the values below, then press the green Run workflow button. It takes about 3 minutes.\n\nWhat it does: it bundles the logo and fonts for the image worker, makes every connection secret, and stores them in the worker repo and in Supabase. Nobody sees the secrets.\n\nIf the run fails, open it. The red line says what to fix, for example a missing token or a font name. Fix it and run it again. Running it again is safe.",
+      "copy": [
+        {
+          "label": "Connect page",
+          "text": "https://github.com/{{worker_repo}}/actions/workflows/connect-install.yml"
+        },
+        {
+          "label": "supabase_project_ref",
+          "text": "{{supabase_project_ref}}"
+        },
+        {
+          "label": "logo_url",
+          "text": "{{logo_url}}"
+        },
+        {
+          "label": "display_font",
+          "text": "{{display_font}}"
+        },
+        {
+          "label": "body_font",
+          "text": "{{body_font}}"
+        },
+        {
+          "label": "token_date (the Claude sign-in date, YYYY-MM-DD; empty = today)",
+          "text": "(leave empty if the sign-in was today; else YYYY-MM-DD)"
+        }
+      ],
+      "checkbox_label": "The connect run is green",
+      "verify_hint": "The run shows a green check, and its summary says 'Connected' with the renewal date. Write that date down."
+    },
+    {
+      "title": "Set the GitHub budget cap",
+      "instructions": "Signed in to GitHub as the client, open the budgets page below. Press New budget. Product: Actions. Amount: $0. Turn on 'Stop usage when budget limit is reached'. Save.\n\nWhy: GitHub Free includes $12 a month of compute for the worker. Measured on real runs, one draft uses about 2 cents. The cap makes sure GitHub can never bill the client for more.",
+      "copy": [
+        {
+          "label": "Budgets page",
+          "text": "https://github.com/settings/billing/budgets"
+        }
+      ],
+      "checkbox_label": "The $0 Actions budget with stop-usage is saved",
+      "verify_hint": "The budgets page lists Actions, $0, stop usage on."
+    },
+    {
+      "title": "THE CLIENT: Connect publishing",
+      "instructions": "Publishing runs through Zernio.\n\n1. In the client's Zernio account, open the API keys page and create a key.\n2. Run the command below in your terminal, with PASTE_YOUR_ZERNIO_KEY replaced by that key. Never paste the key in this wizard.\n3. In the app, open Settings and press the connect button for LinkedIn. THE CLIENT signs in to LinkedIn and approves.",
+      "checkbox_label": "The Zernio key is set and LinkedIn shows as connected",
+      "verify_hint": "Settings shows each channel as connected.",
+      "copy": [
+        {
+          "label": "Terminal command",
+          "text": "npx supabase secrets set ZERNIO_API_KEY=PASTE_YOUR_ZERNIO_KEY --project-ref {{supabase_project_ref}}"
+        }
+      ]
+    },
+    {
+      "title": "Test one draft and one image",
+      "instructions": "1. In the app, create one draft. It appears in Review within a few minutes.\n2. Approve it. Its image appears a few minutes later.\n3. Open Visual Studio and press Generate preview. A preview appears.\n\nEach one is a run on the worker's Actions page below. A green run is a success. If a run is red, open it: the last job names the stage that failed and never shows a secret.",
+      "copy": [
+        {
+          "label": "Worker runs",
+          "text": "https://github.com/{{worker_repo}}/actions"
+        }
+      ],
+      "checkbox_label": "A draft, its image and a preview all appeared",
+      "verify_hint": "Three green claude-loom-worker runs on the worker's Actions page."
     },
     {
       "title": "Run the health check",
@@ -358,9 +520,15 @@
     },
     {
       "title": "Set the renewal reminder",
-      "instructions": "The Claude sign-in from 'Connect the AI' does not last forever. Anthropic's own guide says the setup token lasts one year (code.claude.com/docs/en/authentication, checked November 17, 2026). It can also stop early if your Pro plan lapses or changes. Set a calendar reminder 11 months from your connect date, and write down who owns the renewal. A reminder lowers the chance of a silent stop - it cannot prevent one.",
+      "instructions": "The Claude sign-in lasts one year. The connect run's summary shows the exact renewal date.\n\nSet a calendar reminder two weeks before that date, and write down who owns the renewal.\n\nTo renew: THE CLIENT repeats the Claude sign-in step. Paste the new token over CLAUDE_CODE_OAUTH_TOKEN on the worker secrets page. Make new setup tokens if they expired. Then press the connect button again with the new date.\n\nA reminder lowers the chance of a silent stop - it cannot prevent one.",
       "checkbox_label": "Renewal reminder set and owner written down",
-      "verify_hint": "A reminder exists 11 months after the connect date, and the renewal owner is named."
+      "verify_hint": "A reminder exists two weeks before the renewal date, and the renewal owner is named.",
+      "copy": [
+        {
+          "label": "Worker secrets page",
+          "text": "https://github.com/{{worker_repo}}/settings/secrets/actions"
+        }
+      ]
     }
   ]
 }

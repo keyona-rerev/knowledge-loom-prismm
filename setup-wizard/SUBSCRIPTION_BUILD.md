@@ -21,6 +21,9 @@
    `_shared/claude-queue.test.mts` (4), including a full admit -> enqueue ->
    complete round trip with a real PNG.
 4. **Client: Ethel Mitchell** (Wills and Trusts LLC, "Law Talk"), on Claude Pro.
+5. **Martha installs everything herself**, from the setup wizard alone. The
+   worker connection is one button (connect-install in the worker repo):
+   the installer pastes three tokens into GitHub and never handles a secret.
 
 Still open: the first real run on a Pro plan (usage limits on Pro are lower
 than Max). That run happens at install, on the client's own plan.

@@ -1,0 +1,20 @@
+# Business Onboarding Intake - Insight Forge
+# Fill every line after the = . Lines starting with # are notes, not answers.
+# Never put passwords, keys or tokens in this file.
+
+business_name=
+description=
+audience=
+tone=
+words_to_avoid=
+logo_url=
+color_background=
+color_accent=
+color_highlight=
+color_sparing_accent=
+font_names=
+display_font=
+body_font=
+posting_timezone=
+posting_time=
+posting_cadence=

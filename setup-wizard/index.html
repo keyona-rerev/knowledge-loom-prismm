@@ -30,7 +30,7 @@ h1{font-family:Newsreader,Georgia,serif;font-size:2rem;margin:.2em 0}
 .field input.bad{border-color:var(--bad)}
 .err{color:var(--bad);font-size:.85rem;min-height:1.1em}
 .copy{position:relative;background:#0f172a;color:#e2e8f0;border-radius:8px;padding:12px 84px 12px 12px;margin:12px 0;font:.88rem/1.5 ui-monospace,Menlo,monospace;white-space:pre-wrap;word-break:break-all}
-.copy .lbl{display:block;color:#94a3b8;font-size:.75rem;margin-bottom:4px}
+.copy .prompt-intro{display:block;white-space:normal;font-family:Inter,system-ui,sans-serif;font-size:.9rem;line-height:1.5;color:#e2e8f0;margin:4px 0 10px}.prompt-details{white-space:normal}.prompt-details summary{cursor:pointer;min-height:44px;padding:10px 0;font-family:Inter,system-ui,sans-serif;font-weight:600}.prompt-details .prompt-body{display:block;white-space:pre-wrap;margin-top:10px}.copy .lbl{display:block;color:#94a3b8;font-size:.75rem;margin-bottom:4px}
 .copy button{position:absolute;top:8px;right:8px;padding:4px 10px;font-size:.8rem}
 label.chk{display:flex;gap:10px;align-items:flex-start;margin-top:16px;font-weight:600}
 .nav{display:flex;justify-content:space-between;margin-top:6px}
@@ -140,7 +140,8 @@ td:first-child{width:38%;color:#4b5563}
          '<input id="f_'+k+'" data-k="'+k+'" autocomplete="off" spellcheck="false" placeholder="'+esc(d.placeholder||'')+'" value="'+esc(vals[k]||'')+'"><div class="err" id="e_'+k+'"></div></div>';
     });
     (s.copy||[]).forEach(function(b,bi){
-      h+='<div class="copy"><span class="lbl">'+esc(b.label||'Copy')+'</span><span id="cp'+bi+'">'+sub(esc(b.text),true)+'</span><button data-cp="'+bi+'">Copy</button></div>';
+      var folded=b.collapsed===true||b.text.length>450;
+      h+='<div class="copy"><span class="lbl">'+esc(b.label||'Copy')+'</span><button data-cp="'+bi+'">Copy</button>'+(folded?'<span class="prompt-intro">Copy the complete text. Open it below only when you want to review it.</span><details class="prompt-details"><summary>Show full prompt</summary><span class="prompt-body" id="cp'+bi+'">'+sub(esc(b.text),true)+'</span></details>':'<span id="cp'+bi+'">'+sub(esc(b.text),true)+'</span>')+'</div>';
     });
     if(s.research_review){
       h+='<section class="review"><h3>Check the research draft</h3><label for="researchPaste">Paste the JSON from your research chat</label><textarea id="researchPaste" rows="6" placeholder="Paste the JSON object here, not a password or token"></textarea><button id="loadResearch" type="button">Load draft for review</button><p id="researchMsg" class="review-status" aria-live="polite"></p><p>Read and edit the answers below. Blank means not confirmed. Source notes are for your review, not proof by themselves.</p>';

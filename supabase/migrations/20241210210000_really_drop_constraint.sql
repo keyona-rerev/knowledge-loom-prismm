@@ -1,21 +1,9 @@
 -- Nuclear option: Drop the constraint forcefully
-ALTER TABLE reference_cards DROP CONSTRAINT IF EXISTS reference_cards_source_type_check CASCADE;
-
--- Verify it worked by testing an insert
+-- Clean-install repair (F12): no-op when reference_cards does not exist yet
+-- (fresh install - the schema migration creates it without the constraint).
 DO $$
-DECLARE
-  test_user_id UUID;
 BEGIN
-  SELECT id INTO test_user_id FROM auth.users LIMIT 1;
-  
-  IF test_user_id IS NOT NULL THEN
-    INSERT INTO reference_cards (
-      user_id, title, original_text, source_type, status, content_quality
-    ) VALUES (
-      test_user_id, 'Constraint test', 'Testing', 'observation', 'active', 'good'
-    );
-    
-    DELETE FROM reference_cards WHERE title = 'Constraint test';
-    RAISE NOTICE 'SUCCESS: Constraint removed!';
+  IF to_regclass('public.reference_cards') IS NOT NULL THEN
+    ALTER TABLE reference_cards DROP CONSTRAINT IF EXISTS reference_cards_source_type_check CASCADE;
   END IF;
 END $$;

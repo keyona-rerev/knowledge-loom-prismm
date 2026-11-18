@@ -1,264 +1,66 @@
-# Subscription-only client install - BUILD handoff
+# InsightForge client install build reference
 
-## Recommendations recorded Nov 17, 2026 - not verified decisions
+Updated November 18, 2026. This replaces the dated Nov 17 build-session
+notes as the current install reference. Earlier wording is preserved in git
+history, not treated as proof of user approval or client identity.
 
-The five items below were written down in the Nov 17 build session under the
-heading "Decisions (Keyona, Nov 17, 2026)". They are not confirmed with Keyona
-outside that session record, so treat them as documented recommendations and
-confirm before relying on them. The original wording is preserved in git
-history.
+## Required outcome
 
-1. **Per-client worker (recommendation).** Each client gets their own copy of
-   the worker on their own GitHub account, signed in with their own Claude
-   plan. Nothing runs on Keyona's accounts. Setup: CLIENT_INSTALL.md in
-   keyona-rerev/knowledge-loom-worker.
-2. **Claude Pro only, no API anywhere (recommendation).** The whole system, A
-   to Z, runs on a Claude Pro plan. No AI API key exists in any path. Gemini
-   and "split" are removed from the wizard.
-3. **Images are built now, not deferred (code status - verifiable in the
-   repo).** Done Nov 17: `generate-draft-visual` and `preview-visual` now
-   enqueue on the subscription queue (`_shared/visual-enqueue.ts`). The worker
-   writes the HTML and renders the PNG in its own sandbox - no external
-   renderer service, no key. `_shared/ai-caller.ts` (the last API-key path) is
-   deleted. Per-install switch: edge secret `VISUALS_ENABLED=true` plus repo
-   variable `VITE_VISUALS_ENABLED=true`. Unset = off, so Keyona's own instance
-   keeps its current behavior until she sets them. Tests:
-   `_shared/visual-enqueue.test.mts` (12) and `_shared/claude-queue.test.mts`
-   (4), including a full admit -> enqueue -> complete round trip with a real
-   PNG.
-4. **Client identity (unconfirmed).** The Nov 17 session recorded the client
-   as Ethel Mitchell (Wills and Trusts LLC, "Law Talk"), on Claude Pro. That
-   identity has not been confirmed; keep client-facing material neutral until
-   it is.
-5. **Martha installs everything herself (plan).** From the setup wizard alone.
-   The worker connection is one button (connect-install in the worker repo):
-   the installer pastes three tokens into GitHub and never handles a secret.
+Visuals are included. Do not recommend turning them off to avoid development
+or testing. Martha installs from the wizard using client-owned accounts.
+The client identity is not confirmed in this document.
 
-Still open: the first real run on a Pro plan (usage limits on Pro are lower
-than Max). That run happens at install, on the client's own plan.
----
+Install wizard: https://insight-forge-setup-wizard.netlify.app
+Package branch: https://github.com/keyona-rerev/knowledge-loom-prismm/tree/install-test-repairs-2026-11-18
+Public worker template: https://github.com/keyona-rerev/knowledge-loom-worker-template
 
+No production merge is needed to obtain this branch. Merging the branch into
+main is a separate production change, not an install-package prerequisite.
 
-Written Nov 17, 2026 for the Martha client install. Self-contained: paste this file into a
-build session and no other context is needed. Every claim below names its source file or its
-external source and date. Do not treat anything in the "Open" sections as established.
+## Current implementation
 
-## Goal
+- `generate-draft-visual` authenticates the owner, admits a visual placeholder
+  and queues a `draft-visual` job. The subscription worker generates HTML,
+  renders a PNG in its sandbox and completes the job. `draft_visuals` becomes
+  ready only after completion validation.
+- `preview-visual` queues a `visual-preview` job using the current, possibly
+  unsaved, Visual Studio config. It returns HTML for a sandboxed preview.
+- Both use `_shared/visual-enqueue.ts` and `_shared/visual-prompt.ts`.
+  They do not use an AI API key or a separate paid renderer.
+- `_shared/visual-logic.ts` owns visual admission, completion validation,
+  source fingerprints and ready/error transitions.
+- Availability switches remain for rollout isolation. For this client install,
+  the wizard sets `VISUALS_ENABLED=true` on the server and
+  `VITE_VISUALS_ENABLED=true` for the app build. Their existence does not make
+  visuals optional in the package. Do not change an unrelated running instance.
+- Brand assets and fonts are prepared by the worker's connect-install flow.
+  Save the brand config before accepting the branded output. A neutral fallback
+  can keep a job working, but is not proof that the client's brand is installed.
 
-A client install whose AI runs on the client's own AI subscription, with no per-call API
-billing - the same standard Keyona's own Prismm instance runs on. This document maps what
-the client template in THIS repo already does, what is still key-based, what a client
-install needs that does not exist yet, and the verified terms boundary.
+## Install-time work
 
-## 1. What this repo actually does today (verified in code, Nov 17)
+Import the clean worker template to the client's private GitHub repository;
+connect their Supabase project and subscription sign-in; save their logo and
+fonts; retain their publishing connection and budget settings. Secrets belong
+only in the named service secret stores, never the wizard or email.
 
-Two AI paths exist side by side.
+These connections and the first run under the client's own subscription are
+not exercised by a synthetic-account test. Account usage limits and renewal
+ownership need checking at install. No claim of provider terms approval is
+made by this document.
 
-### Path A - subscription queue (already built)
+## Acceptance, required before handoff is called complete
 
-`supabase/functions/_shared/claude-queue.ts` - its own header comment: "Interactive AI on
-the Claude subscription: enqueue a prompt job onto claude_jobs, kick the signed dispatcher,
-and await the worker's result. This is the subscription replacement for the removed paid-API
-callAI route. No provider keys, no paid endpoint: the private worker repo's GitHub Actions
-run does the Claude work under the owner's Max subscription."
+1. Generate a draft and confirm its persisted text in Review.
+2. Generate its image and open the actual PNG. Check correct draft meaning,
+   dimensions, legibility, crop, logo and fonts. A queued response is not a pass.
+3. Generate a Visual Studio preview. Check its actual displayed HTML, including
+   a deliberate unsaved config change. A green worker run alone is not a pass.
+4. Check missing/invalid inputs fail clearly, ownership remains enforced,
+   duplicate requests do not create duplicate active work, and errors allow
+   a deliberate retry without false ready states.
+5. Keep worker run links and output evidence. Do not publish synthetic test
+   material or activate client schedules as part of package testing.
 
-Mechanics: edge functions enqueue rows on the `claude_jobs` table; a signed call to
-`claude-job-redispatch` (env `DISPATCHER_SECRET`) kicks the worker; the worker claims jobs
-through `claude-job-claim` (env `WORKER_SECRET`), does the Claude work, and posts results
-back. The worker itself is a PRIVATE repo and is not in this codebase - only its claim /
-complete / fail / sweep / redispatch endpoints are here
-(`supabase/functions/claude-job-*/index.ts`).
-
-Functions already on Path A (they import claude-queue / enqueueInteractiveJob):
-
-- `generate-content-directions`
-- `generate-final-content`
-- `revise-draft`
-- `regenerate-draft-with-feedback`
-- `search-sources`
-- `claude-job-redispatch`
-
-The core text pipeline - directions, drafting, revising - is already subscription-based in
-the template. A client install does NOT need an AI API key for drafting.
-
-### Path B - per-profile API key (still live for three callers)
-
-`supabase/functions/_shared/ai-caller.ts` reads `ai_provider`, `ai_model`, `ai_api_key`,
-`ai_endpoint` from the user profile and calls the provider HTTP APIs directly. Remaining
-callers:
-
-- (Superseded Nov 17 - see Decisions. Both visual functions are on the queue,
-  and `backfill-newsletter-scores` already ran a queue tick with no callAI.)
-
-### Settings UI
-
-The app's Settings page stores `ai_api_key` (`src/` profile fields), and wizard step 19
-("Add your AI provider") walks the client to paste a key into Settings. For a
-subscription-only install that key is optional for drafting - only visuals and the
-newsletter-score backfill consume it. Wizard copy does not say this yet.
-
-### Tests that exist
-
-`supabase/functions/_shared/relevance-queue.test.mts`,
-`supabase/functions/_shared/summary-queue.test.mts`,
-`supabase/functions/_shared/discover-candidates.test.mts`,
-`supabase/functions/_shared/visual-prompt.test.mts`,
-`src/lib/discoverClassify.test.mts`,
-`src/lib/createContentRecovery.test.mts`,
-`src/lib/generationOutcome.test.mts`.
-
-No test covers claude-queue or the worker contract; the job-claim path is tested only by
-live use in Keyona's instance. Any change below should add a queue-level test.
-
-## 2. What a subscription-only client install still needs (the real gap)
-
-Not "convert the app from API keys" - that conversion already happened for the core
-pipeline. The gap is packaging the worker per client:
-
-1. **A worker for the client.** Today the only worker is Keyona's private repo
-   (keyona-rerev/knowledge-loom-worker), bound to her Supabase project (`WORKER_SECRET`,
-   `DISPATCHER_SECRET`) and her subscription. A
-   client install needs either (a) its own worker repo under an account the client owns,
-   or (b) a documented decision to run client jobs through Keyona's worker - which mixes
-   client data into Keyona's infrastructure and her subscription usage, and needs her
-   explicit sign-off, not a default.
-2. **Worker auth.** VERIFIED Nov 17 by reading the worker repo through the connected
-   GitHub account (it was readable all along): the live workflow
-   (.github/workflows/claude-loom-worker.yml, repository_dispatch only) runs
-   anthropics/claude-code-action pinned at d70510b with
-   claude_code_oauth_token: secrets.CLAUDE_CODE_OAUTH_TOKEN - exactly the `claude
-   setup-token` pattern (source and expiry in item 4). The model job runs the CLI inside
-   a docker child namespace with an env allowlist (the token only). A client worker
-   needs its own CLAUDE_CODE_OAUTH_TOKEN from an account the client owns.
-3. **GitHub Actions minutes.** Rates verified Nov 17 (docs.github.com/en/billing/reference/product-usage-included
-   and /actions-runner-pricing): private-repo Actions draws from included compute of
-   $12/month on GitHub Free and $18/month on GitHub Pro; the worker's ubuntu-latest is
-   standard Linux 2-core at $0.006/min, each job rounded up to whole minutes; overage
-   bills to the repo owner. Actions is free on PUBLIC repos and self-hosted runners.
-   MEASURED Nov 17 from the worker's own Actions history: 23 recent production
-   dispatches averaged ~4.5 minutes wall each (range 1m25s-8m42s; 3 jobs per dispatch:
-   verify-claim, model, complete) - call it ~6 billed minutes, ~$0.04, per dispatch
-   after per-job rounding. A client drafting daily (~30 dispatches/month) uses about
-   $1-2 of the $12 included. A budget cap ("Stop usage when budget limit is reached")
-   prevents surprise bills and should be set at install.
-4. **Token expiry.** Anthropic's authentication guide
-   (code.claude.com/docs/en/authentication#generate-a-long-lived-token, checked Nov 17,
-   2026) says `claude setup-token` generates a ONE-YEAR OAuth token that authenticates
-   with a Claude subscription (Pro, Max, Ultra, Team or Enterprise required) and can
-   only make model requests. Limits of this claim: one year is the lifetime Anthropic
-   documents today - a token can stop working earlier (revocation, plan change) and
-   Anthropic can change the documented lifetime; the reminder guards both. Without a
-   renewal step and a named owner, the system silently stops drafting when the token
-   lapses. Documented Nov 17: the wizard's final step ("Set the renewal reminder") and
-   CLIENT_GUIDE.md section 7 item 4 now carry the renewal; naming its owner stays an
-   install-time decision.
-5. **Wizard + docs alignment.** Done Nov 17: wizard step 19 rewritten (now "Connect the
-   AI") - no key paste for drafting, the optional Settings key is scoped to visuals and
-   the newsletter-score backfill, and its checkbox requires installer confirmation rather
-   than claiming a completed setup. Step 2 carries the Gemini API-key limit in traced
-   terms.
-6. **Path B decision.** Either port `generate-draft-visual`, `preview-visual`,
-   `backfill-newsletter-scores` to the queue (they are prompt jobs like the others), or
-   document that visuals stay off and the backfill stays key-based with the key optional.
-
-## 3. Terms boundary (verified Nov 17 - read before promising anything)
-
-From Anthropic's Claude Code legal and compliance page
-(https://code.claude.com/docs/en/legal-and-compliance, fetched Nov 17):
-
-- OAuth authentication "is intended exclusively for purchasers of Claude Free, Pro, Max,
-  Ultra, Team, and Enterprise subscription plans" for use in Claude Code and native
-  Anthropic applications.
-- "Anthropic does not permit third-party developers to offer Claude.ai login into their
-  own applications, or to route requests through Free, Pro, Max, or Ultra plan credentials
-  on behalf of their users." Routing a client's subscription token through this app's edge
-  functions or any custom harness is prohibited.
-- What may stay allowed: "an end user signing in to the unmodified Claude Code binary with
-  their own Claude subscription, including where a platform hosts Claude Code." Whether a
-  CI worker running a business content pipeline fits that allowance is not addressed -
-  see the open item below on setup-token intent.
-- "Advertised usage limits for Pro, Max, and Ultra plans assume ordinary, individual
-  usage of Claude Code and the Agent SDK." A multi-client fleet on one personal plan is
-  outside that assumption; each client on their own plan fits it.
-- Anthropic "reserves the right to take measures to enforce these restrictions... without
-  prior notice."
-
-Corroboration: The Register, Feb 20 2026
-(https://www.theregister.com/software/2026/02/20/anthropic-clarifies-ban-on-third-party-tool-access-to-claude/5014546)
-on the February 2026 clarification that Pro/Max OAuth tokens in any other product, tool or
-service - including the Agent SDK - violate the Consumer Terms.
-
-Gemini boundary (verified Nov 17): the official Gemini CLI authentication guide
-(geminicli.com/docs/get-started/authentication) lists for "Headless mode": "Use Gemini API
-Key or Vertex AI" - a personal Google account is NOT listed for headless use. Separately,
-the Gemini CLI ToS page (geminicli.com/docs/resources/tos-privacy) says directly accessing
-the services powering Gemini CLI via third-party software that piggybacks its OAuth "is a
-violation of applicable terms and policies... grounds for suspension or termination."
-Whether the official `gemini -p` binary itself may run headless under personal-account
-OAuth is not stated in either text; the documented headless path is API key / Vertex AI.
-So the gemini and split choices should plan on a Gemini API key for the automatic parts.
-Wizard step 2 now says this in those traced terms.
-
-STILL open (do not fill by assumption):
-
-- Whether Anthropic's enforcement view of `claude setup-token` in a CI worker that serves
-  a business content pipeline matches the "CI pipelines and scripts" intent. Community
-  guides treat CI-on-your-own-repo as allowed; that is not an Anthropic statement about
-  this use case.
-- Actual minutes per drafting job in the worker, to size the $12/month included compute.
-
-## 3b. Recommendation: per-client worker, not shared
-
-Recommendation with concrete risks and costs, for Keyona's decision:
-
-**Per-client worker (recommended).** Each client gets their own private worker repo on
-their own GitHub account, their own Claude subscription via setup-token, their own
-WORKER_SECRET / DISPATCHER_SECRET pair.
-- Terms fit best of the options: each end user on their own plan is the closest match to
-  "ordinary, individual usage" and the unmodified-binary allowance (neither addressed for
-  CI pipelines specifically - section 3). Shared infrastructure on Keyona's Max fits
-  neither.
-- Data isolation: client prompts, drafts and business material never touch Keyona's
-  Supabase, repo, or Actions logs. The repo rule (no lead data) stays intact.
-- Cost: $0/month while usage fits the $12 included compute (set a budget cap); the
-  client's Claude subscription is the only standing AI bill. Measured Nov 17: ~6 billed
-  minutes (~$0.04) per dispatch, so daily drafting is roughly $1-2/month - wide margin.
-- Maintenance cost: one token renewal per client per provider-documented lifetime
-  (one year today - item 4), owned by a named person. Inspection Nov 17 reinforces
-  per-client: every secret in the live workflow is single-tenant (one SUPABASE_FN_BASE,
-  one DISPATCH_SECRET pair), so sharing the worker would mix every client's jobs into
-  one queue and one subscription.
-
-**Shared worker (only as a time-boxed pilot, needs Keyona's explicit yes).** Client jobs
-run through Keyona's worker and subscription.
-- Risk: client data in Keyona's infrastructure; her plan's usage assumption is
-  individual, not fleet; Anthropic may enforce "without prior notice" - an enforcement
-  action would hit her own account and every client at once.
-- Only defensible as a short pilot to prove the install, with a migration date.
-
-Do not present this pick to Martha or the client before Keyona chooses.
-
-## 4. Explicit non-promises
-
-Until the items in section 2 are built and section 3's open questions are answered:
-
-- Do not tell the client or Martha the system "runs unattended" or "has no API costs."
-  Drafting runs through the queue only while a worker is up; visuals still use keys.
-- Do not promise $0/month. Honest line: "known costs, each with a source and a check
-  date; the AI line depends on which plan the install uses."
-- Do not merge PR #42 or deploy anything to a client on the assumption the worker
-  pattern is compliant - section 3 marks what is still unverified.
-
-## 5. Suggested work order for the build session
-
-1. DONE Nov 17: worker repo inspected via the connected GitHub account
-   (keyona-rerev/knowledge-loom-worker). Auth confirmed (section 2 item 2); live
-   workflow has 3 jobs on ubuntu-latest, repository_dispatch only. The v7 boundary
-   workflow at repo root is an inert hardening draft, not deployed.
-2. DONE Nov 17: priced from 23 real production runs (section 2 item 3) - ~$0.04 per
-   dispatch, ~$1-2/month at one draft a day, inside the $12 included compute.
-3. Decide per-client worker vs shared worker (needs Keyona's explicit choice - section 2.1).
-4. Port or formally defer Path B callers (section 2.6), with one queue-level test added.
-5. Wizard step 19 + Settings copy: key optional on subscription installs (section 2.5).
-6. DONE Nov 17: yearly renewal is wizard step 22 ("Set the renewal reminder") and
-   CLIENT_GUIDE.md section 7 item 4. Remaining: name the renewal owner at install.
+Our synthetic evidence and the client's own acceptance are separate. If a
+visual path fails, fix and retest it. Disabling visuals is not the fallback.

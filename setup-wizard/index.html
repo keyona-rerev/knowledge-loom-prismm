@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- This site is hosted on Netlify. Anyone can build and deploy a site
+     like this one for free: https://netlify.new/?utm_campaign=loops&utm_source=ai-legible&utm_medium=owned&utm_content=comment&utm_id=e3a1c70f-7444-4916-8c5c-73da73d792e1
+     Netlify hosting facts for this site: static/SSR served via Netlify Edge. -->
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Setup Wizard</title>
 <style>
@@ -18,8 +21,8 @@ h1{font-family:Newsreader,Georgia,serif;font-size:2rem;margin:.2em 0}
 .card h2{margin-top:0;font-family:Newsreader,Georgia,serif}
 .instr{white-space:pre-wrap}
 .hint{font-size:.9rem;color:#4b5563;border-left:3px solid var(--accent);padding-left:10px;margin:14px 0}
-.v{background:var(--soft);border-radius:4px;padding:0 4px;font-family:ui-monospace,Menlo,monospace;font-size:.92em}
-.v.empty{background:#fef3c7;color:var(--warn)}
+.v{color:#102a27;background:#d8eee8;border-radius:4px;padding:0 4px;font-family:ui-monospace,Menlo,monospace;font-size:.92em}
+.v.empty{background:#fff0b3;color:#673800}.copy .v{color:#102a27;background:#d8eee8}.copy .v.empty{color:#673800;background:#fff0b3}
 .field{margin:14px 0}
 .field label{display:block;font-weight:600;font-size:.92rem}
 .field small{display:block;color:#4b5563}
@@ -40,11 +43,14 @@ table{width:100%;border-collapse:collapse;margin-top:10px;font-size:.9rem}
 td{padding:4px 6px;border-top:1px solid var(--line);vertical-align:top;word-break:break-all}
 td:first-child{width:38%;color:#4b5563}
 .note{font-size:.85rem;color:#4b5563;margin-top:24px}
+
+.instr{overflow-wrap:anywhere}.costs{font-size:1rem}.costs th,.costs td{padding:12px 10px;text-align:left;border:1px solid #d9d4c7;word-break:normal;overflow-wrap:anywhere}.costs th{background:#e6f2f0;color:#14213d}.costs td:first-child{width:22%;font-weight:600;color:#14213d}.guide{display:block;width:100%;height:auto;margin-top:16px;border:1px solid var(--line);border-radius:8px}.caption{font-size:.9rem;color:#4b5563}.links{padding-left:20px}.links a{color:#075e58;text-decoration:underline}.review{margin-top:20px;padding:16px;border:2px solid #9bbdb6;border-radius:8px}.review textarea,.field textarea{width:100%;min-height:90px;font:inherit;padding:9px;border:1px solid #a5aab2;border-radius:8px}.review label{display:block;font-weight:600}.review .field{margin-top:18px}.review-status{font-weight:600;color:#075e58}button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{outline:3px solid #b45309;outline-offset:3px}
+@media(max-width:500px){.card{padding:16px}.costs{font-size:.84rem}.costs th,.costs td{padding:7px 5px}.copy{padding-right:12px;padding-top:45px}.copy button{top:7px;right:7px}main{padding-left:10px;padding-right:10px}}
 </style>
 </head>
 <body>
 <main>
-<p style="text-align:right;margin:0;font-size:.9rem"><a href="history.html" style="color:var(--accent)">Version history</a></p>
+<p style="text-align:right;margin:0;font-size:.9rem"><a href='/history' style='color:var(--accent)'>Version history</a></p>
 <h1 id="title">Loading…</h1>
 <p class="intro" id="intro"></p>
 <div class="bar"><i id="fill"></i></div>
@@ -79,6 +85,8 @@ td:first-child{width:38%;color:#4b5563}
   function esc(t){var d=document.createElement('div');d.textContent=t==null?'':String(t);return d.innerHTML;}
   function def(k){for(var j=0;j<(data.variables||[]).length;j++)if(data.variables[j].key===k)return data.variables[j];return {key:k,label:k};}
   function val(k,depth){
+    if(k==='github_username'&&vals.github_profile_url){var gm=vals.github_profile_url.match(/^https:\/\/github\.com\/([A-Za-z0-9-]+)\/?$/);if(gm)return gm[1];}
+    if(k==='supabase_project_ref'&&vals.supabase_dashboard_url){var sm=vals.supabase_dashboard_url.match(/\/project\/([a-z]{20})(?:\/|$)/);if(sm)return sm[1];}
     if(vals[k]!=null&&vals[k]!=='')return vals[k];
     var d=def(k);
     if(d.derive&&!(depth>3)){
@@ -96,7 +104,7 @@ td:first-child{width:38%;color:#4b5563}
   }
   function check(k,v){
     if(!v)return def(k).optional?'':'Required.';
-    if(SECRET.test(v)||v.length>200)return 'This looks like a secret key. Do not paste it here. Enter it only inside your own account.';
+    if(SECRET.test(v)||v.length>(def(k).long?6000:500))return 'This looks like a secret key. Do not paste it here. Enter it only inside your own account.';
     var d=def(k);
     if(d.pattern){try{if(!new RegExp(d.pattern).test(v))return d.pattern_error||'This value does not look right.';}catch(e){}}
     return '';
@@ -111,13 +119,17 @@ td:first-child{width:38%;color:#4b5563}
     var filled=ks.filter(function(k){return val(k);}).length;
     document.getElementById('valsSum').textContent='Your values ('+filled+' of '+ks.length+' saved)';
     document.getElementById('valsTable').innerHTML=ks.map(function(k){
-      return '<tr><td>'+esc(def(k).label||k)+'</td><td>'+(val(k)?esc(val(k)):'<em>not set</em>')+(def(k).derive&&!vals[k]&&val(k)?' <small>(worked out for you)</small>':'')+'</td></tr>';}).join('');
+      return '<tr><td>'+esc(def(k).label||k)+'</td><td>'+(def(k).derive||k==='github_username'||k==='supabase_project_ref'?(val(k)?esc(val(k)):'<em>not set</em>'):'<input style="width:100%;padding:7px;color:#14213d;background:#fff;border:1px solid #a5aab2" aria-label="'+esc(def(k).label||k)+'" data-val-edit="'+k+'" value="'+esc(val(k))+'">')+'</td></tr>';}).join('');
+    Array.prototype.forEach.call(document.querySelectorAll('[data-val-edit]'),function(el){el.onchange=function(){var k=el.getAttribute('data-val-edit'),v=el.value.trim(),m=check(k,v);if(m){el.setCustomValidity(m);el.reportValidity();return;}el.setCustomValidity('');if(v)vals[k]=v;else delete vals[k];save();render();};});
   }
   function render(){
     var s=data.steps[i],n=data.steps.length,c=Object.keys(done).filter(function(k){return done[k];}).length;
     document.getElementById('fill').style.width=Math.round(c/n*100)+'%';
     document.getElementById('meta').textContent='Step '+(i+1)+' of '+n+' · '+c+' done';
     var h='<h2>'+esc(s.title)+'</h2><div class="instr">'+sub(esc(s.instructions).replace(/\{\{/g,'{{'),true)+'</div>';
+    if(s.table){h+='<table class="costs"><thead><tr>'+s.table.headers.map(function(t){return '<th scope="col">'+esc(t)+'</th>';}).join('')+'</tr></thead><tbody>'+s.table.rows.map(function(r){return '<tr>'+r.map(function(t){return '<td>'+esc(t)+'</td>';}).join('')+'</tr>';}).join('')+'</tbody></table>';}
+    if(s.links){h+='<ul class="links">'+s.links.map(function(l){return '<li><a target="_blank" rel="noopener noreferrer" href="'+esc(l.url)+'">'+esc(l.label)+'</a></li>';}).join('')+'</ul>';}
+    if(s.image){h+='<img class="guide" src="'+esc(s.image.src)+'" alt="'+esc(s.image.alt)+'"><p class="caption">'+esc(s.image.caption)+'</p>';}
     (s.collect||[]).forEach(function(k){
       var d=def(k);
       h+='<div class="field"><label for="f_'+k+'">'+esc(d.label||k)+'</label>'+(d.help?'<small>'+esc(d.help)+'</small>':'')+
@@ -126,6 +138,10 @@ td:first-child{width:38%;color:#4b5563}
     (s.copy||[]).forEach(function(b,bi){
       h+='<div class="copy"><span class="lbl">'+esc(b.label||'Copy')+'</span><span id="cp'+bi+'">'+sub(esc(b.text),true)+'</span><button data-cp="'+bi+'">Copy</button></div>';
     });
+    if(s.research_review){
+      h+='<section class="review"><h3>Check the research draft</h3><label for="researchPaste">Paste the JSON from your research chat</label><textarea id="researchPaste" rows="6" placeholder="Paste the JSON object here, not a password or token"></textarea><button id="loadResearch" type="button">Load draft for review</button><p id="researchMsg" class="review-status" aria-live="polite"></p><p>Read and edit the answers below. Blank means not confirmed. Source notes are for your review, not proof by themselves.</p>';
+      ['business_name','business_website','business_location','business_description','target_audience','tone_of_voice','words_to_avoid','logo_url','color_background','color_accent','color_highlight','color_sparing_accent','display_font','body_font','posting_timezone','posting_time','posting_cadence','intake_sources'].forEach(function(k){var d=def(k);h+='<div class="field"><label for="r_'+k+'">'+esc(d.label)+'</label>'+(d.long?'<textarea':'<input')+' id="r_'+k+'" data-review="'+k+'"'+(d.long?'>':' value="'+esc(val(k))+'">')+(d.long?esc(val(k))+'</textarea>':'')+'<div class="err" id="re_'+k+'"></div></div>';});h+='</section>';
+    }
     if(s.verify_hint)h+='<div class="hint">How to check: '+sub(esc(s.verify_hint),true)+'</div>';
     h+='<label class="chk"><input type="checkbox" id="ck"'+(done[i]?' checked':'')+(stepReady(s)?'':' disabled')+'> '+esc(s.checkbox_label||'I did this step')+'</label>';
     document.getElementById('card').innerHTML=h;
@@ -145,6 +161,14 @@ td:first-child{width:38%;color:#4b5563}
       b.onclick=function(){var t=sub(s.copy[+b.getAttribute('data-cp')].text,false);
         try{navigator.clipboard.writeText(t);b.textContent='Copied';setTimeout(function(){b.textContent='Copy';},1200);}catch(e){}};
     });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-review]'),function(el){el.oninput=function(){var k=el.getAttribute('data-review'),v=el.value.trim(),m=v?check(k,v):'';document.getElementById('re_'+k).textContent=m;if(!m){if(v)vals[k]=v;else delete vals[k];}done[i]=false;document.getElementById('ck').checked=false;save();renderVals();};});
+    var lr=document.getElementById('loadResearch');if(lr)lr.onclick=function(){
+      var raw=document.getElementById('researchPaste').value.trim(),obj;try{raw=raw.replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'');obj=JSON.parse(raw);if(!obj||Array.isArray(obj)||typeof obj!=='object')throw 0;}catch(e){document.getElementById('researchMsg').textContent='Could not read that JSON object. Copy only the JSON part of the research answer.';return;}
+      var allowed=['business_name','business_website','business_location','business_description','target_audience','tone_of_voice','words_to_avoid','logo_url','color_background','color_accent','color_highlight','color_sparing_accent','display_font','body_font','posting_timezone','posting_time','posting_cadence','intake_sources'],bad=[],pending={};
+      Object.keys(obj).forEach(function(k){if(allowed.indexOf(k)<0)return;var v=typeof obj[k]==='string'?obj[k].trim():'';if(v&&check(k,v))bad.push(k);else if(v)pending[k]=v;});
+      if(bad.length){document.getElementById('researchMsg').textContent='Nothing loaded. Check these fields: '+bad.join(', ')+'. Never include secret values.';return;}
+      Object.keys(pending).forEach(function(k){vals[k]=pending[k];});done[i]=false;save();render();document.getElementById('researchMsg').textContent='Draft loaded. Review and correct it below, then tick the confirmation only when you agree.';
+    };
     document.getElementById('back').disabled=i===0;
     document.getElementById('next').disabled=i===n-1;
     renderVals();
@@ -180,3 +204,4 @@ td:first-child{width:38%;color:#4b5563}
 </script>
 </body>
 </html>
+<script async src="/.netlify/scripts/hud?variant=public" data-nf-variant="public" data-netlify-site-id="e3a1c70f-7444-4916-8c5c-73da73d792e1" data-app-host="app.netlify.com" data-account-tier="free"></script>

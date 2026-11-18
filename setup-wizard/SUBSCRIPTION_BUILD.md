@@ -1,33 +1,41 @@
 # Subscription-only client install - BUILD handoff
 
-## Decisions (Keyona, Nov 17, 2026) - these override anything below
+## Recommendations recorded Nov 17, 2026 - not verified decisions
 
-1. **Per-client worker.** Each client gets their own copy of the worker on
-   their own GitHub account, signed in with their own Claude plan. Nothing
-   runs on Keyona's accounts. Setup: CLIENT_INSTALL.md in
+The five items below were written down in the Nov 17 build session under the
+heading "Decisions (Keyona, Nov 17, 2026)". They are not confirmed with Keyona
+outside that session record, so treat them as documented recommendations and
+confirm before relying on them. The original wording is preserved in git
+history.
+
+1. **Per-client worker (recommendation).** Each client gets their own copy of
+   the worker on their own GitHub account, signed in with their own Claude
+   plan. Nothing runs on Keyona's accounts. Setup: CLIENT_INSTALL.md in
    keyona-rerev/knowledge-loom-worker.
-2. **Claude Pro only, no API anywhere.** The whole system, A to Z, runs on a
-   Claude Pro plan. No AI API key exists in any path. Gemini and "split" are
-   removed from the wizard.
-3. **Images are built now, not deferred.** Done Nov 17:
-   `generate-draft-visual` and `preview-visual` now enqueue on the subscription
-   queue (`_shared/visual-enqueue.ts`). The worker writes the HTML and renders
-   the PNG in its own sandbox - no external renderer service, no key.
-   `_shared/ai-caller.ts` (the last API-key path) is deleted.
-   Per-install switch: edge secret `VISUALS_ENABLED=true` plus repo variable
-   `VITE_VISUALS_ENABLED=true`. Unset = off, so Keyona's own instance keeps
-   its current behavior until she sets them.
-   Tests: `_shared/visual-enqueue.test.mts` (12) and
-   `_shared/claude-queue.test.mts` (4), including a full admit -> enqueue ->
-   complete round trip with a real PNG.
-4. **Client: Ethel Mitchell** (Wills and Trusts LLC, "Law Talk"), on Claude Pro.
-5. **Martha installs everything herself**, from the setup wizard alone. The
-   worker connection is one button (connect-install in the worker repo):
+2. **Claude Pro only, no API anywhere (recommendation).** The whole system, A
+   to Z, runs on a Claude Pro plan. No AI API key exists in any path. Gemini
+   and "split" are removed from the wizard.
+3. **Images are built now, not deferred (code status - verifiable in the
+   repo).** Done Nov 17: `generate-draft-visual` and `preview-visual` now
+   enqueue on the subscription queue (`_shared/visual-enqueue.ts`). The worker
+   writes the HTML and renders the PNG in its own sandbox - no external
+   renderer service, no key. `_shared/ai-caller.ts` (the last API-key path) is
+   deleted. Per-install switch: edge secret `VISUALS_ENABLED=true` plus repo
+   variable `VITE_VISUALS_ENABLED=true`. Unset = off, so Keyona's own instance
+   keeps its current behavior until she sets them. Tests:
+   `_shared/visual-enqueue.test.mts` (12) and `_shared/claude-queue.test.mts`
+   (4), including a full admit -> enqueue -> complete round trip with a real
+   PNG.
+4. **Client identity (unconfirmed).** The Nov 17 session recorded the client
+   as Ethel Mitchell (Wills and Trusts LLC, "Law Talk"), on Claude Pro. That
+   identity has not been confirmed; keep client-facing material neutral until
+   it is.
+5. **Martha installs everything herself (plan).** From the setup wizard alone.
+   The worker connection is one button (connect-install in the worker repo):
    the installer pastes three tokens into GitHub and never handles a secret.
 
 Still open: the first real run on a Pro plan (usage limits on Pro are lower
 than Max). That run happens at install, on the client's own plan.
-
 ---
 
 

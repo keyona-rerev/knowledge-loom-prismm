@@ -44,7 +44,7 @@ td{padding:4px 6px;border-top:1px solid var(--line);vertical-align:top;word-brea
 td:first-child{width:38%;color:#4b5563}
 .note{font-size:.85rem;color:#4b5563;margin-top:24px}
 
-.instr{overflow-wrap:anywhere}.costs{font-size:1rem}.costs th,.costs td{padding:12px 10px;text-align:left;border:1px solid #d9d4c7;word-break:normal;overflow-wrap:anywhere}.costs th{background:#e6f2f0;color:#14213d}.costs td:first-child{width:22%;font-weight:600;color:#14213d}.guide{display:block;width:100%;height:auto;margin-top:16px;border:1px solid var(--line);border-radius:8px}.caption{font-size:.9rem;color:#4b5563}.links{padding-left:20px}.links a{color:#075e58;text-decoration:underline}.review{margin-top:20px;padding:16px;border:2px solid #9bbdb6;border-radius:8px}.review textarea,.field textarea{width:100%;min-height:90px;font:inherit;padding:9px;border:1px solid #a5aab2;border-radius:8px}.review label{display:block;font-weight:600}.review .field{margin-top:18px}.review-status{font-weight:600;color:#075e58}button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{outline:3px solid #b45309;outline-offset:3px}
+.beginner{margin:18px 0;padding:14px;background:#eef5f3;border:1px solid #9bbdb6;border-radius:8px}.beginner summary{font-weight:600;cursor:pointer;padding:6px 0}.beginner li{margin:12px 0}.beginner code{overflow-wrap:anywhere}.automation-list section{border-top:1px solid var(--line);padding:10px 0}.automation-list h3{margin:4px 0}.instr{overflow-wrap:anywhere}.costs{font-size:1rem}.costs th,.costs td{padding:12px 10px;text-align:left;border:1px solid #d9d4c7;word-break:normal;overflow-wrap:anywhere}.costs th{background:#e6f2f0;color:#14213d}.costs td:first-child{width:22%;font-weight:600;color:#14213d}.guide{display:block;width:100%;height:auto;margin-top:16px;border:1px solid var(--line);border-radius:8px}.caption{font-size:.9rem;color:#4b5563}.links{padding-left:20px}.links a{color:#075e58;text-decoration:underline}.review{margin-top:20px;padding:16px;border:2px solid #9bbdb6;border-radius:8px}.review textarea,.field textarea{width:100%;min-height:90px;font:inherit;padding:9px;border:1px solid #a5aab2;border-radius:8px}.review label{display:block;font-weight:600}.review .field{margin-top:18px}.review-status{font-weight:600;color:#075e58}button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{outline:3px solid #b45309;outline-offset:3px}
 @media(max-width:500px){.card{padding:16px}.costs{font-size:.84rem}.costs th,.costs td{padding:7px 5px}.copy{padding-right:12px;padding-top:45px}.copy button{top:7px;right:7px}main{padding-left:10px;padding-right:10px}}
 </style>
 </head>
@@ -53,6 +53,7 @@ td:first-child{width:38%;color:#4b5563}
 <p style="text-align:right;margin:0;font-size:.9rem"><a href='/history' style='color:var(--accent)'>Version history</a></p>
 <h1 id="title">Loading…</h1>
 <p class="intro" id="intro"></p>
+<details class="vals" id="automation"><summary>How much can Claude do?</summary><div id="automationContent"></div></details>
 <div class="bar"><i id="fill"></i></div>
 <div class="meta" id="meta"></div>
 <details class="vals" id="vals"><summary id="valsSum">Your values</summary><table id="valsTable"></table>
@@ -114,6 +115,8 @@ td:first-child{width:38%;color:#4b5563}
     for(var j=0;j<c.length;j++)if(check(c[j],val(c[j])))return false;
     return true;
   }
+  function terminalHelp(){return `<details class="beginner"><summary>First time using a terminal? Start here.</summary><p>A terminal is a window where you type a command and the computer runs it. A Claude conversation is different. Do not paste a handoff paragraph into the terminal.</p><ol><li><strong>Mac:</strong> press Command + Space, type Terminal, then press Return. A window opens with a blinking cursor.</li><li><strong>Windows:</strong> open Start, type PowerShell and open Windows PowerShell. Use an ordinary window, not Run as administrator. Its line begins with PS. Do not use CMD for PowerShell instructions.</li><li>To install the Claude CLI, use the official first-time terminal guide linked in this step or the local-preparation step. Follow the Mac or Windows section, not both. Close and reopen the terminal afterward. Copy <code>claude --version</code>, paste at the cursor and press Enter/Return once. Success is a version number. If it is not found, stop and use that guide's matching fix. Do not improvise an administrator command.</li><li>To run a command: click its Copy button, click after the terminal cursor, then paste with Command + V on Mac or Ctrl + V on Windows. Press Enter/Return once. Do not type a leading $ or PS prompt. Use one command at a time; wait until the cursor prompt returns before the next.</li><li>For app commands, open a terminal in the prepared app folder. In Claude desktop Code, open the app folder and click Terminal in that session's title bar. Its terminal starts in that folder. Ask Claude to show the folder and INSTALL-PREPARED.json before any app command. Do not guess a cd path.</li><li>Text may scroll while a command works. Do not paste it again while it is busy. A login may open in your browser; complete it there, then return. A password prompt may display no characters while you type. Never type a secret into Claude chat or this wizard.</li><li>Success is the check described in this step, not just the absence of red text. On Error, failed, permission denied or an unexpected account: stop. Keep the error message but remove tokens, passwords and codes before asking for help. Do not continue, reset a database or widen permissions to bypass it.</li></ol><p>If you are at Claude's conversation prompt in the terminal, use a NEW terminal window for manual shell commands. Do not type git or npx commands into the chat by mistake. Keep the original window open for Claude.</p></details>`;}
+  function renderAutomation(){var a=data.automation_summary;if(!a)return;var t=a.table;document.getElementById('automationContent').innerHTML='<h2>'+esc(a.title)+'</h2><p>'+esc(a.instructions)+'</p><div class="automation-list">'+t.rows.map(function(r){return '<section><h3>'+esc(r[0])+'</h3><p><strong>Claude:</strong> '+esc(r[1])+'</p><p><strong>You:</strong> '+esc(r[2])+'</p></section>';}).join('')+'</div>';}
   function renderVals(){
     var ks=(data.variables||[]).map(function(v){return v.key;});
     var filled=ks.filter(function(k){return val(k);}).length;
@@ -128,7 +131,8 @@ td:first-child{width:38%;color:#4b5563}
     document.getElementById('meta').textContent='Step '+(i+1)+' of '+n+' · '+c+' done';
     var h='<h2>'+esc(s.title)+'</h2><div class="instr">'+sub(esc(s.instructions).replace(/\{\{/g,'{{'),true)+'</div>';
     if(s.table){h+='<table class="costs"><thead><tr>'+s.table.headers.map(function(t){return '<th scope="col">'+esc(t)+'</th>';}).join('')+'</tr></thead><tbody>'+s.table.rows.map(function(r){return '<tr>'+r.map(function(t){return '<td>'+esc(t)+'</td>';}).join('')+'</tr>';}).join('')+'</tbody></table>';}
-    if(s.links){h+='<ul class="links">'+s.links.map(function(l){return '<li><a target="_blank" rel="noopener noreferrer" href="'+esc(l.url)+'">'+esc(l.label)+'</a></li>';}).join('')+'</ul>';}
+    if(s.terminal_help){h+=terminalHelp();}
+    if(s.links){h+='<ul class="links">'+s.links.map(function(l){return '<li><a target="_blank" rel="noopener noreferrer" '+(l.download?'download="prepare-app.mjs" ':'')+'href="'+esc(l.url)+'">'+esc(l.label)+'</a></li>';}).join('')+'</ul>';}
     if(s.image){h+='<img class="guide" src="'+esc(s.image.src)+'" alt="'+esc(s.image.alt)+'"><p class="caption">'+esc(s.image.caption)+'</p>';}
     (s.collect||[]).forEach(function(k){
       var d=def(k);
@@ -145,7 +149,7 @@ td:first-child{width:38%;color:#4b5563}
     if(s.verify_hint)h+='<div class="hint">How to check: '+sub(esc(s.verify_hint),true)+'</div>';
     h+='<label class="chk"><input type="checkbox" id="ck"'+(done[i]?' checked':'')+(stepReady(s)?'':' disabled')+'> '+esc(s.checkbox_label||'I did this step')+'</label>';
     document.getElementById('card').innerHTML=h;
-    document.getElementById('ck').onchange=function(e){done[i]=e.target.checked;save();render();};
+    document.getElementById('ck').onchange=function(e){done[i]=e.target.checked;(s.also_completes||[]).forEach(function(k){done[k]=e.target.checked;});save();render();};
     var inputs=document.querySelectorAll('#card input[data-k]');
     Array.prototype.forEach.call(inputs,function(el){
       el.oninput=function(){
@@ -174,8 +178,8 @@ td:first-child{width:38%;color:#4b5563}
     document.getElementById('next').disabled=i===n-1;
     renderVals();
   }
-  document.getElementById('back').onclick=function(){if(i>0){i--;save();render();}};
-  document.getElementById('next').onclick=function(){if(i<data.steps.length-1){i++;save();render();}};
+  document.getElementById('back').onclick=function(){if(i>0){i--;while(data.steps[i].combined_into!=null&&i>0)i--;save();render();}};
+  document.getElementById('next').onclick=function(){if(i<data.steps.length-1){i++;while(data.steps[i].combined_into!=null&&i<data.steps.length-1)i++;save();render();}};
   document.getElementById('copyVals').onclick=function(){
     var t=(data.variables||[]).map(function(v){return v.key+'='+val(v.key);}).join('\n');
     try{navigator.clipboard.writeText(t);}catch(e){}
@@ -199,7 +203,7 @@ td:first-child{width:38%;color:#4b5563}
   fetch('steps.json').then(function(r){return r.json();}).then(function(j){
     data=j;document.title=j.title;document.getElementById('title').textContent=j.title;
     document.getElementById('intro').textContent=j.intro||'';load();
-    if(i>=j.steps.length)i=0;render();
+    if(i>=j.steps.length)i=0;if(j.steps[i].combined_into!=null)i=j.steps[i].combined_into;renderAutomation();render();
   }).catch(function(){document.getElementById('title').textContent='Could not load steps.json';});
 })();
 </script>

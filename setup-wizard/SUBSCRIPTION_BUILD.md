@@ -1,5 +1,33 @@
 # Subscription-only client install - BUILD handoff
 
+## Decisions (Keyona, Nov 17, 2026) - these override anything below
+
+1. **Per-client worker.** Each client gets their own copy of the worker on
+   their own GitHub account, signed in with their own Claude plan. Nothing
+   runs on Keyona's accounts. Setup: CLIENT_INSTALL.md in
+   keyona-rerev/knowledge-loom-worker.
+2. **Claude Pro only, no API anywhere.** The whole system, A to Z, runs on a
+   Claude Pro plan. No AI API key exists in any path. Gemini and "split" are
+   removed from the wizard.
+3. **Images are built now, not deferred.** Done Nov 17:
+   `generate-draft-visual` and `preview-visual` now enqueue on the subscription
+   queue (`_shared/visual-enqueue.ts`). The worker writes the HTML and renders
+   the PNG in its own sandbox - no external renderer service, no key.
+   `_shared/ai-caller.ts` (the last API-key path) is deleted.
+   Per-install switch: edge secret `VISUALS_ENABLED=true` plus repo variable
+   `VITE_VISUALS_ENABLED=true`. Unset = off, so Keyona's own instance keeps
+   its current behavior until she sets them.
+   Tests: `_shared/visual-enqueue.test.mts` (12) and
+   `_shared/claude-queue.test.mts` (4), including a full admit -> enqueue ->
+   complete round trip with a real PNG.
+4. **Client: Ethel Mitchell** (Wills and Trusts LLC, "Law Talk"), on Claude Pro.
+
+Still open: the first real run on a Pro plan (usage limits on Pro are lower
+than Max). That run happens at install, on the client's own plan.
+
+---
+
+
 Written Nov 17, 2026 for the Martha client install. Self-contained: paste this file into a
 build session and no other context is needed. Every claim below names its source file or its
 external source and date. Do not treat anything in the "Open" sections as established.
@@ -48,9 +76,8 @@ the template. A client install does NOT need an AI API key for drafting.
 `ai_endpoint` from the user profile and calls the provider HTTP APIs directly. Remaining
 callers:
 
-- `generate-draft-visual` and `preview-visual` (visual generation; currently OFF in
-  Keyona's own instance pending rollout checks - any client install follows the same rule)
-- `backfill-newsletter-scores` (maintenance backfill; `callAI` also referenced here)
+- (Superseded Nov 17 - see Decisions. Both visual functions are on the queue,
+  and `backfill-newsletter-scores` already ran a queue tick with no callAI.)
 
 ### Settings UI
 

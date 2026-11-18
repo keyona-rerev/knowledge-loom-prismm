@@ -46,6 +46,7 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_SUPABASE_PROJECT_ID: ${{ secrets.VITE_SUPABASE_PROJECT_ID }}
+          VITE_VISUALS_ENABLED: ${{ vars.VITE_VISUALS_ENABLED }}   # per-install image switch; unset = off
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

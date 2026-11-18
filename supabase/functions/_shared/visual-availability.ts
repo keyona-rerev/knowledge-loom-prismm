@@ -1,10 +1,10 @@
-// Server-side mirror of src/lib/visualAvailability.ts (503-honesty debt,
-// 2026-10-29). Visual generation is OFF: renderer unconfigured, ai-caller
-// fail-closed. Gate ATTEMPTS only - never touches existing draft_visuals rows,
-// assets, or profiles.visual_studio_config. Remove this early return only as
-// part of an authorized visuals re-enable.
+// Server-side mirror of src/lib/visualAvailability.ts. Visual generation is
+// a per-install switch: the edge-function secret VISUALS_ENABLED=true turns
+// it on (see visualsEnabled in visual-enqueue.ts). Unset = OFF, and the
+// functions answer this honest 503 before any write. Generation runs on the
+// subscription queue only - there is no paid route to fall back to.
 export const VISUALS_UNAVAILABLE_BODY = {
   error:
-    "Visual generation is temporarily unavailable during the subscription migration. No visual was created and no paid call was made.",
+    "Visual generation is turned off for this install. No visual was created and no paid call was made.",
   code: "VISUALS_UNAVAILABLE",
 } as const;

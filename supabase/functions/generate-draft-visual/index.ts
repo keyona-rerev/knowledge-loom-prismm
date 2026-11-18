@@ -1,349 +1,51 @@
+// generate-draft-visual - queue the branded graphic for one draft.
+// Subscription only: no AI API key, no paid endpoint, no external renderer.
+// The worker (Claude Code on the install owner's own Claude plan) writes the
+// HTML and renders the PNG in its sandbox; claude-job-complete stores it.
+// The client polls draft_visuals for status 'generating' -> 'ready'/'error'.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callAI } from "../_shared/ai-caller.ts";
-import { buildSystemPromptFromConfig, canvasDimsForPlatform, type VisualConfig } from "../_shared/visual-prompt.ts";
-import { platformSpec, resolveDraftPlatform } from "../_shared/publisher/platform-config.ts";
+import { enqueueInteractiveJob } from "../_shared/claude-queue.ts";
+import { makeDb } from "../_shared/supabase-db.ts";
+import { requestDraftVisual, visualsEnabled } from "../_shared/visual-enqueue.ts";
 import { VISUALS_UNAVAILABLE_BODY } from "../_shared/visual-availability.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-// Default design rules. These are overridden per-user if visual_design_rules is
-// set on profiles, and superseded entirely by visual_studio_config once a user
-// has saved anything from the Visual Studio page (see below).
-const DEFAULT_DESIGN_RULES = `DESIGN RULES (read every rule before generating):
-
-WHAT THIS GRAPHIC IS:
-- One central visual element (a number, a before/after split, an icon, a simple diagram showing how pieces connect) PLUS a statement of 10 words or fewer. That is the whole graphic.
-- The statement distills the POST'S CORE IDEA into something a 65-year-old can read from across a table. Not a summary. Not a quote. A declaration.
-- The visual element must show a transformation, a contrast, a logic connection, or a scale — something that makes the idea land without words.
-
-WHAT THIS GRAPHIC IS NOT:
-- NOT a text card. Do not restate the post. Do not paste bullet points. Do not reproduce paragraphs.
-- NOT a slide. No title + body layout. No headers over body copy.
-- NOT a listicle. No numbered lists, no bullet points, no checkboxes.
-- If you find yourself writing more than 10 words of main content, stop and rethink.
-
-TYPOGRAPHY:
-- Main statement: minimum 72px, maximum 96px, Bricolage Grotesque 800 weight. Bold enough to read as a thumbnail.
-- Supporting label (if any): maximum 24px, Hanken Grotesk 400. One line only.
-- Our audience skews older — legibility is non-negotiable. Nothing below 20px anywhere.
-- Maximum two type sizes on the canvas. No more.
-
-LAYOUT:
-- The visual element occupies the dominant portion of the canvas.
-- The statement anchors below or beside it — not layered on top of it.
-- Generous whitespace. Nothing crammed. Breathing room is part of the design.
-- Logo: bottom-left, height 56px minimum. Visually prominent, never tiny or faint.
-
-VISUAL ELEMENT OPTIONS (pick one that fits the content):
-- A large hero number (e.g. "$84T", "72%", "1 in 3") stark and full-bleed
-- A before/after split — two halves of the canvas showing contrast
-- A simple two-or-three node diagram showing how things connect or flow
-- A single icon or symbol at large scale that represents the idea
-
-FORBIDDEN:
-- No pill labels, category tags, eyebrow text, or badge shapes
-- No card boxes, bordered containers, rounded rect panels, or frosted-glass overlays
-- No decorative icons used as decoration (only as the central visual element)
-- No em-dashes
-- Never mention probate`;
-
-// Legacy hardcoded brand block. Used ONLY as a fallback for users who have
-// never saved anything from the Visual Studio page (profiles.visual_studio_config
-// is null/empty) — this keeps every existing user's output byte-identical to
-// before Visual Studio was wired in. The moment a user saves Visual Studio
-// once, this switches to buildSystemPromptFromConfig entirely, with no path
-// back to these hardcoded values short of them explicitly re-editing Visual
-// Studio itself.
-//
-// Parametrized only on canvas size/orientation label, so an Instagram draft
-// hitting this fallback (a user who has never touched Visual Studio) still
-// gets a sensible square canvas instead of LinkedIn's landscape crop; the
-// LinkedIn case renders byte-identical to the original hardcoded prompt.
-function legacyBaseSystemPrompt(width: number, height: number, orientation: string): string {
-  return `You are a visual designer for Prismm, inheritance infrastructure for community banks and credit unions.
-
-BRAND:
-- Colors: Navy #1b2b45 (background base), Coral #f9655b (accent/energy), Purple #6658ea (highlights), Yellow #f5c070 (sparingly), White #ffffff, Paper #f4f1ea
-- Fonts: Bricolage Grotesque (display, 700-800) + Hanken Grotesk (body, 400-500) via Google Fonts
-- Logo: https://res.cloudinary.com/dialhpycd/image/upload/v1772044659/prismm-logo-dark-bright_2x-removebg-preview_ut98x4.png
-- Tone: calm authority. Trusted financial software with a human pulse. Direct, trustworthy, human.
-- Navy base. Soft radial or linear gradients of purple or coral as background texture. No harsh lines.
-
-VISUAL TYPES:
-1. hero_number — one large stat or number dominates the canvas, 10-word-or-fewer statement below
-2. before_after — canvas split into two halves showing contrast (without Prismm vs with, old way vs new way)
-3. logic_diagram — 2-3 connected nodes or steps showing how something works, minimal labels only
-4. transformation — a single symbolic visual (icon, shape, arrow) at large scale showing change or direction
-
-SELECTION RULE: Pick the type that makes the post's core idea land visually. If the post has a number or stat, use hero_number. If it's about a problem being solved, use before_after. If it explains a process, use logic_diagram. Otherwise, transformation.
-
-OUTPUT RULES:
-- Return ONLY a JSON object, no markdown, no backticks
-- JSON must have exactly two keys: "visual_type" (string) and "html" (string)
-- The html must be a complete self-contained HTML document
-- Include Google Fonts import for Bricolage Grotesque and Hanken Grotesk
-- Fixed width ${width}px, height ${height}px (${orientation})
-- Inline CSS only, no external stylesheets
-- Navy background (#1b2b45) as the base
-- The 10-word-or-fewer statement must be the insight extracted from the draft, NOT a copy of its opening line`;
-}
-
-// Renders HTML to a PNG via the prismm-renderer service (real headless
-// Chromium via Puppeteer: page.setContent + waitUntil networkidle0, then
-// page.screenshot). This is a deterministic, full-fidelity conversion of the
-// HTML/CSS into pixels, not an approximation, and it runs entirely
-// server-side so it never depends on a browser tab staying open.
-//
-// Best-effort: if the renderer is unreachable or misconfigured, this returns
-// null and the visual still saves with status "ready" and no image_url. The
-// client's ensureVisualImageUploaded (html2canvas-based) remains as a
-// fallback capture path for that case, so a renderer outage degrades
-// gracefully instead of blocking visual generation entirely.
-async function renderToPng(html: string, width: number, height: number): Promise<Uint8Array | null> {
-  const rendererUrl = Deno.env.get("RENDERER_URL");
-  const rendererApiKey = Deno.env.get("RENDERER_API_KEY");
-  if (!rendererUrl || !rendererApiKey) {
-    console.error("RENDERER_URL or RENDERER_API_KEY not configured; skipping server-side render.");
-    return null;
-  }
-
-  try {
-    const res = await fetch(`${rendererUrl}/render`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": rendererApiKey,
-      },
-      body: JSON.stringify({ html, width, height }),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      console.error(`Renderer returned ${res.status}: ${errText}`);
-      return null;
-    }
-
-    const body = await res.json();
-    if (!body?.success || !body?.image) {
-      console.error("Renderer response missing image data:", JSON.stringify(body));
-      return null;
-    }
-
-    const binary = atob(body.image);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    return bytes;
-  } catch (err) {
-    console.error("Renderer call failed:", err);
-    return null;
-  }
-}
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-
-  // 503-honesty gate (2026-10-29): visual generation is OFF during the
-  // subscription migration - renderer unconfigured, ai-caller fail-closed.
-  // Answer honestly BEFORE any draft_visuals write, renderer call, or AI
-  // attempt. Everything below is preserved intact for the authorized
-  // re-enable; remove only this early return then.
-  return new Response(JSON.stringify(VISUALS_UNAVAILABLE_BODY), {
-    status: 503,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL") ?? "",
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-  );
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Per-install switch (VISUALS_ENABLED=true). Off = honest 503, no writes.
+  if (!visualsEnabled((k) => Deno.env.get(k))) return json(VISUALS_UNAVAILABLE_BODY, 503);
 
   try {
-    const { draftId, userId } = await req.json();
+    const supabase = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) return json({ error: "Authentication required" }, 401);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""));
+    if (authError || !user) return json({ error: "Invalid or expired authentication token" }, 401);
 
-    if (!draftId || !userId) {
-      return new Response(
-        JSON.stringify({ error: "Missing draftId or userId" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    // The owner comes from the verified token only, never from the body.
+    const { draftId } = await req.json().catch(() => ({}));
+    if (!draftId || typeof draftId !== "string") return json({ error: "draftId is required" }, 400);
+
+    // Format platform is the fallback when the draft row has no platform.
+    const { data: draftFormat } = await supabase.from("drafts").select("format_id").eq("id", draftId).maybeSingle();
+    let formatPlatform: string | null = null;
+    if (draftFormat?.format_id) {
+      const { data: fmt } = await supabase.from("formats").select("platform").eq("id", draftFormat.format_id).maybeSingle();
+      formatPlatform = fmt?.platform ?? null;
     }
 
-    const { data: draft } = await supabase
-      .from("drafts")
-      .select("*")
-      .eq("id", draftId)
-      .single();
-
-    if (!draft) {
-      return new Response(
-        JSON.stringify({ error: "Draft not found" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("ai_provider, ai_model, ai_api_key, ai_endpoint, visual_design_rules, visual_studio_config, business_name, business_description")
-      .eq("user_id", userId)
-      .single();
-
-    if (!profile?.ai_api_key) {
-      return new Response(
-        JSON.stringify({ error: "No AI API key configured. Add your key in Settings." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // A draft carries no platform column of its own; it's reachable only via
-    // its format (format_id -> formats.platform), defaulting to LinkedIn for
-    // ad-hoc drafts predating the format system.
-    const platform = await resolveDraftPlatform(supabase, draft.format_id);
-    const spec = platformSpec(platform);
-    const legacyOrientation = platform === "instagram" ? "Instagram square" : "LinkedIn landscape";
-
-    // Visual Studio's saved config is the permanent source once it exists —
-    // no path back to the legacy hardcoded prompt below short of a user
-    // explicitly clearing it. Until a user has saved Visual Studio at least
-    // once, behavior is byte-identical to before it was wired in (legacy
-    // prompt + visual_design_rules override, exactly as before) for LinkedIn;
-    // an Instagram draft hitting this same fallback still gets a square
-    // canvas instead of LinkedIn's landscape crop.
-    let systemPrompt: string;
-    let canvasWidth = spec.canvasWidth;
-    let canvasHeight = spec.canvasHeight;
-    const rawConfig = (profile as any).visual_studio_config as string | null | undefined;
-    if (rawConfig && rawConfig.trim()) {
-      try {
-        const config = JSON.parse(rawConfig) as VisualConfig;
-        systemPrompt = buildSystemPromptFromConfig(config, profile.business_name, profile.business_description, platform);
-        const dims = canvasDimsForPlatform(config, platform);
-        canvasWidth = dims.width;
-        canvasHeight = dims.height;
-      } catch (e) {
-        console.error("Failed to parse visual_studio_config, falling back to legacy prompt:", e);
-        const designRules = (profile as any).visual_design_rules?.trim() || DEFAULT_DESIGN_RULES;
-        systemPrompt = `${legacyBaseSystemPrompt(canvasWidth, canvasHeight, legacyOrientation)}\n\n${designRules}`;
-      }
-    } else {
-      const designRules: string =
-        (profile as any).visual_design_rules?.trim()
-          ? (profile as any).visual_design_rules.trim()
-          : DEFAULT_DESIGN_RULES;
-      systemPrompt = `${legacyBaseSystemPrompt(canvasWidth, canvasHeight, legacyOrientation)}\n\n${designRules}`;
-    }
-
-    // Insert generating placeholder
-    const { data: visual } = await supabase
-      .from("draft_visuals")
-      .insert({
-        draft_id: draftId,
-        user_id: userId,
-        visual_type: "generating",
-        html_content: "",
-        status: "generating",
-      })
-      .select()
-      .single();
-
-    if (!visual) {
-      return new Response(
-        JSON.stringify({ error: "Failed to create visual record" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const draftContent = `TITLE: ${draft.title || "Untitled"}\n\nBODY:\n${draft.body || ""}\n\nSEED INSIGHT: ${draft.seed_insight || ""}`;
-
-    const aiProfile = {
-      ai_provider: profile.ai_provider,
-      ai_model: profile.ai_model,
-      ai_api_key: profile.ai_api_key,
-      ai_endpoint: profile.ai_endpoint,
-    };
-
-    let response;
-    try {
-      response = await callAI(
-        aiProfile,
-        [
-          {
-            role: "user",
-            content: `DRAFT CONTENT:\n${draftContent}\n\nRead the draft. Extract the single most important idea. Choose the visual type that makes that idea land without words. Write a statement of 10 words or fewer that declares the idea — do not quote or restate the post opening. Generate the complete branded HTML visual following all design rules. Return only the JSON object with "visual_type" and "html" keys.`,
-          },
-        ],
-        systemPrompt
-      );
-    } catch (aiError) {
-      await supabase
-        .from("draft_visuals")
-        .update({ status: "error", error_message: String(aiError) })
-        .eq("id", visual.id);
-      return new Response(
-        JSON.stringify({ error: "AI generation failed" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    let parsed: { visual_type: string; html: string };
-    try {
-      const cleaned = response.text
-        .replace(/^```json\s*/i, "")
-        .replace(/^```\s*/i, "")
-        .replace(/\s*```$/i, "")
-        .trim();
-      parsed = JSON.parse(cleaned);
-    } catch {
-      await supabase
-        .from("draft_visuals")
-        .update({ status: "error", error_message: "Failed to parse AI response as JSON" })
-        .eq("id", visual.id);
-      return new Response(
-        JSON.stringify({ error: "Failed to parse visual from AI response" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Render server-side (real Chromium via prismm-renderer) and upload,
-    // so image_url is populated in the same request that marks the visual
-    // ready — no client capture step required for the common case.
-    let imageUrl: string | null = null;
-    const pngBytes = await renderToPng(parsed.html, canvasWidth, canvasHeight);
-    if (pngBytes) {
-      const path = `${userId}/${visual.id}.png`;
-      const { error: uploadError } = await supabase.storage
-        .from("draft-visuals")
-        .upload(path, pngBytes, { contentType: "image/png", upsert: true });
-      if (uploadError) {
-        console.error("Server-side image upload failed:", uploadError);
-      } else {
-        const { data: pub } = supabase.storage.from("draft-visuals").getPublicUrl(path);
-        imageUrl = pub?.publicUrl ?? null;
-      }
-    }
-
-    await supabase
-      .from("draft_visuals")
-      .update({
-        visual_type: parsed.visual_type,
-        html_content: parsed.html,
-        status: "ready",
-        image_url: imageUrl,
-        canvas_width: canvasWidth,
-        canvas_height: canvasHeight,
-      })
-      .eq("id", visual.id);
-
-    return new Response(
-      JSON.stringify({ success: true, visualId: visual.id, visualType: parsed.visual_type, imageUrl }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    const r = await requestDraftVisual(makeDb(supabase), supabase, enqueueInteractiveJob, {
+      authUserId: user.id, draftId, formatPlatform,
+    });
+    return json(r.body, r.status);
   } catch (error) {
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
   }
 });

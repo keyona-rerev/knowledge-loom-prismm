@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import { invokeQueued } from "@/lib/invokeQueued";
 import { VISUAL_GENERATION_AVAILABLE, VISUAL_UNAVAILABLE_NOTE } from "@/lib/visualAvailability";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -223,18 +224,18 @@ const VisualStudio = () => {
     setPreviewLoading(true);
     setPreviewError(null);
     try {
-      const { data, error } = await supabase.functions.invoke("preview-visual", {
-        body: {
-          config: buildCurrentConfig(),
-          draftId: selectedDraftId === SAMPLE_OPTION_VALUE ? undefined : selectedDraftId,
-          platform: previewPlatform,
-        },
-      });
+      // Queued on the Claude subscription worker: 202 { jobId }, then poll.
+      // The result is { visual_type, html } - html only, no PNG for previews.
+      const { data, error } = await invokeQueued("preview-visual", {
+        config: buildCurrentConfig(),
+        draftId: selectedDraftId === SAMPLE_OPTION_VALUE ? undefined : selectedDraftId,
+        platform: previewPlatform,
+      }, { pollMs: 5000, maxPolls: 120 });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      setPreviewImage(data?.imageBase64 || null);
-      setPreviewHtml(data?.html || null);
-      if (!data?.imageBase64 && !data?.html) {
+      setPreviewImage(null);
+      setPreviewHtml(typeof data?.html === "string" ? data.html : null);
+      if (!data?.html) {
         setPreviewError("Preview generated but returned no content.");
       }
     } catch (err: any) {
@@ -406,6 +407,7 @@ const VisualStudio = () => {
               ) : previewHtml ? (
                 <iframe
                   title="Visual preview"
+                  sandbox=""
                   srcDoc={previewHtml}
                   className="w-full h-full border-0"
                   style={{ width: previewCanvas.width, height: previewCanvas.height, transform: "scale(1)" }}

@@ -3,14 +3,6 @@
   "intro": "Set up your own Insight Forge step by step. Enter each value once. The wizard keeps it and fills it into every later step. Each client gets its own database, its own app repo and one login. You can stop at any step - everything you enter is saved in this browser, and you pick up exactly where you left off.",
   "variables": [
     {
-      "key": "ai_provider",
-      "label": "AI provider choice",
-      "help": "What you picked in the Choose your AI step: claude, gemini, or split.",
-      "placeholder": "claude",
-      "pattern": "^(claude|gemini|split)$",
-      "pattern_error": "Enter claude, gemini, or split - the choice you made in the Choose your AI step."
-    },
-    {
       "key": "business_name",
       "label": "Business name",
       "help": "Same as in your intake record.",
@@ -128,24 +120,22 @@
   "steps": [
     {
       "title": "What this costs",
-      "instructions": "Read this first so nothing surprises you later. All prices checked November 17, 2026 - providers change prices, so glance at their pages if it has been a while.\n\nGitHub: $0 on the free plan. GitHub Pages (what hosts your app) is free on public repositories. If you keep your repo private, Pages needs GitHub's paid personal plan, a few dollars a month.\n\nSupabase (your database): $0 on the free tier, 500 MB - plenty for one business. Note: free projects pause after a week with no activity. If that ever happens, reopening the project in Supabase restores it. Their Pro plan ($25/month) removes the pause.\n\nResend (sends your alert emails): $0 up to 3,000 emails a month, 100 a day. You will send a handful a week.\n\nZernio (publishes to LinkedIn): your first 2 connected social accounts are free, then $6/month per account. One LinkedIn account: $0.\n\nAI: runs on your own subscription or provider key - you make that choice in the next step. Claude Pro is $20/month; Max is $100/month.\n\nThe free tiers above can cover hosting, database and email. The AI line is whatever plan you pick in the next step.",
+      "instructions": "Read this first so nothing surprises you later. All prices checked November 17, 2026 - providers change prices, so glance at their pages if it has been a while.\n\nGitHub: $0 on the free plan. GitHub Pages (what hosts your app) is free on public repositories. If you keep your repo private, Pages needs GitHub's paid personal plan, a few dollars a month.\n\nSupabase (your database): $0 on the free tier, 500 MB - plenty for one business. Note: free projects pause after a week with no activity. If that ever happens, reopening the project in Supabase restores it. Their Pro plan ($25/month) removes the pause.\n\nResend (sends your alert emails): $0 up to 3,000 emails a month, 100 a day. You will send a handful a week.\n\nZernio (publishes to LinkedIn): your first 2 connected social accounts are free, then $6/month per account. One LinkedIn account: $0.\n\nAI: Claude Pro, $20/month ($17/month billed yearly). This install runs on Claude Pro only. It uses no AI API key and has no per-use AI bill. Your Claude Pro plan writes every draft and every image.\n\nGitHub Actions (runs the AI worker on your GitHub account): GitHub Free includes $12/month of compute. Measured on real runs, one draft uses about 2 cents of it. Set a budget cap in GitHub so it can never bill you past the free amount.\n\nThe free tiers above can cover hosting, database, email and the worker. Your one standing AI bill is Claude Pro.",
       "checkbox_label": "I know what this costs",
       "verify_hint": "No surprises: every later step that touches a paid service links back to this list."
     },
     {
-      "title": "Choose your AI",
-      "instructions": "Decide how the AI side runs before anything is built. Pick one: all-Claude, all-Gemini, or split (one for drafting, another for images or checks). Use the one you already pay for and open most - this system never adds a second AI bill on purpose.\n\nOne honest limit, checked November 17, 2026: Anthropic's rules allow signing in to its own Claude Code app with a Claude subscription, so the Claude path is the one being set up to run without an API key. Google's own Gemini CLI authentication guide lists an API key or Vertex AI for automatic (headless) runs - if you pick gemini or split, plan on a Gemini API key for those parts.\n\nThen use the copy block below. Paste it into your Claude or Gemini chat. It interviews you about your business, one question at a time, and gives back a short profile plus ready-to-import lines. Keep that answer - the next step imports it.",
-      "collect": [
-        "ai_provider"
-      ],
+      "title": "Your AI: Claude Pro",
+      "instructions": "This system runs on Claude Pro, and only on Claude Pro. You need a Claude Pro account before you start. Sign up or check your plan at claude.ai/settings/billing. A free Claude account does not work.\n\nNo AI API key is used anywhere in this install. Your Pro plan writes your drafts and your images through a worker on your own GitHub account. Nothing runs on anyone else's account.\n\nNow copy the block below. Paste it into a new Claude chat. Claude asks you six questions, one at a time, and gives back a short business profile plus ready-to-import lines. Keep that answer. The next step imports it.",
+      "collect": null,
       "copy": [
         {
-          "label": "Paste this into your Claude or Gemini",
+          "label": "Paste this into a new Claude chat",
           "text": "You are helping me set up a content system for my business. Ask me these questions one at a time and remember my answers: What does my business do and who do we serve? What offers or services do we want to be known for? What topics should we never post about? Describe my voice - formal, warm, direct? Who are three peers whose content I respect? How often do I want to post, and at what time of day, in what time zone? When you have all six answers, do two things: (1) summarize them as a short business profile I can keep, and (2) give me my answers as these exact lines so I can import them into my setup wizard: business_name=<my business name>, posting_cadence=<how often I chose>, posting_time=<the time I chose>, posting_timezone=<my time zone>."
         }
       ],
-      "checkbox_label": "My AI choice is saved and I have my business profile",
-      "verify_hint": "Your values shows your AI choice, and your chat holds the profile with the import lines."
+      "checkbox_label": "I have Claude Pro and my business profile",
+      "verify_hint": "Your Claude plan page shows Pro, and your chat holds the profile with the import lines."
     },
     {
       "title": "Load your intake answers",
@@ -246,15 +236,19 @@
     },
     {
       "title": "Deploy the server functions",
-      "instructions": "Run this command in your repo folder. It uploads all the functions.",
+      "instructions": "Run these two commands in your repo folder. The first uploads all the functions. The second turns on branded images for your posts.",
       "copy": [
         {
           "label": "Terminal command",
           "text": "npx supabase functions deploy --project-ref {{supabase_project_ref}}"
+        },
+        {
+          "label": "Terminal command: turn on images",
+          "text": "npx supabase secrets set VISUALS_ENABLED=true --project-ref {{supabase_project_ref}}"
         }
       ],
       "checkbox_label": "The deploy finished",
-      "verify_hint": "Supabase, Edge Functions, lists fire-due-schedules and check-approved-queue."
+      "verify_hint": "Supabase, Edge Functions, lists fire-due-schedules and generate-draft-visual. Edge Function Secrets lists VISUALS_ENABLED."
     },
     {
       "title": "Add your email key",
@@ -270,7 +264,7 @@
     },
     {
       "title": "Add the build settings in GitHub",
-      "instructions": "In your repo, open Settings, Secrets and variables, Actions. Add three repository secrets with these exact names. For the publishable key, open Supabase, Project Settings, API Keys. Copy the publishable key into GitHub only.",
+      "instructions": "In your repo, open Settings, Secrets and variables, Actions. Add three repository secrets with these exact names. For the publishable key, open Supabase, Project Settings, API Keys. Copy the publishable key into GitHub only.\n\nThen open the Variables tab on the same page. Add one repository variable. It turns on images in the app.",
       "copy": [
         {
           "label": "Secret 1: name, then value",
@@ -283,10 +277,14 @@
         {
           "label": "Secret 3: name only",
           "text": "VITE_SUPABASE_PUBLISHABLE_KEY\n(paste the key from Supabase inside GitHub)"
+        },
+        {
+          "label": "Variable: name, then value",
+          "text": "VITE_VISUALS_ENABLED\ntrue"
         }
       ],
-      "checkbox_label": "All three secrets exist",
-      "verify_hint": "GitHub shows three secrets with these names."
+      "checkbox_label": "All three secrets and the variable exist",
+      "verify_hint": "GitHub shows three secrets and one variable with these names."
     },
     {
       "title": "Turn on GitHub Pages",
@@ -335,9 +333,9 @@
     },
     {
       "title": "Connect the AI",
-      "instructions": "No key goes in this wizard. Drafting runs on the AI account your installer connects for you. They follow SUBSCRIPTION_BUILD.md in the repo to set it up.\n\nWith claude (your pick in Choose your AI), the aim is drafting with no API key: Anthropic's rules allow signing in to its own Claude Code app with a subscription (checked November 17, 2026), and your installer confirms the exact setup when they connect it. With gemini or split, plan on a Gemini API key for the automatic parts - Google's own guide lists API key or Vertex AI for automatic runs - and your installer confirms that too.\n\nThe AI key field in the app's Settings is optional today: it only powers visual drafts (which stay off for now) and a newsletter-score backfill. If you ever need it, paste the key in the app's own Settings, never here.\n\nIf the AI is not connected yet, this step simply waits - leave it unchecked and finish the rest.",
-      "checkbox_label": "My installer confirmed the AI is connected",
-      "verify_hint": "Make one test draft in the app. No error means drafting is connected.",
+      "instructions": "Your installer does this step with you. It takes one short session. No key is pasted anywhere, and no key is typed into this wizard.\n\nWhat happens: your installer copies the AI worker to your GitHub account. Then they run one command that opens a Claude sign-in page. You sign in with YOUR Claude Pro account. That creates a sign-in token for your own plan only. Your installer stores it as a secret in your worker repo, where nobody can read it back.\n\nWhy: the worker is Claude's own Claude Code app, running on your GitHub. It signs in with your Pro plan. That is how your drafts and images are made with no API key. Your data stays in your accounts.\n\nYour installer follows CLIENT_INSTALL.md in the worker repo for the exact steps. When they finish, make one test draft in the app.",
+      "checkbox_label": "I signed in with my Claude Pro account and my installer confirmed the worker is connected",
+      "verify_hint": "Make one test draft and approve it. The draft appears, and its image appears a few minutes later.",
       "collect": null
     },
     {
@@ -360,9 +358,9 @@
     },
     {
       "title": "Set the renewal reminder",
-      "instructions": "The AI sign-in from 'Connect the AI' does not last forever. If it uses a Claude setup token, Anthropic's own guide says that token lasts one year (code.claude.com/docs/en/authentication, checked November 17, 2026); an API key can also be revoked or rotated at any time. Check the expiry the provider shows for this install, set a calendar reminder ahead of it, and write down who owns the renewal. A reminder lowers the chance of a silent stop - it cannot prevent one.",
+      "instructions": "The Claude sign-in from 'Connect the AI' does not last forever. Anthropic's own guide says the setup token lasts one year (code.claude.com/docs/en/authentication, checked November 17, 2026). It can also stop early if your Pro plan lapses or changes. Set a calendar reminder 11 months from your connect date, and write down who owns the renewal. A reminder lowers the chance of a silent stop - it cannot prevent one.",
       "checkbox_label": "Renewal reminder set and owner written down",
-      "verify_hint": "A reminder exists ahead of the provider-shown expiry, and the renewal owner is named."
+      "verify_hint": "A reminder exists 11 months after the connect date, and the renewal owner is named."
     }
   ]
 }

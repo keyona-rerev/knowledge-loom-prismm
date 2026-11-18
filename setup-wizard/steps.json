@@ -316,7 +316,7 @@
         }
       ],
       "image": {
-        "src": "assets/github-profile-guide.png",
+        "src": "github-profile-guide.png",
         "alt": "Actual Chrome browser showing GitHub octocat profile with the browser address bar circled in red",
         "caption": "Actual browser screenshot with its address bar circled. Example only: use the installation account profile, not octocat."
       },

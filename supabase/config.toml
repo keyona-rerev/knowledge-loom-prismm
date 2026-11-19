@@ -1,4 +1,4 @@
-project_id = "xtaslgxrgzksojtoekmz"
+project_id = "bzykoqpjbzaojpbroelu"
 
 [functions.create-manual-source]
 verify_jwt = true
@@ -34,3 +34,24 @@ verify_jwt = false
 # Cron entrypoint - daily low-queue email alert, same shared-secret pattern
 [functions.check-approved-queue]
 verify_jwt = false
+
+[functions.claude-job-claim]
+verify_jwt = false
+
+[functions.claude-job-fail]
+verify_jwt = false
+
+[functions.claude-job-sweep]
+verify_jwt = false
+
+[functions.claude-job-complete]
+verify_jwt = false
+
+[functions.claude-job-redispatch]
+verify_jwt = false
+
+[functions.generate-draft-visual]
+verify_jwt = true
+
+[functions.preview-visual]
+verify_jwt = true

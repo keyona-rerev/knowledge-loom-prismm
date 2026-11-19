@@ -1,12 +1,13 @@
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, CalendarClock, CalendarDays, Send } from "lucide-react";
+import { ArrowLeft, CalendarClock, CalendarDays, Send, Linkedin } from "lucide-react";
 import { CadenceTab } from "@/components/schedule/CadenceTab";
 import { ScheduleCalendar } from "@/components/calendar/ScheduleCalendar";
 import { PostedTab } from "@/components/schedule/PostedTab";
+import { FeedPreviewTab } from "@/components/schedule/FeedPreviewTab";
 
-const VALID_TABS = ["cadence", "upcoming", "posted"];
+const VALID_TABS = ["cadence", "upcoming", "posted", "preview"];
 
 const Schedule = () => {
   const navigate = useNavigate();
@@ -32,6 +33,7 @@ const Schedule = () => {
             <TabsTrigger value="cadence"><CalendarClock className="h-4 w-4 mr-2" />Cadence</TabsTrigger>
             <TabsTrigger value="upcoming"><CalendarDays className="h-4 w-4 mr-2" />Upcoming</TabsTrigger>
             <TabsTrigger value="posted"><Send className="h-4 w-4 mr-2" />Posted</TabsTrigger>
+            <TabsTrigger value="preview"><Linkedin className="h-4 w-4 mr-2" />Preview</TabsTrigger>
           </TabsList>
 
           <TabsContent value="cadence">
@@ -46,6 +48,10 @@ const Schedule = () => {
 
           <TabsContent value="posted">
             <PostedTab />
+          </TabsContent>
+
+          <TabsContent value="preview">
+            <FeedPreviewTab />
           </TabsContent>
         </Tabs>
       </main>

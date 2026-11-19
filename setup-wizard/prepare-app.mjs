@@ -25,6 +25,16 @@ export function patchFiles(folder,owner,repo){
  fs.writeFileSync(app,b.replace(route,`basename="/${repo}"`));
  const pa=fs.readFileSync(vite,'utf8'),pb=fs.readFileSync(app,'utf8');
  if(!pa.includes(`base: '/${repo}/'`)||!pb.includes(`basename="/${repo}"`))fail('Path verification failed. Do not publish.');
+ const cfg=path.join(folder,'supabase','config.toml');
+ fs.writeFileSync(cfg,fs.readFileSync(cfg,'utf8').replace(/^project_id\s*=.*$/m,'project_id = "insightforge-unlinked"'));
+ fs.writeFileSync(path.join(folder,'.env.example'),'# Supply ONLY the approved new project values. Never reuse template values.\nVITE_SUPABASE_PROJECT_ID=""\nVITE_SUPABASE_PUBLISHABLE_KEY=""\nVITE_SUPABASE_URL=""\n');
+ // Historical migrations must never call a template project during a fresh install.
+ const migrations=path.join(folder,'supabase','migrations');
+ for(const name of fs.readdirSync(migrations).filter(n=>n.endsWith('.sql'))){
+  const file=path.join(migrations,name),before=fs.readFileSync(file,'utf8');
+  const after=before.replace(/https:\/\/[a-z]{20}\.supabase\.co/g,'https://unconfigured.invalid').replaceAll('https://keyona-rerev.github.io/knowledge-loom-prismm/','').replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,'template-key-not-configured');
+  if(after!==before)fs.writeFileSync(file,after);
+ }
  return {owner,repo,app_url:`https://${owner}.github.io/${repo}/`,source_commit:SOURCE_COMMIT,local_only:true,published:false};
 }
 export function prepare({workspace,owner,repo,execute=run}){
@@ -36,10 +46,14 @@ export function prepare({workspace,owner,repo,execute=run}){
  execute('git',['init'],folder);
  execute('git',['remote','add','origin',SOURCE_URL],folder);
  execute('git',['fetch','--depth','1','origin',SOURCE_COMMIT],folder);
- execute('git',['checkout','-b','insightforge-install','FETCH_HEAD'],folder);
+ execute('git',['checkout','--detach','FETCH_HEAD'],folder);
+ // A new root prevents the fetched template's .env/history from being pushed.
+ execute('git',['checkout','--orphan','main'],folder);
  const report=patchFiles(folder,owner,repo);
  execute('git',['rm','--ignore-unmatch','-f','.env'],folder);
  execute('git',['rm','--ignore-unmatch','-rf','setup-wizard'],folder);
+ // App installations deploy their database explicitly; do not copy source auto-deploy.
+ execute('git',['rm','--ignore-unmatch','-f','.github/workflows/main.yml','supabase/seed_knowledge_loom.sql'],folder);
  execute('git',['remote','set-url','origin',`https://github.com/${owner}/${repo}.git`],folder);
  execute('git',['diff','--check'],folder);
  if(fs.existsSync(path.join(folder,'.env'))||fs.existsSync(path.join(folder,'setup-wizard')))fail('Template cleanup did not finish. Do not publish.');

@@ -106,8 +106,11 @@ export function buildSystemPromptFromConfig(
   const { width, height } = canvasDimsForPlatform(config, platform);
   const platformLabel = platformSpec(platform).label;
   const rulesLines: string[] = ["DESIGN RULES (read every rule before generating):"];
-  const dos = config.design_rules.filter((r) => r.tag === "do");
-  const avoids = config.design_rules.filter((r) => r.tag === "avoid");
+  // F15: tolerate partial/empty configs (e.g. a bare {} from preview) instead of
+  // crashing on undefined design_rules. Absent rules mean no DO/AVOID section.
+  const designRules = Array.isArray(config?.design_rules) ? config.design_rules : [];
+  const dos = designRules.filter((r) => r && r.tag === "do");
+  const avoids = designRules.filter((r) => r && r.tag === "avoid");
   if (dos.length) {
     rulesLines.push("", "DO:");
     for (const r of dos) rulesLines.push(`- ${r.text}`);

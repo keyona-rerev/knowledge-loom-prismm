@@ -51,5 +51,5 @@ jobs:
           fi
           for func_name in $DEPLOY_FUNCTIONS; do
             echo "Deploying $func_name..."
-            supabase functions deploy "$func_name"
+            supabase functions deploy "$func_name" --yes
           done

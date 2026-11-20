@@ -41,7 +41,6 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
     const zkey = Deno.env.get("ZERNIO_API_KEY") ?? "";
-    if (!zkey) return json({ error: "ZERNIO_API_KEY not set" }, 500);
 
     const svc = createClient(supabaseUrl, serviceRoleKey);
     const { data: cronCfg } = await svc
@@ -57,6 +56,12 @@ serve(async (req) => {
     if (!draftId) return json({ error: "draftId required" }, 400);
     if (!["read", "repair", "db-only"].includes(action)) {
       return json({ error: "action must be read|repair|db-only" }, 400);
+    }
+
+    // F16: config-absence handled explicitly. Provider-backed actions need a
+    // connected publishing account; db-only edits work without one.
+    if (action !== "db-only" && !zkey) {
+      return json({ error: "Zernio is not connected on this install (ZERNIO_API_KEY is not set). Draft repair and provider reads need a connected publishing account; db-only edits still work." }, 503);
     }
 
     const { data: draft, error: dErr } = await svc

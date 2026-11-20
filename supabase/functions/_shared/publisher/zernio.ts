@@ -18,10 +18,11 @@
 // back to cancel + republish when this throws, so reschedule keeps working
 // whether or not PUT actually supports moving scheduledFor.
 //
-// getAnalytics()'s GET /v1/analytics/{postId} also hasn't been probed, and
-// whether it requires Zernio's paid Analytics add-on is unconfirmed (their
-// changelog suggests some aggregate analytics endpoints do, while marketing
-// copy says it's bundled free). sync-post-analytics records failures into
+// getAnalytics() uses GET /v1/analytics?postId=... per Zernio's current
+// official contract (docs.zernio.com/analytics/get-analytics); the earlier
+// path form /v1/analytics/{postId} 404'd on every call in production
+// (2026-11-19 diagnosis). Whether analytics requires Zernio's paid Analytics
+// add-on is still unconfirmed - sync-post-analytics records failures into
 // drafts.metrics_error per draft instead of assuming success, so a
 // plan/billing gap shows up in the UI rather than metrics silently never
 // populating.
@@ -144,7 +145,7 @@ export class ZernioPublisher implements Publisher {
   }
 
   async getAnalytics(postId: string): Promise<PostAnalytics> {
-    const body = await this.#request(`/analytics/${encodeURIComponent(postId)}`);
+    const body = await this.#request(`/analytics?postId=${encodeURIComponent(postId)}`);
     const stats = body?.analytics ?? body?.data ?? body ?? {};
     return {
       likes: stats.likes ?? stats.likeCount ?? stats.reactions ?? null,

@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { DOMParser } from "https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts";
+import { XMLParser } from "https://esm.sh/fast-xml-parser@4.5.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -189,15 +189,55 @@ serve(async (req) => {
     }
 
     const xmlText = await response.text();
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(xmlText, "text/xml");
 
-    if (!xmlDoc) {
-      throw new Error("Failed to parse XML");
+    // F14 repair: deno_dom's DOMParser never implements "text/xml" on the Edge
+    // runtime, so every RSS pull failed with 500. Parse RSS 2.0 and Atom with
+    // fast-xml-parser instead (pure JS, Edge-safe).
+    const xmlParser = new XMLParser({ ignoreAttributes: false, textNodeName: "#text" });
+    let feedDoc: any;
+    try {
+      feedDoc = xmlParser.parse(xmlText);
+    } catch (parseErr) {
+      throw new Error("Failed to parse XML: " + (parseErr instanceof Error ? parseErr.message : String(parseErr)));
     }
 
-    // Parse RSS items
-    const items = Array.from(xmlDoc.querySelectorAll("item")) as any[];
+    const asArray = (v: any): any[] => (v == null ? [] : Array.isArray(v) ? v : [v]);
+    const textOf = (v: any): string => {
+      if (v == null) return "";
+      if (typeof v === "string" || typeof v === "number") return String(v);
+      if (typeof v === "object" && "#text" in v) return String(v["#text"]);
+      return "";
+    };
+    const atomLink = (entry: any): string => {
+      for (const l of asArray(entry?.link)) {
+        if (l && typeof l === "object") {
+          const rel = l["@_rel"];
+          if ((rel === undefined || rel === "alternate") && l["@_href"]) return String(l["@_href"]);
+        } else if (typeof l === "string" && l) return l;
+      }
+      return "";
+    };
+
+    const rssItems = asArray(feedDoc?.rss?.channel?.item);
+    const atomEntries = asArray(feedDoc?.feed?.entry);
+    const items = rssItems.length > 0
+      ? rssItems.map((it: any) => ({
+          title: textOf(it?.title) || "Untitled",
+          link: textOf(it?.link),
+          description: textOf(it?.description) || textOf(it?.["content:encoded"]),
+          pubDate: textOf(it?.pubDate) || undefined,
+        }))
+      : atomEntries.map((en: any) => ({
+          title: textOf(en?.title) || "Untitled",
+          link: atomLink(en),
+          description: textOf(en?.summary) || textOf(en?.content),
+          pubDate: textOf(en?.published) || textOf(en?.updated) || undefined,
+        }));
+
+    if (items.length === 0 && !feedDoc?.rss && !feedDoc?.feed) {
+      throw new Error("Failed to parse XML: no RSS channel or Atom feed found");
+    }
+
     const createdCards = [];
     let skippedIrrelevant = 0;
 
@@ -205,10 +245,10 @@ serve(async (req) => {
 
     for (let i = 0; i < Math.min(items.length, maxItems); i++) {
       const item = items[i];
-      const title = item.querySelector("title")?.textContent || "Untitled";
-      const link = item.querySelector("link")?.textContent || "";
-      const description = item.querySelector("description")?.textContent || "";
-      const pubDate = item.querySelector("pubDate")?.textContent;
+      const title = item.title;
+      const link = item.link;
+      const description = item.description;
+      const pubDate = item.pubDate;
 
       // Check if article already exists
       if (link) {

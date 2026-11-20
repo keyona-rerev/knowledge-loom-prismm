@@ -9,8 +9,20 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sweepJobs, markDispatched, workerSecretOk, TENANT, PROOF_ROUTE, isProofJob, hasProofMarker } from "../_shared/job-logic.ts";
 import { makeDb } from "../_shared/supabase-db.ts";
 
+// CORS (D2 fix): this function is the intended browser resume API for the app
+// origin (no Settings UI control exists yet - D3 adds it). Without headers +
+// an OPTIONS answer the browser blocks every call. Mirrors the origin policy
+// claude-job-status already uses for the same tenant browser path; no auth
+// change - the JWT/dispatcher-secret self-checks below are untouched.
+// x-dispatcher-secret is deliberately NOT in Allow-Headers: the cron path is
+// server-to-server and needs no preflight, so the browser surface stays minimal.
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
 async function hmacSha256Hex(secret: string, raw: string): Promise<string> {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
@@ -19,6 +31,7 @@ async function hmacSha256Hex(secret: string, raw: string): Promise<string> {
 }
 
 serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
